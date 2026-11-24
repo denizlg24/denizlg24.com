@@ -45,6 +45,8 @@ import { ThreadDrawer, threadsKey } from "./thread-drawer";
 import { memoriesKey } from "./memory-panel";
 import { errorMessage } from "./format";
 
+const alertChannelsKey = "/api/alerts/channels";
+
 export type AssistantContext = {
   dashboard?: DashboardState;
   ticker?: string;
@@ -61,7 +63,7 @@ export type AssistantPanelProps = {
   context: AssistantContext;
   onOpenView: (state: DashboardState) => void;
   onProposeAlert: (proposal: AlertProposal) => void;
-  onDeskChanged: () => void;
+  onWorkspaceChanged: () => void;
   onOpenSymbol: (symbol: string) => void;
   onClose?: () => void;
   onUnavailable?: () => void;
@@ -141,7 +143,7 @@ export function AssistantPanel({
   context,
   onOpenView,
   onProposeAlert,
-  onDeskChanged,
+  onWorkspaceChanged,
   onOpenSymbol,
   onClose,
   onUnavailable,
@@ -202,11 +204,29 @@ export function AssistantPanel({
               symbol: part.output.symbol,
               direction: part.output.direction,
               target: part.output.target,
+              metric: part.output.metric,
+              repeat: part.output.repeat,
+              note: part.output.note,
+              expires: part.output.expires,
             });
             break;
           case "tool-updateDesk":
+          case "tool-manageWatchlists":
+          case "tool-manageAlerts":
+          case "tool-manageNotes":
+          case "tool-managePortfolios":
+          case "tool-manageDrawings":
+          case "tool-manageOverlays":
+          case "tool-manageScreens":
+          case "tool-manageRelations":
+          case "tool-manageChartTemplates":
+          case "tool-updateSettings":
             handled.current.add(part.toolCallId);
-            if (!("error" in part.output)) onDeskChanged();
+            if (!("error" in part.output)) {
+              onWorkspaceChanged();
+              if (part.type === "tool-manageAlerts")
+                void mutate(alertChannelsKey);
+            }
             break;
           case "tool-remember":
           case "tool-forget":
@@ -216,7 +236,7 @@ export function AssistantPanel({
         }
       }
     }
-  }, [messages, onOpenView, onProposeAlert, onDeskChanged]);
+  }, [messages, onOpenView, onProposeAlert, onWorkspaceChanged]);
 
   useEffect(() => {
     const element = scroller.current;

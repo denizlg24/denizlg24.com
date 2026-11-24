@@ -1,5 +1,7 @@
 "use client";
 
+import { tidyPrice } from "@/lib/alerts";
+
 import {
   useEffect,
   useId,
@@ -47,6 +49,7 @@ import {
   paneLabel,
   rebaseOnto,
 } from "@/lib/chart-studio";
+import { BellPlus, Minus } from "lucide-react";
 import { DrawingLayer, type Tool } from "./chart/drawing-layer";
 import { PromptDialog } from "./ui/prompt-dialog";
 import type { Range } from "@/lib/universes";
@@ -523,6 +526,30 @@ export default function PriceChart({
   const sync = useId();
   const [hover, setHover] = useState<number | null>(null);
   const [noteDraft, setNoteDraft] = useState<{ t: number; p: number }[] | null>(null);
+  const locator = useRef<((clientY: number) => number | null) | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; price: number } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!menu) return;
+    const dismiss = (event: Event) => {
+      if (
+        event instanceof KeyboardEvent
+          ? event.key === "Escape"
+          : !(event.target instanceof Element) ||
+            !event.target.closest(".chart-menu")
+      )
+        setMenu(null);
+    };
+    window.addEventListener("pointerdown", dismiss);
+    window.addEventListener("keydown", dismiss);
+    window.addEventListener("wheel", dismiss, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", dismiss);
+      window.removeEventListener("keydown", dismiss);
+      window.removeEventListener("wheel", dismiss);
+    };
+  }, [menu]);
   const scaleKind: ChartScale = scaleMode ?? (log ? "log" : "linear");
   const logScale = scaleKind === "log";
   const studyKey = studies.join(",");
@@ -845,7 +872,63 @@ export default function PriceChart({
             if (next !== from) setWindow([next, next + span]);
           }}
           onPointerUp={() => (pan.current = null)}
+          onContextMenu={(event) => {
+            if (tool !== "cursor" || small || !(onAlert || onAddDrawing)) return;
+            const price = locator.current?.(event.clientY);
+            if (price == null) return;
+            event.preventDefault();
+            const box = event.currentTarget.getBoundingClientRect();
+            setMenu({
+              x: Math.min(event.clientX - box.left, box.width - 230),
+              y: event.clientY - box.top,
+              price: tidyPrice(price),
+            });
+          }}
         >
+          {menu ? (
+            <div
+              className="chart-menu"
+              role="menu"
+              aria-label={`Actions at ${amount(menu.price)}`}
+              style={{ left: menu.x, top: menu.y }}
+            >
+              <p className="chart-menu-head">
+                {symbol} at {amount(menu.price)}
+                {currency ? ` ${currency}` : ""}
+              </p>
+              {onAlert ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  autoFocus
+                  onClick={() => {
+                    onAlert(menu.price);
+                    setMenu(null);
+                  }}
+                >
+                  <BellPlus size={14} /> Set alert at this price…
+                </button>
+              ) : null}
+              {onAddDrawing ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    onAddDrawing({
+                      id: crypto.randomUUID(),
+                      symbol,
+                      kind: "hline",
+                      points: [{ t: values.at(-1)?.time ?? 0, p: menu.price }],
+                      color: drawColor ?? "#2f6fdf",
+                    });
+                    setMenu(null);
+                  }}
+                >
+                  <Minus size={14} /> Draw horizontal line here
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           <ResponsiveContainer width="100%" height="100%" minWidth={0}>
             <ComposedChart
               data={values}
@@ -1091,6 +1174,7 @@ export default function PriceChart({
                   onRemove={onRemoveDrawing}
                   onAlert={onAlert}
                   onNote={setNoteDraft}
+                  locatorRef={locator}
                 />
                 </ZIndexLayer>
               ) : null}

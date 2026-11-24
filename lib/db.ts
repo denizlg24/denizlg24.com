@@ -76,6 +76,12 @@ function sqlite() {
       created_at TEXT NOT NULL, synced_at TEXT,
       PRIMARY KEY (user_id, provider)
     );
+    CREATE TABLE IF NOT EXISTS alert_channels (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL,
+      label TEXT NOT NULL, target TEXT NOT NULL, secret TEXT NOT NULL,
+      status TEXT NOT NULL, error TEXT, created_at TEXT NOT NULL, sent_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS alert_channels_user ON alert_channels(user_id);
   `);
   globals.stockwatcherDb = db;
   return db;
@@ -131,6 +137,13 @@ function pg(url: string) {
         created_at TIMESTAMPTZ NOT NULL, synced_at TIMESTAMPTZ,
         PRIMARY KEY (user_id, provider)
       )`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_alert_channels (
+        id UUID PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL,
+        label TEXT NOT NULL, target TEXT NOT NULL, secret TEXT NOT NULL,
+        status TEXT NOT NULL, error TEXT,
+        created_at TIMESTAMPTZ NOT NULL, sent_at TIMESTAMPTZ
+      )`;
+      await sql`CREATE INDEX IF NOT EXISTS stockwatcher_alert_channels_user ON stockwatcher_alert_channels(user_id)`;
     });
     return db;
   })().catch(async (error) => {
@@ -243,6 +256,7 @@ function initialWorkspace(): Workspace {
     trades: [],
     notes: [],
     alerts: [],
+    alertLog: [],
     requests: [],
     settings: {
       theme: "system",

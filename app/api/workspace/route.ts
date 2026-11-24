@@ -91,14 +91,19 @@ export async function PUT(request: Request) {
     const sameRule =
       prior &&
       prior.symbol === alert.symbol &&
+      prior.metric === alert.metric &&
       prior.direction === alert.direction &&
-      prior.target === alert.target;
+      prior.target === alert.target &&
+      prior.reference === alert.reference;
     return {
       ...alert,
       lastTriggered: sameRule ? prior.lastTriggered : null,
       triggeredPrice: sameRule ? prior.triggeredPrice : null,
+      triggerCount: sameRule ? prior.triggerCount : 0,
+      primed: sameRule && alert.enabled === prior.enabled ? prior.primed : true,
     };
   });
+  data.alertLog = current.data.alertLog;
   if (!(await saveWorkspace(user.id, revision, data)))
     return json(
       {

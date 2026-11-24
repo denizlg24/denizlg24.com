@@ -16,6 +16,10 @@ import {
   type AssistantHandle,
 } from "./assistant/assistant-panel";
 import { Desk } from "./desk/desk";
+import { useAlertAnnouncer } from "./alerts/browser-alerts";
+import { useChannels } from "./alerts/use-channels";
+import { describeRule } from "@/lib/alerts";
+import type { AlertDraft } from "./alerts/alert-editor";
 import { CommandHelp } from "./shell/command-line";
 import { useLiveStatus } from "./live-quotes";
 import type { ChartPreferences, ChartTemplate, Drawing } from "@/lib/models";
@@ -62,6 +66,10 @@ const Research = dynamic(
 const Watchlists = dynamic(
   () => import("./watchlists").then((module) => module.Watchlists),
   { loading: () => <Loading /> },
+);
+const AlertEditor = dynamic(
+  () => import("./alerts/alert-editor").then((module) => module.AlertEditor),
+  { ssr: false },
 );
 const Alerts = dynamic(
   () => import("./alerts").then((module) => module.Alerts),
@@ -249,31 +257,14 @@ export function Dashboard({
       }),
     [save, notify],
   );
+  const [alertDraft, setAlertDraft] = useState<AlertDraft | null>(null);
+  const { data: alertChannels } = useChannels();
   const createAlert = useCallback(
     (symbol: string, target: number, direction: "above" | "below") =>
-      void save((current) => ({
-        ...current,
-        alerts: [
-          ...current.alerts,
-          {
-            id: crypto.randomUUID(),
-            symbol,
-            direction,
-            target,
-            enabled: true,
-            lastTriggered: null,
-            triggeredPrice: null,
-          },
-        ].slice(-60),
-      }))
-        .then(() =>
-          notify(
-            `Alert set: ${symbol} ${direction === "above" ? "at or above" : "at or below"} ${target}.`,
-          ),
-        )
-        .catch((error: Error) => notify(error.message, true)),
-    [save, notify],
+      setAlertDraft({ symbol, target, direction, metric: "price" }),
+    [],
   );
+  useAlertAnnouncer(workspace.alertLog, notify);
   const saveTemplates = useCallback(
     (chartTemplates: ChartTemplate[]) =>
       void save((current) => ({ ...current, chartTemplates })).catch(
@@ -749,8 +740,10 @@ export function Dashboard({
           {view === "alerts" ? (
             <Alerts
               alerts={workspace.alerts}
+              log={workspace.alertLog}
               ticker={ticker}
               save={save}
+              reload={() => void mutate()}
               refresh={refresh}
               demo={account.demo}
               monitoring={monitoring}
@@ -789,7 +782,7 @@ export function Dashboard({
             context={context}
             onOpenView={openView}
             onProposeAlert={proposeAlert}
-            onDeskChanged={deskChanged}
+            onWorkspaceChanged={deskChanged}
             onOpenSymbol={choose}
             onClose={closeAssistant}
             onUnavailable={unavailable}
@@ -837,6 +830,25 @@ export function Dashboard({
           close={() => setModal(null)}
           save={save}
           created={setWatchlist}
+        />
+      ) : null}
+      {alertDraft ? (
+        <AlertEditor
+          draft={alertDraft}
+          channels={alertChannels.channels}
+          save={save}
+          close={() => setAlertDraft(null)}
+          saved={(rule) =>
+            notify(`Alert set: ${rule.symbol} ${describeRule(rule).toLowerCase()}.`)
+          }
+          setupChannel={
+            account.demo
+              ? undefined
+              : () => {
+                  setAlertDraft(null);
+                  go("alerts");
+                }
+          }
         />
       ) : null}
       {notice ? (

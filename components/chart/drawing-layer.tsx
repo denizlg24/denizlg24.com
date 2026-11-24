@@ -1,6 +1,12 @@
 "use client";
 
-import { useId, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+} from "react";
 import {
   usePlotArea,
   useXAxisInverseDataSnapScale,
@@ -26,6 +32,7 @@ export function DrawingLayer({
   onRemove,
   onAlert,
   onNote,
+  locatorRef,
 }: {
   times: number[];
   drawings: Drawing[];
@@ -36,6 +43,8 @@ export function DrawingLayer({
   onRemove: (id: string) => void;
   onAlert?: (price: number) => void;
   onNote?: (points: { t: number; p: number }[]) => void;
+  /** Receives a function mapping a viewport y coordinate to a price. */
+  locatorRef?: RefObject<((clientY: number) => number | null) | null>;
 }) {
   const xScale = useXAxisScale();
   const yScale = useYAxisScale("price");
@@ -45,6 +54,22 @@ export function DrawingLayer({
   const clip = `drawing-clip-${useId().replaceAll(":", "")}`;
   const [pending, setPending] = useState<Anchor[]>([]);
   const [cursor, setCursor] = useState<Anchor | null>(null);
+  useEffect(() => {
+    if (!locatorRef) return;
+    locatorRef.current = (clientY) => {
+      if (!yInverse || !plot) return null;
+      const node = document.getElementById(clip);
+      const svg = node instanceof SVGElement ? node.ownerSVGElement : null;
+      if (!svg) return null;
+      const y = clientY - svg.getBoundingClientRect().top;
+      if (y < plot.y || y > plot.y + plot.height) return null;
+      const price = Number(yInverse(y));
+      return Number.isFinite(price) && price > 0 ? price : null;
+    };
+    return () => {
+      locatorRef.current = null;
+    };
+  });
 
   if (!xScale || !yScale || !plot || times.length < 2) return null;
   const first = times[0];
