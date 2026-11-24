@@ -2,7 +2,9 @@ import type { MCPClient } from "@ai-sdk/mcp";
 import {
   SURFACE_ASSET_MAX_BYTES,
   SURFACE_ASSETS_MAX,
+  SURFACE_CODE_MAX,
   SURFACE_ERRORS_MAX,
+  SURFACE_HEAD_MAX,
   type SurfaceAsset,
   type SurfaceAssetAdd,
   type SurfaceCall,
@@ -12,6 +14,7 @@ import {
   type SurfaceMount,
   type SurfacePatch,
   type SurfaceRevision,
+  type SurfaceSourceRequest,
   type SurfaceState,
   surfaceInputSchema,
   surfacePatchSchema,
@@ -36,6 +39,12 @@ import {
   WorkspaceSurfaceRevisionModel,
 } from "@/models/WorkspaceSurfaceRevision";
 import { type WorkspaceCaller, WorkspaceError } from "./service";
+import {
+  editSurfaceSource,
+  readSurfaceSource,
+  SOURCE_FIELDS,
+  searchSurfaceSource,
+} from "./surface-source";
 import { fetchGuarded, UnfurlRefused } from "./unfurl";
 
 const CODE_FIELDS = [
@@ -283,6 +292,141 @@ async function conflict(id: string): Promise<WorkspaceError> {
     `Surface ${id} changed since it was read (now rev ${surface.rev})`,
     { surface },
   );
+}
+
+/** Bounded reads and compact writes for agents; never return source in conflicts. */
+export async function surfaceSource(
+  id: string,
+  input: SurfaceSourceRequest,
+  caller: WorkspaceCaller,
+) {
+  const current = await getSurface(id);
+  if (input.action === "source_read") {
+    return { id, rev: current.rev, ...readSurfaceSource(current, input) };
+  }
+  if (input.action === "source_search") {
+    return { id, rev: current.rev, ...searchSurfaceSource(current, input) };
+  }
+  if (input.baseRev !== current.rev) {
+    throw new WorkspaceError(
+      409,
+      "CONFLICT",
+      "Surface changed; read the source again",
+      { id, rev: current.rev },
+    );
+  }
+  const patch: SurfacePatch = {};
+  if (input.action === "source_edit") {
+    Object.assign(patch, editSurfaceSource(current, input));
+  } else {
+    // Fetch everything before committing, so a failed import leaves every field intact.
+    const entries = await Promise.all(
+      input.sources.map(
+        async (source) =>
+          [
+            source.field,
+            await fetchSurfaceSource(
+              source.sourceUrl,
+              source.field === "head" ? SURFACE_HEAD_MAX : SURFACE_CODE_MAX,
+            ),
+          ] as const,
+      ),
+    );
+    Object.assign(patch, Object.fromEntries(entries));
+  }
+  try {
+    const updated = await updateSurface(
+      id,
+      { ...patch, baseRev: input.baseRev },
+      caller,
+    );
+    return {
+      id,
+      rev: updated.rev,
+      changed: SOURCE_FIELDS.filter(
+        (field) => current[field] !== updated[field],
+      ),
+      ...(input.action === "source_edit"
+        ? { editCount: input.edits.length }
+        : { importedCount: input.sources.length }),
+    };
+  } catch (error) {
+    if (error instanceof WorkspaceError && error.code === "CONFLICT") {
+      const latest = await getSurface(id);
+      throw new WorkspaceError(
+        409,
+        "CONFLICT",
+        "Surface changed; read the source again",
+        { id, rev: latest.rev },
+      );
+    }
+    throw error;
+  }
+}
+
+async function fetchSurfaceSource(
+  sourceUrl: string,
+  maxChars: number,
+): Promise<string> {
+  try {
+    const { response, url } = await fetchGuarded(sourceUrl, {
+      timeoutMs: ASSET_FETCH_TIMEOUT_MS,
+    });
+    try {
+      const status = response.statusCode ?? 0;
+      if (url.protocol !== "https:" || status < 200 || status >= 300) {
+        throw new WorkspaceError(
+          502,
+          "SOURCE_FETCH_FAILED",
+          `Source download failed (status ${status}); HTTPS is required`,
+        );
+      }
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const chunk of response) {
+        const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        size += bytes.byteLength;
+        if (size > maxChars * 4)
+          throw new WorkspaceError(
+            413,
+            "SOURCE_TOO_LARGE",
+            "Source download exceeds the field limit",
+          );
+        chunks.push(bytes);
+      }
+      let text: string;
+      try {
+        text = new TextDecoder("utf-8", { fatal: true }).decode(
+          Buffer.concat(chunks),
+        );
+      } catch {
+        throw new WorkspaceError(
+          422,
+          "SOURCE_ENCODING",
+          "Source must be valid UTF-8",
+        );
+      }
+      if (text.length > maxChars)
+        throw new WorkspaceError(
+          413,
+          "SOURCE_TOO_LARGE",
+          `Source is limited to ${maxChars} characters`,
+        );
+      return text;
+    } finally {
+      response.destroy();
+    }
+  } catch (error) {
+    if (error instanceof WorkspaceError) throw error;
+    if (error instanceof UnfurlRefused)
+      throw new WorkspaceError(422, "SOURCE_REFUSED", error.message);
+    // Do not echo signed download URLs or credentials into tool responses.
+    throw new WorkspaceError(
+      502,
+      "SOURCE_FETCH_FAILED",
+      "Source download failed",
+    );
+  }
 }
 
 export async function deleteSurface(id: string): Promise<void> {

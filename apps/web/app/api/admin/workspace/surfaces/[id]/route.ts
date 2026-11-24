@@ -11,9 +11,22 @@ type Context = { params: Promise<{ id: string }> };
 
 export async function GET(request: NextRequest, context: Context) {
   const { id } = await context.params;
-  return withWorkspace(request, async () =>
-    NextResponse.json({ surface: await getSurface(id) }),
-  );
+  return withWorkspace(request, async () => {
+    const surface = await getSurface(id);
+    if (request.nextUrl.searchParams.get("includeSource") === "false") {
+      const { head, html, css, js, ...metadata } = surface;
+      return NextResponse.json({
+        surface: metadata,
+        sourceSizes: {
+          head: head.length,
+          html: html.length,
+          css: css.length,
+          js: js.length,
+        },
+      });
+    }
+    return NextResponse.json({ surface });
+  });
 }
 
 export async function PATCH(request: NextRequest, context: Context) {

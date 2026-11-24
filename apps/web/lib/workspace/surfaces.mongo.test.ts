@@ -1,5 +1,19 @@
-import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
-import { SURFACE_ERRORS_MAX, SURFACE_STATE_MAX_BYTES } from "@repo/schemas";
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
+import type { IncomingMessage } from "node:http";
+import { Readable } from "node:stream";
+import {
+  SURFACE_ERRORS_MAX,
+  SURFACE_STATE_MAX_BYTES,
+  surfaceSourceRequestSchema,
+} from "@repo/schemas";
 import type { MongoMemoryReplSet } from "mongodb-memory-server";
 import mongoose from "mongoose";
 import type { WorkspaceCaller } from "./service";
@@ -26,6 +40,7 @@ const {
   setSurfaceState,
   shapeCallResult,
   surfaceHistory,
+  surfaceSource,
   updateSurface,
 } = await import("./surfaces");
 
@@ -156,6 +171,181 @@ describe.skipIf(!enabled)("surfaces on a real mongod", () => {
     );
     const home = (await listSurfaces()).filter((s) => s.mount.kind === "home");
     expect(home.map((s) => s.id)).toEqual([c.id]);
+  });
+
+  test("source edits are atomic revisions with bounded reads and compact conflicts", async () => {
+    const s = await createSurface(
+      { name: "Source", js: "let count = 1;", css: "body { color: red; }" },
+      OWNER,
+    );
+    const run = (input: unknown) =>
+      surfaceSource(s.id, surfaceSourceRequestSchema.parse(input), agent);
+    await appendSurfaceErrors(s.id, [{ message: "old" }]);
+    const edited = await run({
+      action: "source_edit",
+      baseRev: 1,
+      edits: [
+        { field: "js", oldText: "count = 1", newText: "count = 2" },
+        { field: "css", oldText: "red", newText: "blue" },
+      ],
+    });
+    expect(edited).toEqual({
+      id: s.id,
+      rev: 2,
+      changed: ["css", "js"],
+      editCount: 2,
+    });
+    expect((await getSurface(s.id)).errors).toEqual([]);
+    const history = await surfaceHistory(s.id);
+    expect(history).toHaveLength(2);
+    expect(history[0]).toMatchObject({
+      actor: agent.actor,
+      changed: ["css", "js"],
+    });
+    expect(
+      await run({ action: "source_read", field: "js", maxChars: 3 }),
+    ).toMatchObject({ rev: 2, text: "let", nextOffset: 3 });
+    expect(await run({ action: "source_search", query: "blue" })).toMatchObject(
+      { rev: 2, matches: [{ field: "css", line: 1 }] },
+    );
+    await rejects(
+      run({
+        action: "source_edit",
+        baseRev: 2,
+        edits: [
+          { field: "js", oldText: "count = 2", newText: "count = 3" },
+          { field: "css", oldText: "missing", newText: "white" },
+        ],
+      }),
+      422,
+    );
+    expect((await getSurface(s.id)).js).toBe("let count = 2;");
+    expect((await getSurface(s.id)).rev).toBe(2);
+    try {
+      await run({
+        action: "source_edit",
+        baseRev: 1,
+        edits: [{ field: "js", oldText: "count = 2", newText: "count = 3" }],
+      });
+      throw new Error("expected conflict");
+    } catch (error) {
+      expect(error).toBeInstanceOf(WorkspaceError);
+      if (error instanceof WorkspaceError)
+        expect(error.details).toEqual({ id: s.id, rev: 2 });
+    }
+    await revertSurface(s.id, 1, OWNER);
+    expect((await getSurface(s.id)).js).toBe("let count = 1;");
+  });
+
+  test("source imports store fetched bytes atomically and reject failed, oversized or invalid downloads", async () => {
+    const s = await createSurface(
+      { name: "Import", js: "old", css: "old" },
+      OWNER,
+    );
+    const unfurl = await import("./unfurl");
+    const downloads = new Map<string, { bytes: Buffer; status?: number }>([
+      ["app.js", { bytes: Buffer.from("console.log('imported')") }],
+      ["app.css", { bytes: Buffer.from("body { color: blue; }") }],
+      ["bad.js", { bytes: Buffer.from([0xff]) }],
+      ["large.js", { bytes: Buffer.alloc(512_001, 97) }],
+      ["huge.js", { bytes: Buffer.alloc(512_000 * 4 + 1, 97) }],
+      ["missing.js", { bytes: Buffer.from("missing"), status: 404 }],
+    ]);
+    const fetch = spyOn(unfurl, "fetchGuarded").mockImplementation(
+      async (raw) => {
+        const url = new URL(raw);
+        const download = downloads.get(url.pathname.slice(1));
+        if (!download) throw new Error("unavailable signed URL");
+        const response = Readable.from([download.bytes]) as IncomingMessage;
+        response.statusCode = download.status ?? 200;
+        return { response, url };
+      },
+    );
+    const run = (baseRev: number, files: [string, string][]) =>
+      surfaceSource(
+        s.id,
+        surfaceSourceRequestSchema.parse({
+          action: "source_import",
+          baseRev,
+          sources: files.map(([field, file]) => ({
+            field,
+            sourceUrl: `https://files.test/${file}?signature=secret`,
+          })),
+        }),
+        agent,
+      );
+    try {
+      for (const [file, status] of [
+        ["bad.js", 422],
+        ["large.js", 413],
+        ["huge.js", 413],
+        ["missing.js", 502],
+        ["absent.js", 502],
+      ] as const) {
+        await rejects(
+          run(1, [
+            ["css", "app.css"],
+            ["js", file],
+          ]),
+          status,
+        );
+        expect(await getSurface(s.id)).toMatchObject({
+          rev: 1,
+          css: "old",
+          js: "old",
+        });
+        expect(await surfaceHistory(s.id)).toHaveLength(1);
+      }
+      expect(
+        await run(1, [
+          ["js", "app.js"],
+          ["css", "app.css"],
+        ]),
+      ).toEqual({
+        id: s.id,
+        rev: 2,
+        changed: ["css", "js"],
+        importedCount: 2,
+      });
+      downloads.clear();
+      expect((await getSurface(s.id)).js).toBe("console.log('imported')");
+      expect(await surfaceHistory(s.id)).toHaveLength(2);
+      fetch.mockImplementationOnce(async (raw) => {
+        await updateSurface(s.id, { js: "concurrent edit" }, OWNER);
+        const response = Readable.from([
+          Buffer.from("stale import"),
+        ]) as IncomingMessage;
+        response.statusCode = 200;
+        return { response, url: new URL(raw) };
+      });
+      try {
+        await run(2, [["js", "app.js"]]);
+        throw new Error("expected conflict during download");
+      } catch (error) {
+        expect(error).toBeInstanceOf(WorkspaceError);
+        if (error instanceof WorkspaceError) {
+          expect(error.status).toBe(409);
+          expect(error.details).toEqual({ id: s.id, rev: 3 });
+        }
+      }
+      expect((await getSurface(s.id)).js).toBe("concurrent edit");
+      await revertSurface(s.id, 1, OWNER);
+      expect((await getSurface(s.id)).js).toBe("old");
+    } finally {
+      fetch.mockRestore();
+    }
+    await rejects(
+      surfaceSource(
+        s.id,
+        surfaceSourceRequestSchema.parse({
+          action: "source_import",
+          baseRev: 4,
+          sources: [{ field: "js", sourceUrl: "https://127.0.0.1/private.js" }],
+        }),
+        agent,
+      ),
+      422,
+    );
   });
 
   test("revert restores a snapshot as a new rev", async () => {

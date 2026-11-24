@@ -9,6 +9,10 @@ import {
   surfaceMountSchema,
   surfacePatchSchema,
   surfaceRevertSchema,
+  surfaceSourceEditSchema,
+  surfaceSourceImportSchema,
+  surfaceSourceReadSchema,
+  surfaceSourceSearchSchema,
   surfaceStateSchema,
 } from "@repo/schemas";
 import { z } from "zod";
@@ -30,7 +34,7 @@ export function registerWebWorkspaceSurfaces(server: McpServer, api: Api) {
   defineActions(server, {
     name: "web_workspace_surfaces",
     title: "Web: workspace surfaces",
-    description: `Whole-window apps written as head/html/css/js and run in a sandboxed iframe in Deniz's desktop and web admin, mounted in place of Home (mount {kind:'home'}) or of a module (mount {kind:'module', module:'notes'}), or left unmounted (kind 'none'). The code runs in his browser with the window.deniz bridge, which reaches every tool on this server: treat what you write as running with his full access. get returns the whole surface including errors, the runtime errors its frame reported — read it after every create or update to check your work. Mounting replaces whichever surface held that mount; chrome 'none' is the whole window (with an exit control), 'sidebar' keeps the workspace sidebar. {{asset:<name>}} in head/html/css/js is replaced by an uploaded asset's URL (assets up to ${SURFACE_ASSET_MAX_BYTES / 1024 / 1024} MB). Every code change is a revision: prefer update over recreate, and revert to go back.`,
+    description: `Whole-window apps written as head/html/css/js and run in a sandboxed iframe in Deniz's desktop and web admin, mounted in place of Home (mount {kind:'home'}) or of a module (mount {kind:'module', module:'notes'}), or left unmounted (kind 'none'). The code runs in his browser with the window.deniz bridge, which reaches every tool on this server: treat what you write as running with his full access. After writes, use get with includeSource:false to check reported runtime errors without reading all code. Prefer source_search/source_read and source_edit for routine changes; source_import fetches large replacements from uploaded file URLs. Mounting replaces whichever surface held that mount; chrome 'none' is the whole window (with an exit control), 'sidebar' keeps the workspace sidebar. {{asset:<name>}} in head/html/css/js is replaced by an uploaded asset's URL (assets up to ${SURFACE_ASSET_MAX_BYTES / 1024 / 1024} MB). Every code change is a revision: edit the existing surface and revert to go back.`,
     actions: {
       list: action({
         description: "Every surface: id, name, mount, chrome, rev",
@@ -40,9 +44,60 @@ export function registerWebWorkspaceSurfaces(server: McpServer, api: Api) {
       get: action({
         description:
           "One surface with its code, assets, state and reported errors",
-        input: z.object({ id }),
+        input: z.object({
+          id,
+          includeSource: z
+            .boolean()
+            .optional()
+            .describe("Set false for metadata and runtime errors without code"),
+        }),
         readOnly: true,
-        run: ({ id }) => api.web.get(p`/api/admin/workspace/surfaces/${id}`),
+        run: ({ id, includeSource }) =>
+          api.web.get(p`/api/admin/workspace/surfaces/${id}`, {
+            includeSource,
+          }),
+      }),
+      source_read: action({
+        description:
+          "Read one source field by line range, bounded by maxChars (default 12000, max 24000). Text has no line-number prefixes. Continue the same range with nextOffset; rev is used as baseRev when editing.",
+        input: surfaceSourceReadSchema.safeExtend({ id }),
+        readOnly: true,
+        run: ({ id, ...body }) =>
+          api.web.post(p`/api/admin/workspace/surfaces/${id}/source`, {
+            action: "source_read",
+            ...body,
+          }),
+      }),
+      source_search: action({
+        description:
+          "Search literal, case-sensitive text in one or all source fields. Returns bounded snippets with 1-based line/column and character offsets; paginate with nextOffset.",
+        input: surfaceSourceSearchSchema.extend({ id }),
+        readOnly: true,
+        run: ({ id, ...body }) =>
+          api.web.post(p`/api/admin/workspace/surfaces/${id}/source`, {
+            action: "source_search",
+            ...body,
+          }),
+      }),
+      source_edit: action({
+        description:
+          "Preferred for routine code edits: exact oldText/newText replacements, in order, across fields, as one revision. Every oldText must occur exactly once. Requires baseRev; any mismatch or conflict leaves all source unchanged. Returns only revision, changed fields and edit count.",
+        input: surfaceSourceEditSchema.extend({ id }),
+        run: ({ id, ...body }) =>
+          api.web.post(p`/api/admin/workspace/surfaces/${id}/source`, {
+            action: "source_edit",
+            ...body,
+          }),
+      }),
+      source_import: action({
+        description:
+          "Large replacements: download UTF-8 source files from public or temporary HTTPS sourceUrl values into named fields, atomically as one revision. Requires baseRev. Upload local files outside MCP first, then pass their download URLs; never inline base64. Source is stored, not linked at runtime. Returns compact revision metadata.",
+        input: surfaceSourceImportSchema.extend({ id }),
+        run: ({ id, ...body }) =>
+          api.web.post(p`/api/admin/workspace/surfaces/${id}/source`, {
+            action: "source_import",
+            ...body,
+          }),
       }),
       create: action({
         description: "A new surface; returns it with its id",
@@ -51,7 +106,7 @@ export function registerWebWorkspaceSurfaces(server: McpServer, api: Api) {
       }),
       update: action({
         description:
-          "Replaces the named fields only (name, description, icon, head, html, css, js, chrome, mount); each code field is replaced whole, so get first and send back the full text of what you change",
+          "Replaces the named fields only (name, description, icon, head, html, css, js, chrome, mount); each code field is replaced whole. Prefer source_edit for targeted changes or source_import for large replacements",
         input: z.object({ id, ...surfacePatchSchema.shape }),
         idempotent: true,
         run: ({ id, ...body }) =>
