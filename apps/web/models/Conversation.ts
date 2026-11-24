@@ -47,6 +47,21 @@ export interface IConversationRetrievalSummary {
  */
 export type ConversationFormat = "ui";
 
+/**
+ * The turn running on this thread, written by whichever process runs it.
+ * `heartbeatAt` is its lease: a row whose heartbeat is older than
+ * `ACTIVE_TURN_LEASE_MS` belongs to a dead process and is reaped on the next
+ * read. `message` is the assistant message as far as it got.
+ */
+export interface IConversationActiveTurn {
+  id: string;
+  startedAt: Date;
+  heartbeatAt: Date;
+  seq: number;
+  cancelRequestedAt?: Date;
+  message?: unknown;
+}
+
 export interface IConversation extends mongoose.Document {
   title: string;
   llmModel: string;
@@ -55,6 +70,9 @@ export interface IConversation extends mongoose.Document {
   /** Set on a study notebook's chat threads. */
   notebookId?: mongoose.Types.ObjectId;
   messages: unknown[];
+  activeTurn?: IConversationActiveTurn | null;
+  /** User messages sent while a turn ran, oldest first. */
+  queue?: unknown[];
   /** Rolling topic summary maintained by the query-summary model; used only
    *  as memory-retrieval query context, never shown to the chat model. */
   retrievalSummary?: IConversationRetrievalSummary;
@@ -81,6 +99,8 @@ const ConversationSchema = new mongoose.Schema<IConversation>(
     format: { type: String, enum: ["ui"] },
     notebookId: { type: mongoose.Schema.Types.ObjectId, index: true },
     messages: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    activeTurn: { type: mongoose.Schema.Types.Mixed, default: undefined },
+    queue: { type: [mongoose.Schema.Types.Mixed], default: undefined },
     memoryMode: {
       type: String,
       enum: ["enabled", "retrieval-off", "incognito"],

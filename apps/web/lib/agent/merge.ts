@@ -1,7 +1,9 @@
 import {
+  AGENT_QUESTION_TOOL,
   type AgentUIMessage,
   type AgentUIMessagePart,
-  isAgentPageTool,
+  agentQuestionOutputSchema,
+  isAgentClientTool,
 } from "@repo/schemas";
 import { isAgentToolPart, toolPartName } from "./messages";
 
@@ -54,8 +56,18 @@ export function sanitizeUserMessage(message: AgentUIMessage): AgentUIMessage {
   };
 }
 
+/** Page tools and `ask_user`: calls whose result only the client can give. */
 function isPageTool(part: AgentUIMessagePart): boolean {
-  return isAgentToolPart(part) && isAgentPageTool(toolPartName(part));
+  return isAgentToolPart(part) && isAgentClientTool(toolPartName(part));
+}
+
+/** An answer to `ask_user` must be one; anything else reads as a skip. */
+function clientOutput(part: AgentUIMessagePart, output: unknown): unknown {
+  if (!isAgentToolPart(part) || toolPartName(part) !== AGENT_QUESTION_TOOL) {
+    return output;
+  }
+  const parsed = agentQuestionOutputSchema.safeParse(output);
+  return parsed.success ? parsed.data : { dismissed: true };
 }
 
 /** True while the last assistant message still waits on Deniz or the client. */
@@ -72,8 +84,8 @@ export function hasPendingWork(messages: readonly AgentUIMessage[]): boolean {
 
 /**
  * Applies what the client is allowed to decide on the stored assistant
- * message: an answer to each approval it was asked for, and the output of
- * each page tool it was asked to run. Everything else on the incoming copy —
+ * message: an answer to each approval it was asked for, the output of each
+ * page tool it was asked to run, and its answers to `ask_user`. Everything else on the incoming copy —
  * text, other tool outputs, metadata — is ignored.
  */
 export function applyClientDecisions(
@@ -135,7 +147,11 @@ export function applyClientDecisions(
     if (part.state === "input-available" && isPageTool(part)) {
       if (answer.state === "output-available") {
         changed = true;
-        return { ...part, state: "output-available", output: answer.output };
+        return {
+          ...part,
+          state: "output-available",
+          output: clientOutput(part, answer.output),
+        };
       }
       if (answer.state === "output-error") {
         changed = true;

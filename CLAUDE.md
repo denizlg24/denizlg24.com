@@ -1991,6 +1991,42 @@ connector tools (MCP servers, `lib/connectors/`) plus a handful of built-ins
   extends the job lease and the run's `executionLeaseExpiresAt` every two
   minutes. A `running` row is dead when its lease has lapsed, never because it
   is old — anything new that judges a run by `startedAt` will kill long runs.
+- **A chat turn belongs to the conversation, not the request.**
+  `POST /chat` claims `Conversation.activeTurn` (refused 409 while another
+  live turn holds it), stores the thread as the turn starts, and runs the
+  model on its own `AbortController` (`lib/agent/durable-turn.ts`) — closing
+  the tab or refreshing leaves it running; the request gets one branch of a
+  `tee`. The turn heartbeats the row every second with the reply so far
+  (`activeTurn.message`, `seq`); 45 s without one is a dead process, and the
+  next read settles its partial as `metadata.interrupted`
+  (`finalizeTurn`, written straight to `messages` so a fragment is never
+  observed as memory evidence). The final save releases the row in the same
+  transaction (`endTurnId`).
+- **Stop is `POST /chat/{id}/stop`, never just aborting the fetch.** It
+  flags the row (a turn on another replica sees it at its next heartbeat),
+  aborts a local one, and waits for the release, so the next send is not
+  refused. A stopped reply goes through `interruptMessage`
+  (`@repo/utils/agent-live`): unfinished tool calls become `output-error`,
+  or `hasPendingWork` would block the thread. The iPhone dashboard and the
+  web Voice page call it too.
+- **Resume is `GET /chat/{id}/stream`, snapshot patches, not chunk replay.**
+  Events are `agentLiveEventSchema`: a patch replaces the message's parts
+  from `start` on and the first one is always the whole message, so a client
+  holding any partial copy lands on the same reply; `seq` drops replays. The
+  running process pushes snapshots from memory (`live-turns.ts`, per
+  process); any other replica polls the row. `GET /conversations/{id}`
+  merges the partial in and returns `activeTurn`, which the session follows.
+  The desktop and admin reopen the last thread for 12 h after a restart.
+- **The queue lives on the conversation** (`queue`, at most 20;
+  `POST|DELETE /conversations/{id}/queue`). The client sends the head as
+  its own turn with `queuedMessageId`, which leaves the queue once the turn
+  claims the thread; a stop pauses it. A user message re-sent with the id of
+  the stored last message is a retry, never a second copy.
+- **`ask_user` is a client tool like the page tools** (`isAgentClientTool`),
+  offered only when the request says `questions: true` and the turn is
+  interactive. The answer is its output and continues the same assistant
+  message; `merge.ts` reads anything not matching
+  `agentQuestionOutputSchema` as `{ dismissed: true }`.
 - **The server owns the thread.** The client sends only the last message.
   A user message keeps only text and file parts; an assistant message is a
   continuation from which `lib/agent/merge.ts` copies approval decisions for

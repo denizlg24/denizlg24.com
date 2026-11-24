@@ -2,7 +2,7 @@ import { isAgentPageTool } from "@repo/schemas";
 import { jsonSchema, type ToolSet, tool } from "ai";
 import { sandboxEnabled } from "@/lib/sandbox-config";
 import { agentMemoryTools } from "@/lib/tools/agent-memory";
-import { clientTools } from "@/lib/tools/client";
+import { clientTools, questionTool } from "@/lib/tools/client";
 import { runtimeTools } from "@/lib/tools/runtime";
 import type { ToolDefinition, ToolExecutionContext } from "@/lib/tools/types";
 import { toJsonSchema7 } from "./json-schema";
@@ -43,6 +43,7 @@ async function sandboxDefinitions(): Promise<ToolDefinition[]> {
 
 async function definitions(options: {
   pageTools: boolean;
+  questions: boolean;
   memoryWrites: boolean;
 }): Promise<ToolDefinition[]> {
   const selected: ToolDefinition[] = [...runtimeTools];
@@ -58,6 +59,7 @@ async function definitions(options: {
       ...clientTools.filter((entry) => isAgentPageTool(entry.schema.name)),
     );
   }
+  if (options.questions) selected.push(questionTool);
   if (sandboxEnabled()) selected.push(...(await sandboxDefinitions()));
   return selected;
 }
@@ -71,12 +73,15 @@ export async function buildBuiltinTools(options: {
   context: ToolExecutionContext;
   /** A client is attached to the stream and can run page tools. */
   pageTools: boolean;
+  /** A client draws the questionnaire and the turn is interactive. */
+  questions?: boolean;
 }): Promise<BuiltinToolset> {
   const tools: ToolSet = {};
   const writes = new Set<string>();
   const memoryWrites = options.context.memoryMode !== "incognito";
   for (const entry of await definitions({
     pageTools: options.pageTools,
+    questions: options.questions === true,
     memoryWrites,
   })) {
     const name = entry.schema.name;
