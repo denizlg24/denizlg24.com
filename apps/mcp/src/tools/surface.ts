@@ -20,6 +20,8 @@ export const DIRECT_TOOLS: Readonly<Record<string, string>> = {
   web_api_keys: "mints and revokes admin API keys",
   web_authenticator: "returns live TOTP codes from a read-only action",
   web_emails: "sends mail to other people",
+  web_workspace_surfaces:
+    "writes code that runs in the owner's browser with the full tool bridge",
 };
 
 export function isDirectTool(name: string): boolean {

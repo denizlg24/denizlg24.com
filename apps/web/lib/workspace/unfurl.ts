@@ -86,6 +86,7 @@ function get(
   url: URL,
   signal: AbortSignal,
   resolve: Resolve | undefined,
+  accept: string,
 ): Promise<IncomingMessage> {
   return new Promise((resolvePromise, reject) => {
     const client = url.protocol === "https:" ? https : http;
@@ -98,7 +99,7 @@ function get(
         headers: {
           "user-agent":
             "Mozilla/5.0 (compatible; denizlg24-workspace/1.0; +https://denizlg24.com)",
-          accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1",
+          accept,
         },
       },
       resolvePromise,
@@ -121,16 +122,20 @@ async function readHtml(response: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).subarray(0, MAX_HTML_BYTES).toString("utf8");
 }
 
-/** What a bookmark shows for `raw`: title, description, image, site. */
-export async function unfurl(
+/**
+ * GETs a public URL through the guard, following redirects by hand. The
+ * caller owns reading (and destroying) the returned response.
+ */
+export async function fetchGuarded(
   raw: string,
-  options: { resolve?: Resolve } = {},
-): Promise<WorkspaceUnfurl> {
+  options: { resolve?: Resolve; accept?: string; timeoutMs?: number } = {},
+): Promise<{ response: IncomingMessage; url: URL }> {
   let target = new URL(raw);
-  const signal = AbortSignal.timeout(TIMEOUT_MS);
+  const signal = AbortSignal.timeout(options.timeoutMs ?? TIMEOUT_MS);
+  const accept = options.accept ?? "*/*";
   for (let hop = 0; hop <= MAX_HOPS; hop++) {
     assertTarget(target);
-    const response = await get(target, signal, options.resolve);
+    const response = await get(target, signal, options.resolve, accept);
     const status = response.statusCode ?? 0;
     const location = response.headers.location;
     if (status >= 300 && status < 400 && location) {
@@ -138,23 +143,34 @@ export async function unfurl(
       target = new URL(location, target);
       continue;
     }
-    const type = response.headers["content-type"] ?? "";
-    if (status >= 400 || !type.includes("html")) {
-      response.destroy();
-      return { url: target.toString(), siteName: target.hostname };
-    }
-    const meta = pageMetadata(await readHtml(response), target.toString());
-    return {
-      url: target.toString(),
-      ...(meta.title ? { title: meta.title.slice(0, 500) } : {}),
-      ...(meta.description
-        ? { description: meta.description.slice(0, 2000) }
-        : {}),
-      ...(meta.image && /^https?:/.test(meta.image)
-        ? { image: meta.image }
-        : {}),
-      siteName: (meta.siteName ?? target.hostname).slice(0, 200),
-    };
+    return { response, url: target };
   }
   throw new UnfurlRefused("Too many redirects");
+}
+
+/** What a bookmark shows for `raw`: title, description, image, site. */
+export async function unfurl(
+  raw: string,
+  options: { resolve?: Resolve } = {},
+): Promise<WorkspaceUnfurl> {
+  const { response, url: target } = await fetchGuarded(raw, {
+    resolve: options.resolve,
+    accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1",
+  });
+  const status = response.statusCode ?? 0;
+  const type = response.headers["content-type"] ?? "";
+  if (status >= 400 || !type.includes("html")) {
+    response.destroy();
+    return { url: target.toString(), siteName: target.hostname };
+  }
+  const meta = pageMetadata(await readHtml(response), target.toString());
+  return {
+    url: target.toString(),
+    ...(meta.title ? { title: meta.title.slice(0, 500) } : {}),
+    ...(meta.description
+      ? { description: meta.description.slice(0, 2000) }
+      : {}),
+    ...(meta.image && /^https?:/.test(meta.image) ? { image: meta.image } : {}),
+    siteName: (meta.siteName ?? target.hostname).slice(0, 200),
+  };
 }

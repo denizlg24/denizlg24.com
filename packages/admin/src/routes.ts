@@ -140,6 +140,13 @@ export interface AdminRoutes {
   study: StudyRoutes;
   market: MarketRoutes;
   workspace: WorkspaceRoutes;
+  /** One surface, full-area, whatever it is mounted on. */
+  surface: (surfaceId: string) => string;
+  /** The surface a location shows on its own route, or null for anything else. */
+  surfaceAt: (
+    pathname: string,
+    search: Pick<URLSearchParams, "get">,
+  ) => string | null;
 }
 
 /**

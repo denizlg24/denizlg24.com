@@ -8,8 +8,12 @@ import {
   type ConnectorTool,
   type CreateConnectorInput,
   MCP_ACTIONS_META_KEY,
+  MCP_CATALOG_TOOLS,
+  MCP_SURFACE_META_KEY,
   MCP_TOOL_PROFILE_HEADER,
+  type McpToolProfile,
   mcpActionsMetaSchema,
+  mcpSurfaceSchema,
   PRIMARY_CONNECTOR_SLUG,
   type UpdateConnectorInput,
 } from "@repo/schemas";
@@ -99,6 +103,63 @@ export function describeToolDefinition(
   };
 }
 
+/**
+ * What the primary connector hands the model each turn. `compact` (the
+ * default) is the catalog plus the tools the server keeps by name; `full` is
+ * every tool, about 116k tokens of schemas on every request.
+ */
+export function primaryToolSurface(): McpToolProfile {
+  return process.env.MCP_CONNECTOR_TOOL_SURFACE === "full" ? "full" : "compact";
+}
+
+function surfaceOf(definition: McpToolDefinition) {
+  return mcpSurfaceSchema.safeParse(definition._meta?.[MCP_SURFACE_META_KEY])
+    .data;
+}
+
+/**
+ * Splits the cached listing into the tools the model sees and the resources
+ * reached through the catalog. The cache always holds the full listing —
+ * triage and the settings page read it — so this is a filter, and a listing
+ * from a server without the catalog is exposed whole.
+ */
+export function selectToolSurface(
+  definitions: readonly McpToolDefinition[],
+  surface: McpToolProfile,
+): {
+  exposed: readonly McpToolDefinition[];
+  catalog: readonly McpToolDefinition[] | null;
+} {
+  if (surface === "full") return { exposed: definitions, catalog: null };
+  const exposed = definitions.filter(
+    (definition) => surfaceOf(definition) === "compact",
+  );
+  if (
+    !exposed.some((definition) => definition.name === MCP_CATALOG_TOOLS.read)
+  ) {
+    return { exposed: definitions, catalog: null };
+  }
+  return {
+    exposed,
+    catalog: definitions.filter(
+      (definition) => surfaceOf(definition) === "catalog",
+    ),
+  };
+}
+
+/**
+ * `toolCount` is what a turn hands the model; the primary connector's
+ * catalog resources are counted apart, since the model reaches them only
+ * through the catalog call tools.
+ */
+function toolCounts(connector: IConnector) {
+  const definitions = cachedToolDefinitions(connector);
+  const { exposed, catalog } = connector.builtIn
+    ? selectToolSurface(definitions, primaryToolSurface())
+    : { exposed: definitions, catalog: null };
+  return { toolCount: exposed.length, catalogToolCount: catalog?.length ?? 0 };
+}
+
 export function serializeConnector(connector: IConnector): ConnectorDto {
   return {
     id: connector._id.toString(),
@@ -111,7 +172,7 @@ export function serializeConnector(connector: IConnector): ConnectorDto {
     disabledTools: connector.disabledTools,
     status: connector.status,
     statusDetail: connector.statusDetail ?? null,
-    toolCount: connector.toolCache?.definitions.length ?? 0,
+    ...toolCounts(connector),
     builtIn: connector.builtIn,
     hasSecret: Boolean(connector.secret ?? connector.oauth?.tokens),
     oauthClient: connector.oauthClient
@@ -359,7 +420,7 @@ export interface ConnectorClientOptions {
   /** A conversation or run id; hashed before it is sent. */
   session?: string;
   /**
-   * `conversation:<id>` or `task-run:<id>`. Sent only to the primary
+   * `conversation:<id>`, `task-run:<id>` or `surface:<id>`. Sent only to the primary
    * connector, which forwards it to web so changes made through it are
    * attributed to this run; a third party never sees a raw id.
    */

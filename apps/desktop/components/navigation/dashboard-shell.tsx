@@ -11,6 +11,7 @@ import {
   useWorkspaceStore,
   type WorkspaceLocalCopy,
 } from "@repo/admin/workspace/store";
+import { SurfaceGate } from "@repo/admin/workspace/surfaces/surface-gate";
 import { VisitTracker } from "@repo/admin/workspace/visit-tracker";
 import { useIsMobile } from "@repo/ui/hooks/use-mobile";
 import { Suspense, useEffect } from "react";
@@ -31,7 +32,8 @@ const localCopy: WorkspaceLocalCopy = {
 };
 
 /**
- * Sidebar, page, agent dock. The sidebar is the workspace tree plus every
+ * Sidebar, page, agent dock; a mounted surface replaces the page (and, with
+ * `chrome: "none"`, the sidebar) but keeps the dock. The sidebar is the workspace tree plus every
  * module; below `md` it moves into a sheet opened from each page header.
  */
 export function DashboardShell({ children }: { children: React.ReactNode }) {
@@ -49,12 +51,22 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <CalendarPreloader />
         <MemoryGraphPreloader />
         <Suspense>
-          {isMobile ? <WorkspaceMobileSidebar /> : <WorkspaceSidebar />}
           <VisitTracker />
         </Suspense>
-        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-          <DesktopAgentDock>{children}</DesktopAgentDock>
-        </div>
+        <SurfaceGate
+          sidebar={
+            <Suspense>
+              {isMobile ? <WorkspaceMobileSidebar /> : <WorkspaceSidebar />}
+            </Suspense>
+          }
+          wrap={(content) => (
+            <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+              <DesktopAgentDock>{content}</DesktopAgentDock>
+            </div>
+          )}
+        >
+          {children}
+        </SurfaceGate>
         <CommandPalette />
         <ThemeRoot />
       </div>

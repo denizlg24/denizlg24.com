@@ -7,6 +7,14 @@ under `### Added`, `### Changed`, `### Fixed`; inside a release only bullets,
 paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
 <patch|minor|major>` opens the entry for the next version.
 
+## 3.8.0 — 2026-11-24
+
+### Added
+- Surfaces: whole-window apps written by you or an agent (any look, any library), mounted in place of Home or a module, or opened from ⌘P. Data and actions come from the `window.deniz` bridge to every MCP tool. Settings → Surfaces edits code and assets, shows runtime errors and reverts revisions. ⌘⇧E switches back to the default UI.
+
+### Fixed
+- The connector menu counted every tool in the MCP catalog (270) where the agent is handed about 19; Settings shows the catalog count separately.
+
 ## 3.7.0 — 2026-11-24
 
 ### Added
