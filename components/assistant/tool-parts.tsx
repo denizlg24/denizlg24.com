@@ -11,15 +11,23 @@ import {
 import type { InferUITools } from "ai";
 import { mutate } from "swr";
 import {
+  Activity,
   ArrowUpRight,
   BellPlus,
   BookmarkCheck,
   BookmarkX,
+  CalendarDays,
   CircleAlert,
+  Database,
   FileText,
+  FlaskConical,
+  Globe,
   LayoutGrid,
   MoveRight,
+  Newspaper,
+  PenLine,
   Presentation,
+  TrendingUp,
   Undo2,
 } from "lucide-react";
 import type { StockwatcherMessage, StockwatcherTools } from "@/lib/ai/tools";
@@ -29,6 +37,8 @@ import type {
   DashboardState,
 } from "@/lib/assistant-types";
 import { amount, compact, number, percent, tone } from "@/lib/utils";
+import { formatTarget, metricLabels } from "@/lib/alerts";
+import type { AlertMetric } from "@/lib/models";
 import { Sparkline } from "./sparkline";
 import { ago, hostOf, listSymbols, stamp, useNow } from "./format";
 import { memoriesKey } from "./memory-panel";
@@ -49,6 +59,10 @@ export type AlertProposal = {
   symbol: string;
   direction: "above" | "below";
   target: number;
+  metric?: AlertMetric;
+  repeat?: "once" | "rearm";
+  note?: string;
+  expires?: string;
 };
 
 type Actions = {
@@ -114,6 +128,26 @@ const toolNames: Record<ToolPart["type"], string> = {
   "tool-shareReport": "Sharing",
   "tool-askUser": "Question",
   "tool-getSecurityData": "Security data",
+  "tool-getWorkspace": "Workspace",
+  "tool-getNote": "Note",
+  "tool-manageWatchlists": "Watchlists",
+  "tool-manageAlerts": "Alerts",
+  "tool-manageNotes": "Notes",
+  "tool-managePortfolios": "Portfolios",
+  "tool-manageDrawings": "Drawings",
+  "tool-manageOverlays": "Overlays",
+  "tool-manageScreens": "Screens",
+  "tool-manageRelations": "Relationships",
+  "tool-manageChartTemplates": "Chart templates",
+  "tool-updateSettings": "Settings",
+  "tool-getTechnicals": "Technicals",
+  "tool-getMarketOverview": "World indices",
+  "tool-getMarketMovers": "Market movers",
+  "tool-getEarningsCalendar": "Earnings calendar",
+  "tool-getMacroCalendar": "Macro calendar",
+  "tool-getRiskAnalytics": "Risk analytics",
+  "tool-getNewsWire": "News wire",
+  "tool-backtestStrategy": "Backtest",
 };
 
 export function runningLabel(part: ToolPart): string {
@@ -191,6 +225,58 @@ export function runningLabel(part: ToolPart): string {
       return part.input?.symbol
         ? `Reading ${part.input.symbol} ${part.input.kind?.toUpperCase() ?? ""}`
         : "Reading security data";
+    case "tool-getWorkspace":
+      return "Reading your workspace";
+    case "tool-getNote":
+      return "Reading note";
+    case "tool-manageWatchlists":
+      return "Updating watchlist";
+    case "tool-manageAlerts":
+      return part.input?.symbol
+        ? `Updating ${part.input.symbol} alert`
+        : "Updating alerts";
+    case "tool-manageNotes":
+      return part.input?.title
+        ? `Saving note “${part.input.title}”`
+        : "Updating notes";
+    case "tool-managePortfolios":
+      return "Updating portfolio";
+    case "tool-manageDrawings":
+      return part.input?.symbol
+        ? `Updating ${part.input.symbol} drawings`
+        : "Updating drawings";
+    case "tool-manageOverlays":
+      return "Updating overlays";
+    case "tool-manageScreens":
+      return "Updating screens";
+    case "tool-manageRelations":
+      return "Updating relationship notes";
+    case "tool-manageChartTemplates":
+      return "Updating chart templates";
+    case "tool-updateSettings":
+      return "Updating settings";
+    case "tool-getTechnicals":
+      return part.input?.symbol
+        ? `Computing ${part.input.symbol} technicals`
+        : "Computing technicals";
+    case "tool-getMarketOverview":
+      return "Loading world indices";
+    case "tool-getMarketMovers":
+      return "Scanning market movers";
+    case "tool-getEarningsCalendar":
+      return "Loading earnings calendar";
+    case "tool-getMacroCalendar":
+      return "Loading macro calendar";
+    case "tool-getRiskAnalytics": {
+      const symbols = listSymbols(part.input?.symbols);
+      return symbols ? `Measuring ${symbols} risk` : "Measuring risk";
+    }
+    case "tool-getNewsWire":
+      return "Reading the news wire";
+    case "tool-backtestStrategy":
+      return part.input?.symbol
+        ? `Backtesting ${part.input.symbol}`
+        : "Backtesting strategy";
   }
 }
 
@@ -386,7 +472,153 @@ function ToolOutput({ part }: { part: DonePart }) {
         <SecurityChip symbol={part.input.symbol} kind={part.input.kind} />
       );
     }
+    case "tool-manageWatchlists":
+    case "tool-manageAlerts":
+    case "tool-manageNotes":
+    case "tool-managePortfolios":
+    case "tool-manageDrawings":
+    case "tool-manageOverlays":
+    case "tool-manageScreens":
+    case "tool-manageRelations":
+    case "tool-manageChartTemplates":
+    case "tool-updateSettings": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <Chip icon={<PenLine aria-hidden />} text={output.summary} />
+      );
+    }
+    case "tool-getWorkspace": {
+      const output = part.output;
+      if (isFailure(output)) return failed(output);
+      const read = Object.keys(output).filter((key) => key !== "counts");
+      return (
+        <Chip
+          icon={<Database aria-hidden />}
+          text={`Read workspace: ${read.join(", ")}`}
+        />
+      );
+    }
+    case "tool-getNote": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <Chip icon={<FileText aria-hidden />} text={`Read note “${output.title}”`} />
+      );
+    }
+    case "tool-getTechnicals": {
+      const output = part.output;
+      if (isFailure(output)) return failed(output);
+      const text = [
+        output.signals.vsSma200 && `${output.signals.vsSma200} 200d`,
+        output.signals.rsiZone && `RSI ${output.signals.rsiZone}`,
+        output.signals.lastCross &&
+          `${output.signals.lastCross.type} cross ${output.signals.lastCross.barsAgo} bars ago`,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      return (
+        <Chip
+          icon={<Activity aria-hidden />}
+          text={`${output.symbol} ${output.range} technicals${text ? ` · ${text}` : ""}`}
+        />
+      );
+    }
+    case "tool-getMarketOverview": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <Chip
+          icon={<Globe aria-hidden />}
+          text={`World indices · ${output.regions.reduce((sum, region) => sum + region.indices.length, 0)} quotes`}
+        />
+      );
+    }
+    case "tool-getMarketMovers": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <Chip
+          icon={<TrendingUp aria-hidden />}
+          text={`Movers · ${output.source}${"universe" in output && output.universe ? ` · ${output.universe}` : ""}`}
+        />
+      );
+    }
+    case "tool-getEarningsCalendar": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <Chip
+          icon={<CalendarDays aria-hidden />}
+          text={`Earnings ${output.from} to ${output.through} · ${output.events.length} reports`}
+        />
+      );
+    }
+    case "tool-getMacroCalendar": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <Chip
+          icon={<CalendarDays aria-hidden />}
+          text={
+            "series" in output && output.series
+              ? `Macro · ${output.series.name}`
+              : `Next FOMC ${output.upcomingFomc[0] ?? "n/a"}`
+          }
+        />
+      );
+    }
+    case "tool-getRiskAnalytics": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <Chip
+          icon={<Activity aria-hidden />}
+          text={`Risk · ${listSymbols(output.symbols.map((item) => item.symbol))} · ${output.years}y vs ${output.benchmark}`}
+        />
+      );
+    }
+    case "tool-getNewsWire": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <Chip
+          icon={<Newspaper aria-hidden />}
+          text={`News wire · ${output.scope} · ${output.items.length} headlines`}
+        />
+      );
+    }
+    case "tool-backtestStrategy": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <Chip
+          icon={<FlaskConical aria-hidden />}
+          text={`${output.symbol} ${output.strategy} · ${output.stats.totalReturnPercent ?? "n/a"}% vs ${output.stats.buyAndHoldPercent ?? "n/a"}% hold`}
+        />
+      );
+    }
   }
+}
+
+function Chip({ icon, text }: { icon: ReactNode; text: string }) {
+  return (
+    <p className="chat-chip-line">
+      <span className="chip" title={text}>
+        {icon}
+        <span className="chat-truncate">{text}</span>
+      </span>
+    </p>
+  );
 }
 
 function QuestionCard({
@@ -1061,8 +1293,10 @@ function AlertChip({ data }: { data: Success<"proposeAlert"> }) {
   return (
     <p className="chat-chip-line">
       <span className="chip">
-        <BellPlus aria-hidden /> Alert proposed: {data.symbol} {data.direction}{" "}
-        {amount(data.target)} {data.currency ?? ""}
+        <BellPlus aria-hidden /> Alert proposed: {data.symbol}{" "}
+        {metricLabels[data.metric]} {data.direction}{" "}
+        {formatTarget(data.metric, data.target)}
+        {data.metric === "price" ? ` ${data.currency ?? ""}` : ""}
       </span>
       {data.price != null ? (
         <span className="meta">
@@ -1077,6 +1311,10 @@ function AlertChip({ data }: { data: Success<"proposeAlert"> }) {
             symbol: data.symbol,
             direction: data.direction,
             target: data.target,
+            metric: data.metric,
+            repeat: data.repeat,
+            note: data.note,
+            expires: data.expires,
           })
         }
       >

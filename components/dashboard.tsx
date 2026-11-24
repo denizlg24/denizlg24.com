@@ -782,7 +782,7 @@ export function Dashboard({
             context={context}
             onOpenView={openView}
             onProposeAlert={proposeAlert}
-            onDeskChanged={deskChanged}
+            onWorkspaceChanged={deskChanged}
             onOpenSymbol={choose}
             onClose={closeAssistant}
             onUnavailable={unavailable}

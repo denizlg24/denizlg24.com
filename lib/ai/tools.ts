@@ -3,6 +3,9 @@ import { randomUUID } from "node:crypto";
 import { tool, type InferUITools, type UIMessage } from "ai";
 import { z } from "zod";
 import { gateway } from "./config";
+import { attempt, ticker } from "./shared";
+import { workspaceTools } from "./workspace-tools";
+import { marketTools } from "./market-tools";
 import {
   newsFor,
   portfolioSnapshot,
@@ -16,7 +19,7 @@ import {
   socialMentions,
 } from "@/lib/research";
 import { managers } from "@/lib/research-types";
-import { rangeKeys, symbolPattern } from "@/lib/universes";
+import { rangeKeys } from "@/lib/universes";
 import {
   askUserInputSchema,
   askUserOutputSchema,
@@ -25,6 +28,7 @@ import {
 import { relay } from "@/lib/relay-data";
 import { candidates, ownDisclosure } from "@/lib/supply-chain";
 import { defaultDesk, widgetSchema, type Desk, type Widget } from "@/lib/desk";
+import { alertMetrics } from "@/lib/models";
 import { memoryInputSchema } from "@/lib/memory-types";
 import { readWorkspace, type Identity } from "@/lib/db";
 import { addMemory, deleteMemory, updateWorkspace } from "@/lib/memory";
@@ -34,13 +38,6 @@ import { links, publish } from "@/lib/reports/service";
 import { reportIdSchema, setSharing } from "@/lib/reports/store";
 import { deckInputSchema, reportInputSchema } from "@/lib/reports/types";
 import { today } from "@/lib/utils";
-
-const ticker = z
-  .string()
-  .trim()
-  .toUpperCase()
-  .regex(symbolPattern)
-  .describe("Yahoo Finance style symbol, e.g. AAPL, ASML.AS, ^GSPC, BTC-USD");
 
 const omitId = { id: true } as const;
 const [
@@ -70,26 +67,6 @@ export const widgetInputSchema = z.discriminatedUnion("kind", [
   overlay.omit(omitId),
 ]);
 export type WidgetInput = z.infer<typeof widgetInputSchema>;
-
-type ToolError = { error: string };
-
-const failure = (error: unknown, fallback: string): ToolError => ({
-  error:
-    error instanceof Error && error.message.length < 300
-      ? error.message
-      : fallback,
-});
-
-async function attempt<T>(
-  run: () => Promise<T>,
-  fallback: string,
-): Promise<T | ToolError> {
-  try {
-    return await run();
-  } catch (error) {
-    return failure(error, fallback);
-  }
-}
 
 function resolveManager(name: string) {
   const needle = name.trim().toLowerCase();
@@ -433,18 +410,21 @@ export function createTools(ctx: { user: Identity; origin: string }) {
     }),
     proposeAlert: tool({
       description:
-        "Propose a price alert. The user confirms it in a dialog; nothing is created until they do. Target is in the symbol's quote currency.",
+        "Propose an alert for the user to review and confirm in a dialog; nothing is created until they do. Use it when the user is exploring or undecided; when they explicitly ask you to create an alert use manageAlerts instead. Metrics: price (absolute, quote currency), change (day % vs previous close), move (% since creation), volume (shares today). Percent targets are signed (-5 = -5%).",
       inputSchema: z.object({
         symbol: ticker,
+        metric: z.enum(alertMetrics).default("price"),
         direction: z.enum(["above", "below"]),
-        target: z.number().positive().max(1e12),
+        target: z.number().finite().min(-1e12).max(1e12),
+        repeat: z.enum(["once", "rearm"]).optional(),
+        note: z.string().trim().max(280).optional(),
+        expires: z.iso.date().optional().describe("YYYY-MM-DD"),
       }),
-      execute: async ({ symbol, direction, target }) => {
+      execute: async ({ symbol, ...proposal }) => {
         const [quote] = await quotes([symbol]).catch(() => []);
         return {
           symbol,
-          direction,
-          target,
+          ...proposal,
           currency: quote?.currency ?? null,
           price: quote?.price ?? null,
         };
@@ -510,6 +490,8 @@ export function createTools(ctx: { user: Identity; origin: string }) {
           return { ...links(summary, origin), shared: share };
         }, "Sharing could not be changed."),
     }),
+    ...workspaceTools({ user }),
+    ...marketTools({ user }),
     webSearch: gateway().tools.perplexitySearch({
       maxResults: 8,
       maxTokensPerPage: 1024,
