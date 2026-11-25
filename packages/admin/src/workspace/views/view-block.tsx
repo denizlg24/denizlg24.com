@@ -211,7 +211,7 @@ export function useViewQuery(
 
   const reload = useCallback(() => refresh(true), [refresh]);
   const optimisticRemove = useCallback(
-    (rowId: string) => optimisticallyRemoveViewRow(entry, rowId),
+    (row: ViewRow) => optimisticallyRemoveViewRow(entry, row),
     [entry],
   );
 
@@ -297,7 +297,11 @@ export function ViewBlock({
     async (row: ViewRow) => {
       if (!homeAction || pendingRef.current.has(row.id)) return;
       pendingRef.current.add(row.id);
-      const rollback = query.optimisticRemove(row.id);
+      const optimistic = query.optimisticRemove(row);
+      if (!optimistic) {
+        pendingRef.current.delete(row.id);
+        return;
+      }
       try {
         if (homeAction === "complete-task") {
           const { card } = await client.get<{
@@ -314,8 +318,9 @@ export function ViewBlock({
           });
         }
         await query.reload();
+        optimistic.commit();
       } catch (error) {
-        rollback();
+        optimistic.rollback();
         toast.error(error instanceof Error ? error.message : "Update failed");
       } finally {
         pendingRef.current.delete(row.id);

@@ -72,7 +72,10 @@ export function subscribeViewQuery(
 }
 
 function publish(entry: ViewQueryEntry) {
-  const hidden = entry.rows.filter((row) => entry.hiddenRows.has(row.id));
+  const loadedIds = new Set(entry.rows.map((row) => row.id));
+  const hidden = [...entry.hiddenRows.values()].filter(
+    (row) => entry.pendingRows.has(row.id) || loadedIds.has(row.id),
+  );
   const rows = entry.rows.filter((row) => !entry.hiddenRows.has(row.id));
   let groups = entry.result?.groups;
   const groupField = entry.groupField;
@@ -173,7 +176,7 @@ export function setViewQueryError(entry: ViewQueryEntry, error: unknown) {
   publish(entry);
 }
 
-/** Hide a row instantly; commit keeps it hidden until a server result reconciles it. */
+/** Hide a row instantly; commit it after a write or restore it on failure. */
 export function optimisticallyRemoveViewRow(
   entry: ViewQueryEntry,
   row: ViewRow,
@@ -192,8 +195,7 @@ export function optimisticallyRemoveViewRow(
       entry.pendingRows.delete(row.id);
       if (previous) entry.hiddenRows.set(row.id, previous);
       else entry.hiddenRows.delete(row.id);
-      // If a page replacement discarded the original row during the request,
-      // put it back locally so a refused action remains visible.
+      // A page replacement may have omitted this row while the request ran.
       if (!entry.rows.some((item) => item.id === row.id)) {
         entry.rows = [...entry.rows, row];
       }
