@@ -8,6 +8,11 @@ export type ViewQueryState = {
   loading: boolean;
 };
 
+export type OptimisticRemoval = {
+  commit: () => void;
+  rollback: () => void;
+};
+
 export type ViewQueryEntry = {
   state: ViewQueryState;
   /** Unfiltered server result; `rows` is the accumulated page set. */
@@ -16,7 +21,8 @@ export type ViewQueryEntry = {
   at: number;
   inflight: Promise<void> | null;
   listeners: Set<() => void>;
-  hiddenRows: Set<string>;
+  hiddenRows: Map<string, ViewRow>;
+  pendingRows: Set<string>;
   groupField: string | null;
   error: string | null;
   loading: boolean;
@@ -44,7 +50,8 @@ export function getViewQueryEntry(
       at: 0,
       inflight: null,
       listeners: new Set(),
-      hiddenRows: new Set(),
+      hiddenRows: new Map(),
+      pendingRows: new Set(),
       groupField,
       error: null,
       loading: true,
@@ -109,23 +116,43 @@ export function setViewQueryLoading(entry: ViewQueryEntry, loading: boolean) {
   publish(entry);
 }
 
+function reconcileHiddenRows(entry: ViewQueryEntry, complete: boolean) {
+  const present = new Map(entry.rows.map((row) => [row.id, row]));
+  for (const [id, row] of entry.hiddenRows) {
+    if (entry.pendingRows.has(id)) continue;
+    const current = present.get(id);
+    // A settled row returned by the server still matches this view; display
+    // the server's updated version. If a complete result omits it, it is gone.
+    if (current) {
+      entry.hiddenRows.delete(id);
+      continue;
+    }
+    if (complete) entry.hiddenRows.delete(id);
+    else if (!entry.rows.some((item) => item.id === id)) {
+      // Keep the original row as a hidden placeholder until the remaining
+      // pages are read; an offset-based page replacement is not authoritative.
+      entry.hiddenRows.set(id, row);
+    }
+  }
+}
+
 export function setViewQueryResult(
   entry: ViewQueryEntry,
   result: ViewQueryResult,
   append = false,
 ) {
   if (append && entry.result) {
-    entry.rows = [...entry.rows, ...result.rows];
+    const seen = new Set(entry.rows.map((row) => row.id));
+    entry.rows = [
+      ...entry.rows,
+      ...result.rows.filter((row) => !seen.has(row.id)),
+    ];
     entry.result = { ...entry.result, nextCursor: result.nextCursor };
+    reconcileHiddenRows(entry, result.nextCursor === null);
   } else {
     entry.result = result;
     entry.rows = result.rows;
-    // Once the server confirms a hidden row is gone from the result, the
-    // optimistic overlay is no longer needed.
-    const present = new Set(result.rows.map((row) => row.id));
-    for (const id of entry.hiddenRows) {
-      if (!present.has(id)) entry.hiddenRows.delete(id);
-    }
+    reconcileHiddenRows(entry, result.nextCursor === null);
   }
   entry.at = Date.now();
   entry.error = null;
@@ -146,19 +173,32 @@ export function setViewQueryError(entry: ViewQueryEntry, error: unknown) {
   publish(entry);
 }
 
-/** Hide a row instantly; return a rollback for a refused mutation. */
+/** Hide a row instantly; commit keeps it hidden until a server result reconciles it. */
 export function optimisticallyRemoveViewRow(
   entry: ViewQueryEntry,
-  rowId: string,
-) {
-  const alreadyHidden = entry.hiddenRows.has(rowId);
-  entry.hiddenRows.add(rowId);
+  row: ViewRow,
+): OptimisticRemoval | null {
+  if (entry.pendingRows.has(row.id)) return null;
+  const previous = entry.hiddenRows.get(row.id);
+  entry.hiddenRows.set(row.id, row);
+  entry.pendingRows.add(row.id);
   publish(entry);
-  return () => {
-    if (!alreadyHidden) {
-      entry.hiddenRows.delete(rowId);
+  return {
+    commit: () => {
+      entry.pendingRows.delete(row.id);
       publish(entry);
-    }
+    },
+    rollback: () => {
+      entry.pendingRows.delete(row.id);
+      if (previous) entry.hiddenRows.set(row.id, previous);
+      else entry.hiddenRows.delete(row.id);
+      // If a page replacement discarded the original row during the request,
+      // put it back locally so a refused action remains visible.
+      if (!entry.rows.some((item) => item.id === row.id)) {
+        entry.rows = [...entry.rows, row];
+      }
+      publish(entry);
+    },
   };
 }
 

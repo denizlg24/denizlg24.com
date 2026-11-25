@@ -27,6 +27,12 @@ const card: ViewRow = {
   values: { title: "Ship it", column: "Todo", done: false },
 };
 
+const nextCard: ViewRow = {
+  id: "card-2",
+  ref: "entity:kanban-card:card-2",
+  values: { title: "Review it", column: "Todo", done: false },
+};
+
 beforeEach(() => clearViewQueryCache());
 
 describe("workspace view cache", () => {
@@ -34,39 +40,51 @@ describe("workspace view cache", () => {
     const entry = getViewQueryEntry({}, "home-work", "column");
     setViewQueryResult(entry, query([card]));
 
-    const rollback = optimisticallyRemoveViewRow(entry, card.id);
+    const optimistic = optimisticallyRemoveViewRow(entry, card);
     expect(entry.state.rows).toEqual([]);
     expect(entry.state.result?.total).toBe(0);
     expect(entry.state.result?.groups[0]?.count).toBe(0);
 
-    rollback();
+    optimistic?.rollback();
     expect(entry.state.rows).toEqual([card]);
     expect(entry.state.result?.total).toBe(1);
     expect(entry.state.result?.groups[0]?.count).toBe(1);
   });
 
-  test("server confirmation retires the optimistic overlay", () => {
+  test("a pending hidden row survives replacement and pagination", () => {
+    const entry = getViewQueryEntry({}, "home-work", "column");
+    setViewQueryResult(entry, {
+      ...query([card, nextCard], 2),
+      nextCursor: "2",
+    });
+    const optimistic = optimisticallyRemoveViewRow(entry, nextCard);
+    setViewQueryResult(entry, { ...query([card], 2), nextCursor: "2" });
+    expect(entry.state.rows).toEqual([card]);
+    setViewQueryResult(entry, query([nextCard], 2), true);
+    expect(entry.state.rows).toEqual([card]);
+
+    optimistic?.commit();
+    setViewQueryResult(entry, query([card, nextCard], 2), true);
+    expect(entry.state.rows).toContain(nextCard);
+  });
+
+  test("a settled removed row is retired after a complete response", () => {
     const entry = getViewQueryEntry({}, "home-work", "column");
     setViewQueryResult(entry, query([card]));
-    optimisticallyRemoveViewRow(entry, card.id);
-
+    const optimistic = optimisticallyRemoveViewRow(entry, card);
+    optimistic?.commit();
     setViewQueryResult(entry, query([], 0));
     expect(entry.state.rows).toEqual([]);
     expect(entry.state.result?.total).toBe(0);
   });
 
-  test("same query key shares the cached state within a session", () => {
+  test("same query key shares cached state only within the session", () => {
     const session = {};
     const first = getViewQueryEntry(session, "same", null);
     setViewQueryResult(first, query([card]));
     const second = getViewQueryEntry(session, "same", null);
     expect(second).toBe(first);
     expect(second.state.rows).toEqual([card]);
-  });
-
-  test("different sessions do not share cached rows", () => {
-    const first = getViewQueryEntry({}, "same", null);
-    const second = getViewQueryEntry({}, "same", null);
-    expect(second).not.toBe(first);
+    expect(getViewQueryEntry({}, "same", null)).not.toBe(first);
   });
 });
