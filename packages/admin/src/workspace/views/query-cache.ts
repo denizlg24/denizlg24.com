@@ -45,7 +45,10 @@ export function getViewQueryEntry(key: string, groupField: string | null) {
   return entry;
 }
 
-export function subscribeViewQuery(entry: ViewQueryEntry, listener: () => void) {
+export function subscribeViewQuery(
+  entry: ViewQueryEntry,
+  listener: () => void,
+) {
   entry.listeners.add(listener);
   return () => {
     entry.listeners.delete(listener);
@@ -124,11 +127,13 @@ export function setViewQueryResult(
 export function setViewQueryError(entry: ViewQueryEntry, error: unknown) {
   entry.loading = false;
   // Keep cached rows silently visible on a background refresh failure.
-  entry.error = entry.result
-    ? null
-    : error instanceof Error
-      ? error.message
-      : "Failed to load view";
+  if (entry.result) {
+    entry.error = null;
+  } else if (error instanceof Error) {
+    entry.error = error.message;
+  } else {
+    entry.error = "Failed to load view";
+  }
   publish(entry);
 }
 

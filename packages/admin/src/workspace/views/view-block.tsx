@@ -16,11 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
 import { Skeleton } from "@repo/ui/skeleton";
 import { cn } from "@repo/ui/utils";
 import { format, startOfMonth } from "date-fns";
-import {
-  ArrowUpRight,
-  Check,
-  SlidersHorizontal,
-} from "lucide-react";
+import { ArrowUpRight, Check, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
 import {
   type ReactNode,
@@ -38,17 +34,8 @@ import type { ModuleId } from "../modules";
 import { recordHref } from "../records";
 import type { WorkspaceNav } from "../refs";
 import { useWorkspaceNav } from "../use-workspace-nav";
-import { ViewConfigEditor } from "./config";
 import { ActionListLayout, ActionTableLayout } from "./action-layouts";
-import {
-  getViewQueryEntry,
-  optimisticallyRemoveViewRow,
-  setViewQueryError,
-  setViewQueryLoading,
-  setViewQueryResult,
-  subscribeViewQuery,
-  viewQueryIsFresh,
-} from "./query-cache";
+import { ViewConfigEditor } from "./config";
 import {
   BoardLayout,
   CalendarLayout,
@@ -58,6 +45,15 @@ import {
   monthWindow,
   TableLayout,
 } from "./layouts";
+import {
+  getViewQueryEntry,
+  optimisticallyRemoveViewRow,
+  setViewQueryError,
+  setViewQueryLoading,
+  setViewQueryResult,
+  subscribeViewQuery,
+  viewQueryIsFresh,
+} from "./query-cache";
 
 const LABEL =
   "text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground";
@@ -277,17 +273,21 @@ export function ViewBlock({
   );
   const label = block.title ?? descriptor.label;
   const href = nav.moduleHref(SOURCE_MODULE[config.source]);
-  const homeAction =
+  let homeAction: "complete-task" | "review-mail" | null = null;
+  if (
     block.id === "home-work" &&
     config.source === "kanban-cards" &&
     config.layout === "list"
-      ? "complete-task"
-      : block.id === "home-mail" &&
-          config.source === "triage" &&
-          config.layout === "table" &&
-          !config.group
-        ? "review-mail"
-        : null;
+  ) {
+    homeAction = "complete-task";
+  } else if (
+    block.id === "home-mail" &&
+    config.source === "triage" &&
+    config.layout === "table" &&
+    !config.group
+  ) {
+    homeAction = "review-mail";
+  }
 
   const actOnRow = useCallback(
     async (row: ViewRow) => {
