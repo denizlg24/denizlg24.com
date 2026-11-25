@@ -23,10 +23,19 @@ export type ViewQueryEntry = {
 };
 
 const FRESH_MS = 30_000;
-const cache = new Map<string, ViewQueryEntry>();
+let cache = new WeakMap<object, Map<string, ViewQueryEntry>>();
 
-export function getViewQueryEntry(key: string, groupField: string | null) {
-  let entry = cache.get(key);
+export function getViewQueryEntry(
+  session: object,
+  key: string,
+  groupField: string | null,
+) {
+  let scoped = cache.get(session);
+  if (!scoped) {
+    scoped = new Map();
+    cache.set(session, scoped);
+  }
+  let entry = scoped.get(key);
   if (!entry) {
     entry = {
       state: { result: null, rows: [], error: null, loading: true },
@@ -40,7 +49,7 @@ export function getViewQueryEntry(key: string, groupField: string | null) {
       error: null,
       loading: true,
     };
-    cache.set(key, entry);
+    scoped.set(key, entry);
   }
   return entry;
 }
@@ -154,5 +163,5 @@ export function optimisticallyRemoveViewRow(
 }
 
 export function clearViewQueryCache() {
-  cache.clear();
+  cache = new WeakMap();
 }

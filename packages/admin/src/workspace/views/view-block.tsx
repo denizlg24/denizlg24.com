@@ -99,34 +99,31 @@ export function viewConfigOf(block: BlockOf<"view">): ViewConfig {
   return config;
 }
 
-/** Board and Done-column ids are resolved only when the owner completes a Home task. */
-type DoneTarget = { boardId: string; columnId: string };
-const doneTargets = new Map<string, Promise<DoneTarget>>();
+/** Resolve the Done column by the card's board id, never by a duplicate title. */
+const doneColumns = new WeakMap<AdminClient, Map<string, Promise<string>>>();
 
-function doneTargetFor(
-  client: AdminClient,
-  boardTitle: string,
-): Promise<DoneTarget> {
-  const key = boardTitle.trim().toLowerCase();
-  const cached = doneTargets.get(key);
+function doneColumnFor(client: AdminClient, boardId: string): Promise<string> {
+  let byBoard = doneColumns.get(client);
+  if (!byBoard) {
+    byBoard = new Map();
+    doneColumns.set(client, byBoard);
+  }
+  const cached = byBoard.get(boardId);
   if (cached) return cached;
-  const pending = (async () => {
-    const { boards } = await client.get<{
-      boards: { _id: string; title: string }[];
-    }>("kanban/boards");
-    const board = boards.find((item) => item.title.trim().toLowerCase() === key);
-    if (!board) throw new Error("Task board not found");
-    const { columns } = await client.get<{
+  const pending = client
+    .get<{
       columns: { _id: string; isDoneColumn?: boolean }[];
-    }>(`kanban/boards/${encodeURIComponent(board._id)}/columns`);
-    const done = columns.find((column) => column.isDoneColumn === true);
-    if (!done) throw new Error("Task board has no Done column");
-    return { boardId: board._id, columnId: done._id };
-  })().catch((error) => {
-    doneTargets.delete(key);
-    throw error;
-  });
-  doneTargets.set(key, pending);
+    }>(`kanban/boards/${encodeURIComponent(boardId)}/columns`)
+    .then(({ columns }) => {
+      const done = columns.find((column) => column.isDoneColumn === true);
+      if (!done) throw new Error("Task board has no Done column");
+      return done._id;
+    })
+    .catch((error) => {
+      byBoard.delete(boardId);
+      throw error;
+    });
+  byBoard.set(boardId, pending);
   return pending;
 }
 
@@ -141,7 +138,7 @@ export function useViewQuery(
   const key = JSON.stringify({ config, extra, limit, today });
   const descriptor = VIEW_SOURCES[config.source];
   const groupField = viewGroupField(descriptor, config);
-  const entry = getViewQueryEntry(key, groupField);
+  const entry = getViewQueryEntry(client, key, groupField);
 
   const subscribe = useCallback(
     (listener: () => void) => subscribeViewQuery(entry, listener),
@@ -273,6 +270,12 @@ export function ViewBlock({
   );
   const label = block.title ?? descriptor.label;
   const href = nav.moduleHref(SOURCE_MODULE[config.source]);
+  const hasPendingTriageFilter = config.filters.some(
+    (filter) =>
+      filter.field === "status" &&
+      filter.op === "is" &&
+      filter.value === "pending",
+  );
   let homeAction: "complete-task" | "review-mail" | null = null;
   if (
     block.id === "home-work" &&
@@ -284,7 +287,8 @@ export function ViewBlock({
     block.id === "home-mail" &&
     config.source === "triage" &&
     config.layout === "table" &&
-    !config.group
+    !config.group &&
+    hasPendingTriageFilter
   ) {
     homeAction = "review-mail";
   }
@@ -296,13 +300,13 @@ export function ViewBlock({
       const rollback = query.optimisticRemove(row.id);
       try {
         if (homeAction === "complete-task") {
-          const boardTitle = row.values.board;
-          if (typeof boardTitle !== "string")
-            throw new Error("Task board is unavailable");
-          const target = await doneTargetFor(client, boardTitle);
+          const { card } = await client.get<{
+            card: { boardId: string };
+          }>(`kanban/cards/${encodeURIComponent(row.id)}`);
+          const columnId = await doneColumnFor(client, card.boardId);
           await client.patch(
-            `kanban/boards/${encodeURIComponent(target.boardId)}/cards/${encodeURIComponent(row.id)}`,
-            { columnId: target.columnId },
+            `kanban/boards/${encodeURIComponent(card.boardId)}/cards/${encodeURIComponent(row.id)}`,
+            { columnId },
           );
         } else {
           await client.patch(`triage/${encodeURIComponent(row.id)}`, {

@@ -31,7 +31,7 @@ beforeEach(() => clearViewQueryCache());
 
 describe("workspace view cache", () => {
   test("a row is hidden immediately and restored on rollback", () => {
-    const entry = getViewQueryEntry("home-work", "column");
+    const entry = getViewQueryEntry({}, "home-work", "column");
     setViewQueryResult(entry, query([card]));
 
     const rollback = optimisticallyRemoveViewRow(entry, card.id);
@@ -46,7 +46,7 @@ describe("workspace view cache", () => {
   });
 
   test("server confirmation retires the optimistic overlay", () => {
-    const entry = getViewQueryEntry("home-work", "column");
+    const entry = getViewQueryEntry({}, "home-work", "column");
     setViewQueryResult(entry, query([card]));
     optimisticallyRemoveViewRow(entry, card.id);
 
@@ -55,11 +55,18 @@ describe("workspace view cache", () => {
     expect(entry.state.result?.total).toBe(0);
   });
 
-  test("same query key shares the cached state", () => {
-    const first = getViewQueryEntry("same", null);
+  test("same query key shares the cached state within a session", () => {
+    const session = {};
+    const first = getViewQueryEntry(session, "same", null);
     setViewQueryResult(first, query([card]));
-    const second = getViewQueryEntry("same", null);
+    const second = getViewQueryEntry(session, "same", null);
     expect(second).toBe(first);
     expect(second.state.rows).toEqual([card]);
+  });
+
+  test("different sessions do not share cached rows", () => {
+    const first = getViewQueryEntry({}, "same", null);
+    const second = getViewQueryEntry({}, "same", null);
+    expect(second).not.toBe(first);
   });
 });
