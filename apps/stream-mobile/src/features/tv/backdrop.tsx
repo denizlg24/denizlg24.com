@@ -24,6 +24,7 @@ export const TvBackdrop = memo(function TvBackdrop({
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       {uri ? (
         <Image
+          cachePolicy="memory-disk"
           source={{ uri }}
           style={styles.image}
           contentFit="cover"

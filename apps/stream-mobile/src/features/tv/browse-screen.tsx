@@ -5,7 +5,6 @@ import type {
   Progress,
   TitleSummary,
 } from "@repo/schemas/stream";
-import { useIsFocused } from "expo-router";
 import { Info, Play, Popcorn, RotateCcw } from "lucide-react-native";
 import {
   memo,
@@ -36,7 +35,6 @@ import { CONTENT_X, SCREEN, TV_SAFE } from "./layout";
 import { TvMeta } from "./meta";
 import { openTvTitle, playOnTv } from "./open";
 import { useTitleDetail } from "./queries";
-import { type RemoteKey, useRemote } from "./remote";
 import {
   ROW_GAP,
   type RowEvents,
@@ -56,6 +54,12 @@ const ROWS_TOP = 250;
 /** In the billboard's own state the rows sit this much lower, peeking in. */
 const HERO_EXTRA = 74;
 const INFO_WIDTH = 440;
+/**
+ * Rows mounted ahead of the deepest one focused so far. Android can only move
+ * focus to a row that exists, so a held Down needs some ready below before
+ * React catches up; rows already reached stay mounted, so Up never waits.
+ */
+const MOUNT_AHEAD = 4;
 
 const SECTION: Record<BrowseTab, TvSection> = {
   home: "home",
@@ -157,7 +161,6 @@ function BrowseContent({
     controller.setBillboard(billboard);
     back.current = controller.back;
   }, [back, billboard, controller, rows]);
-  useRemote(controller.move, useIsFocused());
 
   if (browse.isPending) return <Loading />;
   if (browse.isError && !browse.data) {
@@ -209,7 +212,7 @@ function BrowseContent({
         <Rows
           rows={rows}
           events={controller.events}
-          rowStore={controller.rowStore}
+          reachStore={controller.reachStore}
           columnOf={controller.columnOf}
           preferFirst={billboard === null}
         />
@@ -221,19 +224,19 @@ function BrowseContent({
 const Rows = memo(function Rows({
   rows,
   events,
-  rowStore,
+  reachStore,
   columnOf,
   preferFirst,
 }: {
   rows: TvRowModel[];
   events: RowEvents;
-  rowStore: Store<number>;
+  reachStore: Store<number>;
   columnOf: (row: TvRowModel) => number;
   preferFirst: boolean;
 }) {
-  const active = useStore(rowStore);
+  const reach = useStore(reachStore);
   return rows.map((row, index) =>
-    index < active - 1 || index > Math.max(active, 0) + 1 ? (
+    index > reach ? (
       <View key={row.id} style={{ height: rowHeight(row.kind) }} />
     ) : (
       <TvRow
@@ -242,8 +245,7 @@ const Rows = memo(function Rows({
         initialColumn={columnOf(row)}
         index={index}
         events={events}
-        holdVertical
-        preferFirst={preferFirst && active < 0 && index === 0}
+        preferFirst={preferFirst && index === 0}
       />
     ),
   );
@@ -251,8 +253,8 @@ const Rows = memo(function Rows({
 
 interface Controller {
   rowStore: Store<number>;
-  /** Up or down from a tile: the next row's remembered column, or the billboard. */
-  move: (key: RemoteKey) => void;
+  /** The last row mounted: the deepest focused so far plus `MOUNT_AHEAD`. */
+  reachStore: Store<number>;
   events: RowEvents;
   columnOf: (row: TvRowModel) => number;
   enterBillboard: () => void;
@@ -263,8 +265,10 @@ interface Controller {
 
 /**
  * The browse screen's focus logic, outside React: which row has focus
- * (`rowStore`, read by the row window and billboard buttons), the column each row was
- * left on, and the vertical snap. Rows get `events` once and never again.
+ * (`rowStore`, read by the billboard buttons), how far rows are mounted, the column each
+ * row was left on, and the vertical snap. Android moves focus between rows
+ * itself (each row is a native `FocusRow`); this only follows it. Rows get
+ * `events` once and never again.
  */
 function createController(
   vertical: { current: ScrollView | null },
@@ -272,37 +276,21 @@ function createController(
   memory: FocusMemory | null,
 ): Controller {
   const rowStore = createStore(-1);
+  const reachStore = createStore(MOUNT_AHEAD - 1);
   const columns = new Map<string, number>();
   let rows: TvRowModel[] = [];
   let tops: number[] = [];
   let billboard: Billboard | null = null;
-  let focusedTile: string | null = null;
-  let pendingRow: number | null = null;
 
   const columnOf = (row: TvRowModel) =>
     Math.min(columns.get(row.id) ?? 0, row.tiles.length - 1);
 
-  const focusRow = (index: number) => {
-    const target = rows[index];
-    if (!target || pendingRow !== null) return;
-    const column = columnOf(target);
-    // Bring the target into the native viewport before requesting focus.
-    // The adjacent rows are mounted, but Android may otherwise reject focus
-    // below the scroll view's bounds.
-    pendingRow = index;
-    vertical.current?.scrollTo({
-      y: HERO_EXTRA + (tops[index] ?? 0),
-      animated: false,
-    });
-    requestAnimationFrame(() => {
-      pendingRow = null;
-      memory?.restore(`${target.id}:${column}`);
-    });
-  };
-
   const toRow = (index: number) => {
     if (rowStore.get() === index) return;
     rowStore.set(index);
+    if (index + MOUNT_AHEAD > reachStore.get()) {
+      reachStore.set(index + MOUNT_AHEAD);
+    }
     const y = index < 0 ? 0 : HERO_EXTRA + (tops[index] ?? 0);
     vertical.current?.scrollTo({ y, animated: false });
   };
@@ -320,26 +308,9 @@ function createController(
 
   return {
     rowStore,
+    reachStore,
     columnOf,
     enterBillboard,
-    move: (key) => {
-      if (!focusedTile || (key !== "up" && key !== "down")) return;
-      const row = rowStore.get();
-      if (key === "down") {
-        focusRow(row + 1);
-        return;
-      }
-      if (row > 0) {
-        focusRow(row - 1);
-        return;
-      }
-      if (row === 0 && billboard) {
-        enterBillboard();
-        memory?.restore(
-          billboard.title.available ? "billboard:play" : "billboard:info",
-        );
-      }
-    },
     setRows: (next) => {
       if (next === rows) return;
       rows = next;
@@ -366,27 +337,12 @@ function createController(
       const first = rows[0];
       if (row === 0 || !first) return false;
       toRow(0);
-      focusRow(0);
+      memory?.restore(`${first.id}:${columnOf(first)}`);
       return true;
     },
     events: {
-      onTileBlur: (rowId, column) => {
-        if (focusedTile === `${rowId}:${column}`) focusedTile = null;
-      },
       onTileFocus: (index, model, column) => {
-        focusedTile = `${model.id}:${column}`;
-        const entering = rowStore.get() !== index;
-        const remembered = columns.get(model.id);
         toRow(index);
-        if (
-          entering &&
-          remembered !== undefined &&
-          remembered !== column &&
-          remembered < model.tiles.length
-        ) {
-          memory?.restore(`${model.id}:${remembered}`);
-          return false;
-        }
         columns.set(model.id, column);
         const tile = model.tiles[column];
         if (tile) {
@@ -396,7 +352,6 @@ function createController(
             progress: tile.progress,
           });
         }
-        return true;
       },
       onTilePress: (tile: TvTile) => {
         if (tile.progress) playOnTv(tile.title.id, tile.progress.episodeId);

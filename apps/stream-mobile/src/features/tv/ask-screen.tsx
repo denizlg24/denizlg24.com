@@ -61,7 +61,6 @@ export function TvAskScreen() {
     onTileFocus: (_row, row, column) => {
       const tile = row.tiles[column];
       if (tile) spotlight.set(tile);
-      return true;
     },
     onTilePress: (tile) => openTvTitle(tile.title.id),
   }));

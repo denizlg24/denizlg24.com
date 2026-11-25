@@ -20,6 +20,8 @@ class StreamTvModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("StreamTv")
 
+    View(FocusRowView::class) {}
+
     AsyncFunction("tapCenter") { viewTag: Int ->
       val view = appContext.findView<View>(viewTag) ?: return@AsyncFunction false
       val x = view.width / 2f

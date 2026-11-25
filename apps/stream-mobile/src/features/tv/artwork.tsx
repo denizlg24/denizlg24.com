@@ -7,6 +7,17 @@ import { StyleSheet, View } from "react-native";
 import { colors, spacing } from "@/ui";
 import { TvText, type TvTextVariant } from "./tv-text";
 
+/**
+ * The smallest TMDB size that still covers `width` dp on a 1080p TV (2 px a
+ * dp). A TV decodes every one on a slow CPU: a 500 px transparent logo in a
+ * 100 dp corner is what stalled search as each keystroke swapped the grid.
+ */
+function logoSize(width: number) {
+  if (width <= 92) return "w185";
+  if (width <= 150) return "w300";
+  return "w500";
+}
+
 type Art = Pick<TitleSummary, "title" | "posterPath" | "backdropPath"> & {
   logoPath?: string | null;
 };
@@ -31,7 +42,7 @@ export function TitleLogo({
   lines?: number;
   align?: "left" | "center";
 }) {
-  const logo = tmdbImage(title.logoPath ?? null, "w500");
+  const logo = tmdbImage(title.logoPath ?? null, logoSize(width));
   return (
     <View
       style={[
@@ -43,11 +54,13 @@ export function TitleLogo({
     >
       {logo ? (
         <Image
+          cachePolicy="memory-disk"
           source={{ uri: logo }}
           style={StyleSheet.absoluteFill}
           contentFit="contain"
           contentPosition={align === "center" ? "center" : "left bottom"}
           transition={200}
+          recyclingKey={logo}
           accessibilityLabel={title.title}
         />
       ) : (
@@ -78,6 +91,7 @@ export const PosterArt = memo(function PosterArt({
     <View style={[styles.frame, { width, height }]}>
       {uri ? (
         <Image
+          cachePolicy="memory-disk"
           source={{ uri }}
           style={StyleSheet.absoluteFill}
           contentFit="cover"
@@ -118,13 +132,15 @@ export const BoxArt = memo(function BoxArt({
   /** 0–1. */
   progress?: number;
 }) {
+  const small = width <= 180;
   const uri =
-    tmdbImage(title.backdropPath, "w780") ??
-    tmdbImage(title.posterPath, "w500");
+    tmdbImage(title.backdropPath, small ? "w300" : "w780") ??
+    tmdbImage(title.posterPath, small ? "w185" : "w342");
   return (
     <View style={[styles.frame, { width, height }]}>
       {uri ? (
         <Image
+          cachePolicy="memory-disk"
           source={{ uri }}
           style={StyleSheet.absoluteFill}
           contentFit="cover"
