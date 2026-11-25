@@ -18,7 +18,6 @@ import {
   POSTER,
   RANK_WIDTH,
   ROW_LABEL,
-  SCREEN,
   TILE_GAP,
   TV_SAFE,
 } from "./layout";
@@ -149,7 +148,7 @@ export const TvRow = memo(function TvRow({
         scrollsChildToFocus={false}
         showsHorizontalScrollIndicator={false}
         initialScrollIndex={initial || undefined}
-        initialNumToRender={Math.ceil((SCREEN.width - CONTENT_X) / stride) + 1}
+        initialNumToRender={Math.ceil(960 / stride) + 2}
         maxToRenderPerBatch={6}
         windowSize={3}
         contentContainerStyle={styles.strip}
