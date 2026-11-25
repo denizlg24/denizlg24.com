@@ -14,6 +14,7 @@ import {
   memo,
   type ReactNode,
   useCallback,
+  useDeferredValue,
   useEffect,
   useRef,
   useState,
@@ -35,6 +36,8 @@ import { openTvTitle } from "./open";
 import { TvShell } from "./shell";
 import { TvText } from "./tv-text";
 
+/** A pause this long between keys counts as a word worth searching for. */
+const SETTLE_MS = 300;
 const KEYS = "abcdefghijklmnopqrstuvwxyz1234567890".split("");
 const COLUMNS = 6;
 const KEY = { width: 40, height: 36, gap: 4 } as const;
@@ -50,12 +53,16 @@ const RESULT = {
 } as const;
 const RESULT_HEIGHT = Math.round((RESULT.width * 9) / 16);
 
-/** The draft updates on every keypress. Only settled text reaches the catalogue. */
+/**
+ * The draft updates on every keypress. Only settled text reaches the
+ * catalogue, and its answer renders as a deferred value: a TV's CPU mounting
+ * a grid of artwork must never hold up the next key.
+ */
 export function TvSearchScreen() {
   const { key } = useAudience();
   const [query, setQuery] = useState("");
   const search = useSearch(key, query);
-  const result = search.data ?? null;
+  const result = useDeferredValue(search.data ?? null);
 
   return (
     <TvShell section="search">
@@ -92,7 +99,7 @@ const SearchPad = memo(function SearchPad({
       clearTimeout(timer.current);
       const query = next.trim();
       if (!query) onQuery("");
-      else timer.current = setTimeout(() => onQuery(query), 220);
+      else timer.current = setTimeout(() => onQuery(query), SETTLE_MS);
     },
     [onQuery],
   );
@@ -352,7 +359,12 @@ function Side({ children }: { children: ReactNode }) {
   return <View style={styles.side}>{children}</View>;
 }
 
-const resultKey = (title: TitleSummary) => title.id;
+/**
+ * Slots, not titles: a new answer updates the tiles already on screen in
+ * place. Keyed by title, every keystroke unmounted the grid and mounted a new
+ * one (native views, animation hooks, artwork), seconds of work on a TV.
+ */
+const resultKey = (_: TitleSummary, index: number) => String(index);
 const rightEdge = { right: "self" } as const;
 
 const ResultTile = memo(function ResultTile({
@@ -401,8 +413,10 @@ const ResultGrid = memo(function ResultGrid({
       keyExtractor={resultKey}
       renderItem={renderItem}
       numColumns={RESULT_COLUMNS}
-      initialNumToRender={8}
-      windowSize={3}
+      initialNumToRender={RESULT_COLUMNS * 5}
+      maxToRenderPerBatch={RESULT_COLUMNS}
+      updateCellsBatchingPeriod={120}
+      windowSize={2}
       removeClippedSubviews={false}
       style={styles.fill}
       columnWrapperStyle={styles.resultRow}

@@ -16,6 +16,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -34,7 +35,7 @@ import {
   FocusMemoryContext,
   useFocusMemoryState,
 } from "./focus-memory";
-import { Focusable, useNativeTag } from "./focusable";
+import { Focusable, type FocusTargets, useNativeTag } from "./focusable";
 import { RAIL, TV_SAFE } from "./layout";
 import { useRemote } from "./remote";
 import { TvText } from "./tv-text";
@@ -206,6 +207,20 @@ const Rail = memo(function Rail({
     if (target) router.replace(target.href);
   };
 
+  // Items get handlers that never change, so opening the rail re-renders
+  // only what `open` itself touches, not every icon and label.
+  const latest = useRef({ aim, onAimed, leaveSoon, choose });
+  latest.current = { aim, onAimed, leaveSoon, choose };
+  const itemFocus = useCallback(() => {
+    inside.current = true;
+    if (latest.current.aim) latest.current.onAimed();
+  }, []);
+  const itemBlur = useCallback(() => latest.current.leaveSoon(), []);
+  const itemPress = useCallback(
+    (key: RailKey) => latest.current.choose(key),
+    [],
+  );
+
   const keys: RailKey[] = ["profile", ...SECTIONS.map((item) => item.key)];
   const tagAt = (index: number): number | null => {
     const key = keys[index];
@@ -271,12 +286,9 @@ const Rail = memo(function Rail({
           first
           last={false}
           shown={shown}
-          onFocus={() => {
-            inside.current = true;
-            if (aim) onAimed();
-          }}
-          onBlur={leaveSoon}
-          onPress={choose}
+          onFocus={itemFocus}
+          onBlur={itemBlur}
+          onPress={itemPress}
         />
       </View>
       <View pointerEvents="box-none" style={styles.items}>
@@ -296,12 +308,9 @@ const Rail = memo(function Rail({
             first={false}
             last={item.key === keys.at(-1)}
             shown={shown}
-            onFocus={() => {
-              inside.current = true;
-              if (aim) onAimed();
-            }}
-            onBlur={leaveSoon}
-            onPress={choose}
+            onFocus={itemFocus}
+            onBlur={itemBlur}
+            onPress={itemPress}
           />
         ))}
       </View>
@@ -374,64 +383,96 @@ const RailItem = memo(function RailItem({
     (tag: number) => onNativeTag(railKey, tag),
     [onNativeTag, railKey],
   );
-  const labels = useAnimatedStyle(() => ({
-    opacity: shown.value,
-    transform: [{ translateX: (1 - shown.value) * -12 }],
-  }));
+  const selected = useMemo(() => ({ selected: current }), [current]);
+  const next = useMemo<FocusTargets>(
+    () => ({
+      left: "self",
+      right: exitTag ?? undefined,
+      up: first ? "self" : (upTag ?? undefined),
+      down: last ? "self" : (downTag ?? undefined),
+    }),
+    [exitTag, first, upTag, last, downTag],
+  );
+  const press = useCallback(() => onPress(railKey), [onPress, railKey]);
   return (
     <Focusable
       accessibilityRole="tab"
       accessibilityLabel={
         railKey === "profile" ? `${label}. Switch profiles` : label
       }
-      accessibilityState={{ selected: current }}
+      accessibilityState={selected}
       focusable={open}
       preferred={open && aimed}
-      next={{
-        left: "self",
-        right: exitTag ?? undefined,
-        up: first ? "self" : (upTag ?? undefined),
-        down: last ? "self" : (downTag ?? undefined),
-      }}
+      next={next}
       onNativeTag={noteTag}
       onFocus={onFocus}
       onBlur={onBlur}
-      onPress={() => onPress(railKey)}
+      onPress={press}
       ringless
       grow={1}
     >
       {(focused) => (
-        <View
-          style={[
-            styles.item,
-            focused ? { backgroundColor: "rgba(239,233,223,0.14)" } : null,
-          ]}
-        >
-          <View style={styles.icon}>
-            {profile ? (
-              <ProfileSquare profile={profile} size={30} extra={extra} />
-            ) : Icon ? (
-              <Icon
-                size={24}
-                strokeWidth={current || focused ? 2.4 : 1.8}
-                color={
-                  focused ? colors.paper : current ? colors.amber : colors.muted
-                }
-              />
-            ) : null}
-          </View>
-          <Animated.View style={[styles.labelBox, labels]}>
-            <TvText
-              variant={focused || current ? "navStrong" : "nav"}
-              color={focused ? "paper" : current ? "amber" : "muted"}
-              numberOfLines={1}
-            >
-              {label}
-            </TvText>
-          </Animated.View>
-        </View>
+        <RailFace
+          focused={focused}
+          current={current}
+          label={label}
+          icon={Icon}
+          profile={profile}
+          extra={extra}
+          shown={shown}
+        />
       )}
     </Focusable>
+  );
+});
+
+/** An item's look; memoised so toggling the rail redraws no icon. */
+const RailFace = memo(function RailFace({
+  focused,
+  current,
+  label,
+  icon: Icon,
+  profile,
+  extra,
+  shown,
+}: {
+  focused: boolean;
+  current: boolean;
+  label: string;
+  icon?: LucideIcon;
+  profile?: Profile | null;
+  extra: number;
+  shown: SharedValue<number>;
+}) {
+  const labels = useAnimatedStyle(() => ({
+    opacity: shown.value,
+    transform: [{ translateX: (1 - shown.value) * -12 }],
+  }));
+  return (
+    <View style={[styles.item, focused ? styles.itemFocused : null]}>
+      <View style={styles.icon}>
+        {profile ? (
+          <ProfileSquare profile={profile} size={30} extra={extra} />
+        ) : Icon ? (
+          <Icon
+            size={24}
+            strokeWidth={current || focused ? 2.4 : 1.8}
+            color={
+              focused ? colors.paper : current ? colors.amber : colors.muted
+            }
+          />
+        ) : null}
+      </View>
+      <Animated.View style={[styles.labelBox, labels]}>
+        <TvText
+          variant={focused || current ? "navStrong" : "nav"}
+          color={focused ? "paper" : current ? "amber" : "muted"}
+          numberOfLines={1}
+        >
+          {label}
+        </TvText>
+      </Animated.View>
+    </View>
   );
 });
 
@@ -517,6 +558,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     borderRadius: 8,
   },
+  itemFocused: { backgroundColor: "rgba(239,233,223,0.14)" },
   icon: { width: 30, alignItems: "center", justifyContent: "center" },
   labelBox: { flex: 1 },
   square: { alignItems: "center", justifyContent: "center" },

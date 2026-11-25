@@ -148,6 +148,7 @@ export function TvPlayerScreen({
         <>
           {backdrop ? (
             <Image
+              cachePolicy="memory-disk"
               source={{ uri: backdrop }}
               style={[StyleSheet.absoluteFill, styles.dim]}
               contentFit="cover"

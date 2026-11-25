@@ -9,6 +9,7 @@ import {
 import Svg, { Text as SvgText } from "react-native-svg";
 import { progressFraction } from "@/lib/time";
 import { colors, fonts } from "@/ui";
+import { FocusRow } from "../../../modules/stream-tv";
 import { BoxArt, PosterArt } from "./artwork";
 import { FOCUS_ROOM, Focusable } from "./focusable";
 import {
@@ -66,10 +67,7 @@ export function rowHeight(kind: RowKind): number {
  * memoised once and never re-render when focus moves.
  */
 export interface RowEvents {
-  /** A tile took focus; false asks the row to stand still (focus is being sent elsewhere). */
-  onTileFocus: (row: number, model: TvRowModel, column: number) => boolean;
-  /** Focus left a tile, for the rail or a dialog: arrows are native again. */
-  onTileBlur?: (rowId: string, column: number) => void;
+  onTileFocus: (row: number, model: TvRowModel, column: number) => void;
   onTilePress: (tile: TvTile) => void;
 }
 
@@ -77,13 +75,14 @@ export interface RowEvents {
  * One row: a label over a horizontal strip that keeps the focused tile at
  * the content's left edge. Native scrolling is off (`scrollEnabled`,
  * `scrollsChildToFocus`), so only this row's own animated scroll moves it.
+ * The row is a native `FocusRow`: Up or Down from a neighbouring row lands
+ * on the tile this one last held, decided by Android in the same frame.
  */
 export const TvRow = memo(function TvRow({
   model,
   index,
   events,
   preferFirst = false,
-  holdVertical = false,
   initialColumn = 0,
 }: {
   model: TvRowModel;
@@ -91,11 +90,6 @@ export const TvRow = memo(function TvRow({
   events: RowEvents;
   preferFirst?: boolean;
   initialColumn?: number;
-  /**
-   * The screen moves between rows itself (`RowEvents` + the remote): rows
-   * below its snap line sit off screen, where Android's search cannot find them.
-   */
-  holdVertical?: boolean;
 }) {
   const list = useRef<FlatList<TvTile>>(null);
   const size = tileSize(model.kind);
@@ -105,12 +99,21 @@ export const TvRow = memo(function TvRow({
 
   const focusColumn = useCallback(
     (col: number) => {
-      if (!events.onTileFocus(index, model, col)) return;
+      events.onTileFocus(index, model, col);
       if (col === column.current) return;
       column.current = col;
       list.current?.scrollToOffset({ offset: col * stride, animated: true });
     },
     [events, index, model, stride],
+  );
+
+  const getItemLayout = useCallback(
+    (_: ArrayLike<TvTile> | null | undefined, i: number) => ({
+      length: stride,
+      offset: stride * i,
+      index: i,
+    }),
+    [stride],
   );
 
   const renderItem = useCallback(
@@ -123,23 +126,14 @@ export const TvRow = memo(function TvRow({
         last={col === model.tiles.length - 1}
         preferred={preferFirst && col === 0}
         onFocusColumn={focusColumn}
-        holdVertical={holdVertical}
-        onBlur={events.onTileBlur}
         onPress={events.onTilePress}
       />
     ),
-    [
-      model,
-      preferFirst,
-      holdVertical,
-      focusColumn,
-      events.onTileBlur,
-      events.onTilePress,
-    ],
+    [model, preferFirst, focusColumn, events.onTilePress],
   );
 
   return (
-    <View style={{ height: rowHeight(model.kind) }}>
+    <FocusRow style={{ height: rowHeight(model.kind) }}>
       <TvText variant="rowLabel" numberOfLines={1} style={styles.label}>
         {model.label}
       </TvText>
@@ -147,13 +141,9 @@ export const TvRow = memo(function TvRow({
         ref={list}
         horizontal
         data={model.tiles}
-        keyExtractor={(tile) => tile.key}
+        keyExtractor={tileKey}
         renderItem={renderItem}
-        getItemLayout={(_, i) => ({
-          length: stride,
-          offset: stride * i,
-          index: i,
-        })}
+        getItemLayout={getItemLayout}
         scrollEnabled={false}
         scrollsChildToFocus={false}
         showsHorizontalScrollIndicator={false}
@@ -164,7 +154,7 @@ export const TvRow = memo(function TvRow({
         contentContainerStyle={styles.strip}
         style={styles.list}
       />
-    </View>
+    </FocusRow>
   );
 });
 
@@ -176,8 +166,6 @@ const RowTile = memo(function RowTile({
   last,
   preferred,
   onFocusColumn,
-  holdVertical,
-  onBlur,
   onPress,
 }: {
   tile: TvTile;
@@ -187,8 +175,6 @@ const RowTile = memo(function RowTile({
   last: boolean;
   preferred: boolean;
   onFocusColumn: (column: number) => void;
-  holdVertical: boolean;
-  onBlur?: RowEvents["onTileBlur"];
   onPress: (tile: TvTile) => void;
 }) {
   const art =
@@ -214,10 +200,7 @@ const RowTile = memo(function RowTile({
     <Focusable
       focusKey={`${rowId}:${column}`}
       preferred={preferred}
-      next={{
-        ...(holdVertical ? { up: "self", down: "self" } : {}),
-        ...(last ? { right: "self" } : {}),
-      }}
+      next={last ? LAST_TILE : undefined}
       accessibilityRole="button"
       accessibilityLabel={
         tile.rank
@@ -225,7 +208,6 @@ const RowTile = memo(function RowTile({
           : tile.title.title
       }
       onFocus={() => onFocusColumn(column)}
-      onBlur={onBlur ? () => onBlur(rowId, column) : undefined}
       onPress={() => onPress(tile)}
       radius={4}
       grow={kind === "poster" || kind === "rank" ? 1.07 : 1.05}
@@ -241,6 +223,10 @@ const RowTile = memo(function RowTile({
     </View>
   );
 });
+
+const tileKey = (tile: TvTile) => tile.key;
+
+const LAST_TILE = { right: "self" } as const;
 
 const NUMERAL_SIZE = 136;
 const NUMERAL_WIDTH = RANK_WIDTH + 44;

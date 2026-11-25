@@ -138,19 +138,32 @@ overscan margins are `TV_SAFE`, sizes in `features/tv/layout.ts`.
   `scrollEnabled={false}` and `scrollsChildToFocus={false}`, so Android's
   focus search moves focus and nothing scrolls natively; the focused row
   snaps under the billboard and the focused tile to the content's left edge
-  with animated `scrollTo`. Each row remembers its column and redirects an
-  arriving focus to it. The last tile traps Right (`next={{ right: "self" }}`,
-  Android's `nextFocus*` with the view's own id) so focus never jumps rows.
-  The billboard's buttons are focusable only while the first row (or they)
-  have focus; hidden, they would win Up from every row.
-
+  with `scrollTo`, after the fact. The last tile traps Right
+  (`next={{ right: "self" }}`, Android's `nextFocus*` with the view's own
+  id) so focus never jumps rows. The billboard's buttons are focusable only
+  while the first row (or they) have focus; hidden, they would win Up from
+  every row.
+- **Up and Down between rows never touch JavaScript.** Every `TvRow` is a
+  native `FocusRow` (`modules/stream-tv`, `FocusRowView.kt`): while focus is
+  outside it, its `addFocusables` offers only the tile it last held (or,
+  never focused, the leftmost one on screen), so Android's own geometric
+  search lands on the remembered column in the same frame, and a row below
+  the viewport is still a candidate. Intercepting Up/Down in JS and
+  restoring focus through `hasTVPreferredFocus` took a scroll, a frame and a
+  render per press and silently dropped presses; do not bring it back. A
+  row can only be entered while mounted, so the browse screen mounts
+  `MOUNT_AHEAD` rows past the deepest one reached and never unmounts a row:
+  unmounting above the focus is what made fast Up presses stall.
+  Needs a native rebuild.
 - **Moving focus must re-render nothing.** `Focusable` animates its ring and
   lift with shared values (a function child is the only thing that re-renders
   on focus), and what the remote rests on lives in a `useSpotlight` store,
   read only by the backdrop and spotlight (`useSpot`) and settled for 160 ms.
   Rails and grids are memoised and take `spotlight.set`, which is stable.
   Putting the focused title back in a screen's state re-renders every poster
-  on every press, which is what made the TV slow.
+  on every press, which is what made the TV slow. TV images use
+  `cachePolicy="memory-disk"`: expo-image's default is disk only, so a
+  poster scrolled back to was decoded again.
 - **The system's grey focus box is off** (`android:defaultFocusHighlightEnabled`
   in the theme, from `with-android-tv`). It drew over every focused view at
   its unscaled bounds, beside the amber ring. Scrolling rows leave

@@ -411,6 +411,7 @@ const EpisodeStrip = memo(function EpisodeStrip({
             <View style={styles.still}>
               {still ? (
                 <Image
+                  cachePolicy="memory-disk"
                   source={{ uri: still }}
                   style={StyleSheet.absoluteFill}
                   contentFit="cover"
@@ -493,10 +494,7 @@ function Similar({ id, onFocus }: { id: string; onFocus: () => void }) {
     };
   }, [similar.data]);
   const [events] = useState<RowEvents>(() => ({
-    onTileFocus: () => {
-      onFocusRef.current();
-      return true;
-    },
+    onTileFocus: () => onFocusRef.current(),
     onTilePress: (tile) => openTvTitle(tile.title.id),
   }));
   if (!model) return null;
@@ -535,6 +533,7 @@ function Cast({ cast, onFocus }: { cast: CastMember[]; onFocus: () => void }) {
           <View style={styles.photo}>
             {photo ? (
               <Image
+                cachePolicy="memory-disk"
                 source={{ uri: photo }}
                 style={StyleSheet.absoluteFill}
                 contentFit="cover"
