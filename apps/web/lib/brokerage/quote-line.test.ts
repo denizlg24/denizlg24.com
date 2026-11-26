@@ -8,7 +8,7 @@ import {
 } from "./quote-line";
 
 const now = Date.parse("2026-11-26T12:00:00Z");
-const quote = (_ticker: string, currency: string, ts: string) => ({
+const quote = (_ticker: string, currency: string | null, ts: string) => ({
   currency,
   ts,
 });
@@ -101,6 +101,19 @@ describe("currency line", () => {
     const alternative = currencyLine(gold);
     expect(chooseLine(gold, alternative, "wrong")).toBe(gold);
     expect(chooseLine(gold, alternative, "unknown")).toBe(gold);
+  });
+
+  test("a recent quote without a currency proves nothing", () => {
+    const gold = yahooLine("GOLD", "SBF", "EUR");
+    if (!gold) throw new Error("GOLD should map");
+    const probe = probeQuote(
+      quote("GOLD.PA", null, "2026-11-26T11:00:00Z"),
+      gold,
+      now,
+      true,
+    );
+    expect(probe).toBe("unknown");
+    expect(alternativeFor(gold, probe)).toBeNull();
   });
 
   test("a healthy default line is left alone", () => {

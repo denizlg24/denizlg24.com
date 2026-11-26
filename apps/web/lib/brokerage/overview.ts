@@ -100,14 +100,19 @@ function toSnapshot(row: BrokerageSnapshot): BrokerageSnapshot {
   };
 }
 
-/** Live quotes are an enhancement: any failure leaves the statement prices in place. */
+/**
+ * Live quotes are an enhancement: any failure leaves the statement prices in
+ * place. A stale answer is the cache served while the relay is down, with no
+ * bound on its age, so it counts as a failure too.
+ */
 async function liveQuotes(snapshot: BrokerageSnapshot) {
   const tickers = snapshot.positions.flatMap((position) =>
     position.quoteTicker ? [position.quoteTicker] : [],
   );
   if (tickers.length === 0) return [];
   try {
-    return (await getQuotes(tickers)).quotes;
+    const { quotes, stale } = await getQuotes(tickers);
+    return stale ? [] : quotes;
   } catch {
     return [];
   }

@@ -101,6 +101,20 @@ describe("priceHoldings", () => {
     expect(row?.dayChange).toBeCloseTo(72 / 70 - 1);
   });
 
+  test("reports no day P&L when some holding is not live", () => {
+    const result = priceHoldings(
+      [
+        holding({ conid: "a", quoteTicker: "SAP.DE", quoteCurrency: "EUR" }),
+        holding({ conid: "b", symbol: "XYZ" }),
+      ],
+      [quote({})],
+      2000,
+    );
+    expect(result.pricedAt).not.toBeNull();
+    expect(result.navDelta).toBe(100);
+    expect(result.dayPnl).toBeNull();
+  });
+
   test("keeps the statement price when the quote currency differs", () => {
     const original = holding({ quoteTicker: "SAP.DE", quoteCurrency: "EUR" });
     const result = priceHoldings(

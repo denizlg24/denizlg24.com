@@ -27,7 +27,13 @@ import {
 import { FilterTabs } from "@repo/ui/toolbar";
 import { cn } from "@repo/ui/utils";
 import { History, Landmark, RefreshCw } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   CartesianGrid,
   Line,
@@ -556,10 +562,14 @@ export function HoldingsPage() {
   const [overview, setOverview] = useState<BrokerageOverview | null>(null);
   const [syncing, setSyncing] = useState<"daily" | "history" | null>(null);
 
+  const latestRequest = useRef(0);
   const load = useCallback(async () => {
+    const request = ++latestRequest.current;
     try {
-      setOverview(await fetchBrokerageOverview(client));
+      const next = await fetchBrokerageOverview(client);
+      if (request === latestRequest.current) setOverview(next);
     } catch (error) {
+      if (request !== latestRequest.current) return;
       toast.error(
         error instanceof Error ? error.message : "Holdings unavailable",
       );

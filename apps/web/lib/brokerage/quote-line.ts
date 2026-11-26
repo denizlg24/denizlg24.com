@@ -107,8 +107,9 @@ export function probeQuote(
   complete: boolean,
 ): Probe {
   if (!quote) return complete ? "wrong" : "unknown";
-  const fresh = now - Date.parse(quote.ts) < STALE_AFTER_MS;
-  return fresh && quote.currency === line.currency ? "live" : "wrong";
+  if (now - Date.parse(quote.ts) >= STALE_AFTER_MS) return "wrong";
+  if (!quote.currency) return "unknown";
+  return quote.currency === line.currency ? "live" : "wrong";
 }
 
 /** The `-CCY` line worth probing, only when the default is provably wrong. */

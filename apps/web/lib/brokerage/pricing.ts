@@ -10,7 +10,10 @@ export interface LivePricing {
   holdings: BrokerageHolding[];
   /** Statement NAV plus this to get the live NAV, so accruals the statement carries survive. */
   navDelta: number;
-  /** Change since the previous close across live holdings; null when none is live. */
+  /**
+   * Change since the previous close, only when every holding is live with a
+   * previous close: a partial subtotal is not the account's day P&L.
+   */
   dayPnl: number | null;
   pricedAt: string | null;
 }
@@ -28,7 +31,8 @@ export function priceHoldings(
 ): LivePricing {
   const byTicker = new Map(quotes.map((quote) => [quote.ticker, quote]));
   let navDelta = 0;
-  let dayPnl: number | null = null;
+  let dayPnl = 0;
+  let dayComplete = holdings.length > 0;
   let pricedAt: string | null = null;
 
   const repriced: BrokerageHolding[] = [];
@@ -38,6 +42,7 @@ export function priceHoldings(
       : undefined;
     const expected = holding.quoteCurrency ?? holding.currency;
     if (!quote || quote.last == null || quote.currency !== expected) {
+      dayComplete = false;
       repriced.push(holding);
       continue;
     }
@@ -48,12 +53,12 @@ export function priceHoldings(
     const valueBase = value * holding.fxRateToBase;
     const unrealizedPnl = value - holding.costBasis;
     navDelta += valueBase - holding.valueBase;
-    if (quote.prevClose != null) {
-      dayPnl =
-        (dayPnl ?? 0) +
+    if (quote.prevClose == null) dayComplete = false;
+    else {
+      dayPnl +=
         holding.quantity *
-          (price - quote.prevClose / scale) *
-          holding.fxRateToBase;
+        (price - quote.prevClose / scale) *
+        holding.fxRateToBase;
     }
     if (!pricedAt || Date.parse(quote.ts) > Date.parse(pricedAt))
       pricedAt = quote.ts;
@@ -82,7 +87,7 @@ export function priceHoldings(
       }))
       .sort((a, b) => b.valueBase - a.valueBase),
     navDelta,
-    dayPnl,
+    dayPnl: dayComplete ? dayPnl : null,
     pricedAt,
   };
 }

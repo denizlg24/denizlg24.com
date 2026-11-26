@@ -9,6 +9,9 @@ import {
   yahooLine,
 } from "./quote-line";
 
+/** Two positions can share a default ticker in different currencies. */
+const keyOf = (line: QuoteLine) => `${line.ticker}|${line.currency}`;
+
 async function probeAll(lines: QuoteLine[]) {
   const probes = new Map<string, Probe>();
   const tickers = [...new Set(lines.map((line) => line.ticker))];
@@ -19,11 +22,11 @@ async function probeAll(lines: QuoteLine[]) {
     const byTicker = new Map(quotes.map((quote) => [quote.ticker, quote]));
     for (const line of lines)
       probes.set(
-        line.ticker,
+        keyOf(line),
         probeQuote(byTicker.get(line.ticker), line, now, !stale),
       );
   } catch {
-    for (const line of lines) probes.set(line.ticker, "unknown");
+    for (const line of lines) probes.set(keyOf(line), "unknown");
   }
   return probes;
 }
@@ -45,19 +48,19 @@ export async function attachQuoteLines(
   const alternatives = new Map<string, QuoteLine>();
   for (const line of defaults) {
     if (!line) continue;
-    const alternative = alternativeFor(line, primary.get(line.ticker));
-    if (alternative) alternatives.set(line.ticker, alternative);
+    const alternative = alternativeFor(line, primary.get(keyOf(line)));
+    if (alternative) alternatives.set(keyOf(line), alternative);
   }
   const secondary = await probeAll([...alternatives.values()]);
 
   return positions.map((position, index) => {
     const line = defaults[index];
     if (!line) return position;
-    const alternative = alternatives.get(line.ticker);
+    const alternative = alternatives.get(keyOf(line));
     const chosen = chooseLine(
       line,
       alternative,
-      alternative && secondary.get(alternative.ticker),
+      alternative && secondary.get(keyOf(alternative)),
     );
     return {
       ...position,
