@@ -35,7 +35,12 @@ export default defineConfig({
         ALERT_MONITOR: "0",
         BROKER_SYNC: "0",
         IBKR_FLEX_URL: "http://127.0.0.1:3292/flex",
-        DATABASE_URL: "",
+        // `tests/billing.spec.ts` runs against Postgres and the real gateway
+        // when STOCKWATCHER_E2E_DATABASE_URL and STOCKWATCHER_E2E_AI_KEY are set.
+        DATABASE_URL: process.env.STOCKWATCHER_E2E_DATABASE_URL ?? "",
+        BILLING: process.env.STOCKWATCHER_E2E_DATABASE_URL ? "1" : "0",
+        AI_GATEWAY_API_KEY: process.env.STOCKWATCHER_E2E_AI_KEY ?? "",
+        AI_GATEWAY_MODEL: "anthropic/claude-haiku-4.5",
         REQUIRE_DATABASE_URL: "0",
       },
     },

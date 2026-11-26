@@ -446,3 +446,22 @@
     transition: none;
   }
 }
+
+/* Plan & credits (/account) reuses the admin shell. */
+.account-notice {
+  margin: 0 0 var(--stack);
+  padding: 6px var(--sp-2);
+  border-radius: 2px;
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  font-size: var(--fs-sm);
+}
+.billing-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.billing-error {
+  color: var(--loss);
+  font-size: var(--fs-xs);
+}

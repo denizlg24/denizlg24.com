@@ -1268,3 +1268,21 @@
   flex: 1 1 auto;
   min-width: 0;
 }
+
+.chat-answer-credits {
+  align-self: center;
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-2xs);
+}
+.chat-credit-balance {
+  flex: none;
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+  text-decoration: none;
+}
+.chat-credit-balance:hover {
+  color: var(--foreground);
+}
+.chat-credit-balance.negative {
+  color: var(--loss);
+}

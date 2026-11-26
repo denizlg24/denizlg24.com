@@ -225,6 +225,23 @@ function pg(url: string) {
         last_error TEXT, error_count INTEGER NOT NULL,
         PRIMARY KEY (user_id, signal_id)
       )`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_credit_accounts (
+        user_id TEXT PRIMARY KEY, free_mc BIGINT NOT NULL, paid_mc BIGINT NOT NULL,
+        free_period TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL
+      )`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_credit_holds (
+        id UUID PRIMARY KEY, user_id TEXT NOT NULL, amount_mc BIGINT NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL
+      )`;
+      await sql`CREATE INDEX IF NOT EXISTS stockwatcher_credit_holds_user ON stockwatcher_credit_holds(user_id, expires_at)`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_credit_ledger (
+        id UUID PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL,
+        amount_mc BIGINT NOT NULL, free_mc BIGINT NOT NULL, paid_mc BIGINT NOT NULL,
+        ref TEXT NOT NULL UNIQUE, thread_id TEXT, message_id TEXT, model TEXT,
+        cost_usd NUMERIC(14, 8), meta JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL
+      )`;
+      await sql`CREATE INDEX IF NOT EXISTS stockwatcher_credit_ledger_user ON stockwatcher_credit_ledger(user_id, created_at)`;
+      await sql`CREATE INDEX IF NOT EXISTS stockwatcher_credit_ledger_thread ON stockwatcher_credit_ledger(user_id, thread_id)`;
     });
     return db;
   })().catch(async (error) => {

@@ -1,5 +1,6 @@
 import "server-only";
 import { generateText, Output } from "ai";
+import { addScopedStep } from "@/lib/billing/scope";
 import { briefModel } from "./ai/config";
 import { readExtract, writeExtract } from "./db";
 import { archive, sec, submission } from "./research";
@@ -201,6 +202,7 @@ export async function ownDisclosure(
   let links: Link[] = [];
   if (context) {
     const { output } = await generateText({
+      onStepEnd: addScopedStep,
       model: briefModel(),
       output: Output.object({ schema: extractionSchema }),
       prompt: `These are excerpts from ${filing.name}'s ${filing.form} filed ${filing.filed}.
@@ -340,6 +342,7 @@ export async function verify(ticker: string, cik: string): Promise<Verified> {
   let link: Link | null = null;
   if (context) {
     const { output } = await generateText({
+      onStepEnd: addScopedStep,
       model: briefModel(),
       output: Output.object({ schema: verificationSchema }),
       prompt: `FILER: ${filing.name}. TARGET: ${target.title}.

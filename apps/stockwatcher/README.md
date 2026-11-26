@@ -71,8 +71,19 @@ Set these production runtime values in Forge.
 | `BROKER_SECRET`                                    | Optional key that encrypts stored broker tokens. Defaults to a key derived from `DENIZ_OIDC_CLIENT_SECRET`. Rotating it requires reconnecting. |
 | `BROKER_SYNC`                                      | Set to `0` to turn off the six-hourly background broker sync.          |
 | `MARKETS_DATA_URL`, `MARKETS_DATA_TOKEN`  | Optional HTTP origin and bearer token for the relay data API behind the security functions and monitors. Default to the relay URL and signing secret. |
+| `BILLING`                                          | `1` meters AI work against per-user credits (Postgres only). See **Credits**. |
+| `CREDIT_MARKUP`, `FREE_CREDITS_MONTHLY`            | Charge multiplier over gateway cost (default 2) and the monthly free allowance (default 100). |
+| `POLAR_ACCESS_TOKEN`, `POLAR_WEBHOOK_SECRET`, `POLAR_ENVIRONMENT` | Polar organization token, webhook secret and `sandbox` or `production`. Enables buying credit packs. |
 
 Forge replaces app containers during deploys. PostgreSQL keeps workspaces, alerts, and sessions across those replacements. The app creates its own prefixed tables on first connection. Grant the database role permission to create tables and indexes in its schema.
+
+## Credits
+
+With `BILLING=1`, the assistant, the daily brief and filing reads cost credits. One credit is one cent; a request is charged the AI Gateway's reported cost for its steps times `CREDIT_MARKUP`. Every account gets `FREE_CREDITS_MONTHLY` free credits that reset on the 1st (UTC) and are spent first; purchased credits never expire. A request reserves `CHAT_RESERVE_CREDITS` before it starts and is refused with 402 below `CREDIT_FLOOR`, so parallel requests cannot spend the same credits. The ledger is append-only and idempotent per run and per Polar order.
+
+Packs are one-time Polar products with `metadata.credits`. Create them with `POLAR_ACCESS_TOKEN=… POLAR_ENVIRONMENT=sandbox bun scripts/polar-setup.ts`. In Polar, add a webhook to `<APP_URL>/api/billing/webhook` for `order.paid` and `order.refunded`, and set its secret as `POLAR_WEBHOOK_SECRET`. The organization token needs `products:read`, `products:write`, `checkouts:write`, `customer_sessions:write`, `customers:read` and `customers:write`. Users see their balance, packs, usage and history at `/account`.
+
+Tests: `STOCKWATCHER_TEST_DATABASE_URL=postgres://… bun test lib/billing` runs the ledger and webhook suite against a disposable database. `STOCKWATCHER_E2E_DATABASE_URL=… STOCKWATCHER_E2E_AI_KEY=… bunx playwright test tests/billing.spec.ts` charges a real chat end to end.
 
 ## Admin
 

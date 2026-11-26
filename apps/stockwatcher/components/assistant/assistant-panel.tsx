@@ -34,6 +34,12 @@ import { Button } from "@/components/ui/button";
 import type { StockwatcherMessage } from "@/lib/ai/tools";
 import type { AskUserOutput, DashboardState } from "@/lib/assistant-types";
 import { documentExtensions } from "@/lib/documents/types";
+import {
+  creditsKey,
+  formatCredits,
+  isOutOfCredits,
+  useCredits,
+} from "./credits";
 import { errorMessage } from "./format";
 import { Markdown } from "./markdown";
 import { memoriesKey } from "./memory-panel";
@@ -207,10 +213,16 @@ export function AssistantPanel({
     },
     onFinish: () => {
       void mutate(threadsKey);
+      void mutate(creditsKey);
     },
   });
 
   const busy = status === "submitted" || status === "streaming";
+  const creditsLeft = useCredits();
+  const threadCredits = messages.reduce(
+    (sum, message) => sum + (message.metadata?.credits ?? 0),
+    0,
+  );
 
   useEffect(() => {
     for (const message of messages) {
@@ -499,7 +511,17 @@ export function AssistantPanel({
                       }
                     />
                   ) : null}
-                  {error ? (
+                  {error && isOutOfCredits(error) ? (
+                    <div className="chat-error" role="alert">
+                      <span>
+                        You are out of credits. Free credits reset on the 1st of
+                        the month.
+                      </span>
+                      <Button variant="ghost" size="xs" asChild>
+                        <a href="/account">Buy credits</a>
+                      </Button>
+                    </div>
+                  ) : error ? (
                     <div className="chat-error" role="alert">
                       <span>{errorMessage(error)}</span>
                       <Button variant="ghost" size="xs" onClick={retry}>
@@ -564,6 +586,21 @@ export function AssistantPanel({
                     ? `Context: ${scope}`
                     : "Enter to send · Shift+Enter for a new line"}
                 </span>
+                {creditsLeft !== null ? (
+                  <a
+                    href="/account"
+                    className={`meta chat-credit-balance${creditsLeft <= 0 ? " negative" : ""}`}
+                    title={
+                      threadCredits
+                        ? `This thread used ${formatCredits(threadCredits)}`
+                        : "Credits left"
+                    }
+                  >
+                    {threadCredits
+                      ? `${formatCredits(threadCredits)} · ${formatCredits(creditsLeft)} left`
+                      : `${formatCredits(creditsLeft)} left`}
+                  </a>
+                ) : null}
                 {busy ? (
                   <Button
                     type="button"
@@ -680,6 +717,11 @@ function Answer({
       <SourceList sources={sources} />
       {done && text ? (
         <div className="chat-answer-actions">
+          {message.metadata?.credits !== undefined ? (
+            <span className="meta chat-answer-credits">
+              {formatCredits(message.metadata.credits)}
+            </span>
+          ) : null}
           <Button
             variant="ghost"
             size="xs"
