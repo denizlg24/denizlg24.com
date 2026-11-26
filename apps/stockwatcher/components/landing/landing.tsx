@@ -175,7 +175,7 @@ export async function Landing({
         <div className="landing-stage">
           <AutoplayVideo
             name="pm"
-            label="Stockwatcher computing S&P 500 breadth, reading a 10-K and sending an alert."
+            label="Stockwatcher answering an S&P 500 breadth question with its sources, then alerting when the line crosses 60%."
           />
         </div>
       </div>
