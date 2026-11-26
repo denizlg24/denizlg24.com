@@ -381,6 +381,7 @@ const quotes: QuoteStore = {
       ask: doc.ask,
       ts: doc.ts.toISOString(),
       source: doc.source as "iex",
+      currency: doc.currency,
     }));
   },
 

@@ -166,6 +166,7 @@ export interface IMarketQuote extends Document {
   ask: number | null;
   ts: Date;
   source: string;
+  currency: string | null;
   updatedAt: Date;
 }
 
@@ -182,6 +183,7 @@ const marketQuoteSchema = new Schema<IMarketQuote>(
     ask: { type: Number, default: null },
     ts: { type: Date, required: true },
     source: { type: String, required: true },
+    currency: { type: String, default: null },
   },
   { timestamps: true },
 );
