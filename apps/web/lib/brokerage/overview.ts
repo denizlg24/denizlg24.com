@@ -6,6 +6,7 @@ import type {
   BrokerageSeriesPoint,
   BrokerageSnapshot,
 } from "@repo/schemas";
+import { getQuotes } from "@/lib/markets/service";
 import { connectDB } from "@/lib/mongodb";
 import {
   BrokerageActivityModel,
@@ -13,6 +14,7 @@ import {
   BrokerageSyncState,
   type IBrokerageActivity,
 } from "@/models/Brokerage";
+import { priceHoldings } from "./pricing";
 import { BROKERAGE_STATE_ID } from "./sync";
 
 const ACTIVITY_LIMIT = 50;
@@ -60,6 +62,8 @@ export function withDayChange(
       return {
         ...position,
         dayChange: before ? position.markPrice / before - 1 : null,
+        pricing: "statement" as const,
+        quotedAt: null,
       };
     })
     .sort((a, b) => b.valueBase - a.valueBase);
@@ -96,6 +100,19 @@ function toSnapshot(row: BrokerageSnapshot): BrokerageSnapshot {
   };
 }
 
+/** Live quotes are an enhancement: any failure leaves the statement prices in place. */
+async function liveQuotes(snapshot: BrokerageSnapshot) {
+  const tickers = snapshot.positions.flatMap((position) =>
+    position.quoteTicker ? [position.quoteTicker] : [],
+  );
+  if (tickers.length === 0) return [];
+  try {
+    return (await getQuotes(tickers)).quotes;
+  } catch {
+    return [];
+  }
+}
+
 export async function getBrokerageOverview(): Promise<BrokerageOverview> {
   await connectDB();
   const state = await BrokerageSyncState.findById(BROKERAGE_STATE_ID).lean();
@@ -109,6 +126,7 @@ export async function getBrokerageOverview(): Promise<BrokerageOverview> {
       account: null,
       sync,
       asOf: null,
+      pricedAt: null,
       totals: null,
       holdings: [],
       cash: [],
@@ -148,6 +166,7 @@ export async function getBrokerageOverview(): Promise<BrokerageOverview> {
       account,
       sync,
       asOf: null,
+      pricedAt: null,
       totals: null,
       holdings: [],
       cash: [],
@@ -165,26 +184,41 @@ export async function getBrokerageOverview(): Promise<BrokerageOverview> {
     commissions += row.change?.commissions ?? 0;
   }
   const change = latest.change;
-  const dayPnl = change
-    ? change.endingValue - change.startingValue - change.flows
-    : null;
+  const live = priceHoldings(
+    withDayChange(latest, previous),
+    await liveQuotes(latest),
+    latest.nav,
+  );
+  const nav = latest.nav + live.navDelta;
+  const dayPnl =
+    live.dayPnl ??
+    (change ? change.endingValue - change.startingValue - change.flows : null);
+  const dayReturn =
+    live.dayPnl === null
+      ? change
+        ? change.twr / 100
+        : null
+      : nav - live.dayPnl !== 0
+        ? live.dayPnl / (nav - live.dayPnl)
+        : null;
 
   return {
     account,
     sync,
     asOf: latest.reportDate,
+    pricedAt: live.pricedAt,
     totals: {
-      nav: latest.nav,
+      nav,
       cash: latest.cashBase,
       netDeposits,
-      pnl: latest.nav - netDeposits,
+      pnl: nav - netDeposits,
       cumulativeReturn: last?.cumulativeReturn ?? 0,
       dayPnl,
-      dayReturn: change ? change.twr / 100 : null,
+      dayReturn,
       income,
       commissions,
     },
-    holdings: withDayChange(latest, previous),
+    holdings: live.holdings,
     cash: latest.cash,
     series,
     activity: activityRows.map(serializeActivity),

@@ -40,8 +40,11 @@ import { toast } from "sonner";
 import { relative } from "../finance/finance-primitives";
 import { shortDay } from "../finance/finance-series";
 import { toneClass, trimQuantity } from "../markets/format";
+import { useLiveRefresh } from "../markets/use-live-refresh";
 import { useAdmin } from "../provider";
 import { fetchBrokerageOverview, syncBrokerage } from "./brokerage-data";
+
+const LIVE_REFRESH_MS = 60_000;
 
 function amount(value: number, currency: string, signed = false) {
   const formatted = new Intl.NumberFormat("en-GB", {
@@ -51,6 +54,13 @@ function amount(value: number, currency: string, signed = false) {
     maximumFractionDigits: 2,
   }).format(value);
   return signed && value > 0 ? `+${formatted}` : formatted;
+}
+
+function clock(iso: string) {
+  return new Date(iso).toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function percent(fraction: number | null, signed = true) {
@@ -227,9 +237,11 @@ const CELL = "px-2 py-1.5 text-right tabular-nums";
 function Holdings({
   holdings,
   baseCurrency,
+  live,
 }: {
   holdings: BrokerageHolding[];
   baseCurrency: string;
+  live: boolean;
 }) {
   if (holdings.length === 0) return <EmptyState label="No positions" compact />;
   return (
@@ -278,7 +290,19 @@ function Holdings({
               >
                 {holding.costBasisPrice.toFixed(2)}
               </TableCell>
-              <TableCell className={CELL}>
+              <TableCell
+                className={cn(
+                  CELL,
+                  live &&
+                    holding.pricing === "statement" &&
+                    "text-muted-foreground",
+                )}
+                title={
+                  holding.pricing === "live" && holding.quotedAt
+                    ? `Quoted ${clock(holding.quotedAt)}`
+                    : "Statement price"
+                }
+              >
                 {holding.markPrice.toFixed(2)}
               </TableCell>
               <TableCell className={cn(CELL, toneClass(holding.dayChange))}>
@@ -476,7 +500,11 @@ function Body({ overview }: { overview: BrokerageOverview }) {
 
       {totals && (
         <Section title="Positions" count={overview.holdings.length}>
-          <Holdings holdings={overview.holdings} baseCurrency={currency} />
+          <Holdings
+            holdings={overview.holdings}
+            baseCurrency={currency}
+            live={overview.pricedAt !== null}
+          />
         </Section>
       )}
 
@@ -542,6 +570,8 @@ export function HoldingsPage() {
     void load();
   }, [load]);
 
+  useLiveRefresh(() => void load(), { intervalMs: LIVE_REFRESH_MS });
+
   const sync = async (history: boolean) => {
     setSyncing(history ? "history" : "daily");
     try {
@@ -562,7 +592,9 @@ export function HoldingsPage() {
       <HoldingsHeader leading={slots?.sidebarTrigger}>
         {overview?.asOf && (
           <span className="mr-1 text-xs tabular-nums text-muted-foreground">
-            {shortDay(overview.asOf)}
+            {overview.pricedAt
+              ? `live as of ${clock(overview.pricedAt)}`
+              : `statement of ${shortDay(overview.asOf)}`}
             {overview.sync.lastSyncedAt
               ? ` · synced ${relative(overview.sync.lastSyncedAt)}`
               : ""}

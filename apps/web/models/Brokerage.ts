@@ -38,6 +38,9 @@ const PositionSchema = new mongoose.Schema<BrokeragePosition>(
     unrealizedPnl: { type: Number, required: true },
     unrealizedPnlBase: { type: Number, required: true },
     percentOfNav: { type: Number, required: true },
+    quoteTicker: String,
+    quoteCurrency: String,
+    quoteScale: Number,
   },
   { _id: false },
 );
