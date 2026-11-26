@@ -6,7 +6,7 @@ const origin = { Origin: "http://127.0.0.1:3290" };
 
 async function openPreview(page: Page) {
   await page.goto("/");
-  await page.getByRole("button", { name: "Open preview" }).click();
+  await page.getByRole("button", { name: "Open preview" }).first().click();
   await expect(
     page.getByRole("heading", { name: "Desk", level: 1 }),
   ).toBeVisible();
@@ -46,7 +46,7 @@ async function seedThread(page: Page, title: string) {
 
 async function signIn(page: Page, name: "Alice" | "Bob") {
   await page.goto("/");
-  await page.getByRole("link", { name: "Continue with Deniz Cloud" }).click();
+  await page.getByRole("link", { name: "Sign in", exact: true }).click();
   await page.getByRole("link", { name: `Continue as ${name}` }).click();
   await expect(
     page.getByRole("heading", { name: "Desk", level: 1 }),
@@ -108,7 +108,7 @@ test("OIDC with PKCE and signed ID token isolates workspaces and revokes the loc
   );
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(
-    page.getByRole("link", { name: "Continue with Deniz Cloud" }),
+    page.getByRole("link", { name: "Sign in", exact: true }),
   ).toBeVisible();
   expect(oldCookies).toHaveLength(1);
   const old = oldCookies[0];
@@ -128,7 +128,7 @@ test("workspace writes reject foreign origins, stale revisions, and oversold tra
   page,
 }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Open preview" }).click();
+  await page.getByRole("button", { name: "Open preview" }).first().click();
   const original = await (await page.request.get("/api/workspace")).json();
   expect(
     (
@@ -185,7 +185,7 @@ test("portfolio trades and notes can be recorded and assistant opens a prepared 
   page,
 }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Open preview" }).click();
+  await page.getByRole("button", { name: "Open preview" }).first().click();
   await page
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("link", { name: "Portfolio" })
@@ -266,7 +266,7 @@ test("requests build an empty dashboard in place, keep follow-up edits, and prod
   browser,
 }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Open preview" }).click();
+  await page.getByRole("button", { name: "Open preview" }).first().click();
   await expect(
     page.getByRole("heading", { name: "Desk", level: 1 }),
   ).toBeVisible();
@@ -331,7 +331,7 @@ test("requests build an empty dashboard in place, keep follow-up edits, and prod
   });
   const linked = await newContext.newPage();
   await linked.goto(`/${href}`);
-  await linked.getByRole("link", { name: "Continue with Deniz Cloud" }).click();
+  await linked.getByRole("link", { name: "Sign in", exact: true }).click();
   await linked.getByRole("link", { name: "Continue as Bob" }).click();
   await expect(linked.locator(".chart-since")).toContainText(date);
   await expect(
