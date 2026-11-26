@@ -141,6 +141,7 @@ export type Usage = {
   model?: string | null;
   source: "chat" | "brief" | "supply-chain";
   unresolved?: number;
+  unresolvedIds?: string[];
 };
 
 /** Settles a reservation against the actual model cost. Returns credits charged. */
@@ -172,6 +173,7 @@ export async function settle(
           metered,
           charge,
           unresolved: usage.unresolved ?? 0,
+          unresolvedIds: usage.unresolvedIds ?? [],
         })}, ${now})
       ON CONFLICT (ref) DO NOTHING`;
     if (inserted.count === 1 && metered)

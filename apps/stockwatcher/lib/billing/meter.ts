@@ -27,22 +27,29 @@ async function lookupCost(generationId: string) {
 
 /**
  * USD cost of the steps: the cost the gateway attached, else a lookup by
- * generation id. `unresolved` counts steps neither could price.
+ * generation id. `unresolved` counts steps neither could price, and
+ * `unresolvedIds` keeps their generation ids so they can be priced later.
  */
 export async function stepsCost(steps: ReadonlyArray<MeteredStep>) {
   const direct = gatewayCost(steps);
-  if (!direct.missing) return { costUsd: direct.costUsd, unresolved: 0 };
+  if (!direct.missing)
+    return { costUsd: direct.costUsd, unresolved: 0, unresolvedIds: [] };
   let costUsd = direct.costUsd;
   let unresolved = 0;
+  const unresolvedIds: string[] = [];
   for (const step of steps) {
     const meta = step.providerMetadata?.gateway;
     if (Number.isFinite(Number(meta?.cost))) continue;
     const id = meta?.generationId;
     const cost = typeof id === "string" ? await lookupCost(id) : null;
-    if (cost === null) unresolved++;
-    else costUsd += cost;
+    if (cost !== null) {
+      costUsd += cost;
+      continue;
+    }
+    unresolved++;
+    if (typeof id === "string") unresolvedIds.push(id);
   }
-  return { costUsd, unresolved };
+  return { costUsd, unresolved, unresolvedIds };
 }
 
 /**
@@ -55,20 +62,25 @@ export async function meter(
   user: Pick<Identity, "id" | "demo">,
   reservation: Extract<Reservation, { ok: true }>,
   steps: ReadonlyArray<MeteredStep>,
-  usage: Omit<Usage, "costUsd" | "unresolved">,
+  usage: Omit<Usage, "costUsd" | "unresolved" | "unresolvedIds">,
 ): Promise<number | null> {
   try {
     if (!steps.length) {
       await release(reservation);
       return 0;
     }
-    const { costUsd, unresolved } = await stepsCost(steps);
+    const { costUsd, unresolved, unresolvedIds } = await stepsCost(steps);
     if (unresolved)
       console.error("Stockwatcher could not price model steps", {
         ref: usage.ref,
         unresolved,
       });
-    return await settle(user, reservation, { ...usage, costUsd, unresolved });
+    return await settle(user, reservation, {
+      ...usage,
+      costUsd,
+      unresolved,
+      unresolvedIds,
+    });
   } catch (error) {
     console.error("Stockwatcher credit settlement failed", {
       ref: usage.ref,
