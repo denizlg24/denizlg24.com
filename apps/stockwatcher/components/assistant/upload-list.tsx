@@ -22,7 +22,10 @@ export function UploadList({
           <span className="doc-upload-name chat-truncate" title={item.name}>
             {item.name}
           </span>
-          <span className="meta doc-upload-state" role={item.status === "error" ? "alert" : undefined}>
+          <span
+            className="meta doc-upload-state"
+            role={item.status === "error" ? "alert" : undefined}
+          >
             {item.status === "error"
               ? item.error
               : item.status === "processing"

@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -12,9 +11,10 @@ import {
   Square,
   Trash2,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Failure } from "@/components/shared";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import type { Save } from "@/components/forms";
+import { Failure } from "@/components/shared";
+import { Button } from "@/components/ui/button";
 import type { DashboardState } from "@/lib/assistant-types";
 import { defaultDesk, type Widget } from "@/lib/desk";
 import type { Workspace } from "@/lib/models";
@@ -23,6 +23,8 @@ import { AddWidgetDialog, widgetCatalog } from "./add-widget";
 import { HoldingsWidget, MoversWidget } from "./book";
 import { BriefWidget } from "./brief";
 import { AlertsWidget, InsightWidget, NewsWidget } from "./feeds";
+import { DeskEmpty, FrameContext, type WidgetContext } from "./frame";
+import { FunctionWidget } from "./functions";
 import {
   ChartWidget,
   CompareWidget,
@@ -30,8 +32,6 @@ import {
   OverlayWidget,
   WatchlistWidget,
 } from "./markets";
-import { DeskEmpty, FrameContext, type WidgetContext } from "./frame";
-import { FunctionWidget } from "./functions";
 
 export type DeskProps = {
   workspace: Workspace;

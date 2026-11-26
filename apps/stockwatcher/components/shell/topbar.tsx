@@ -1,23 +1,23 @@
 "use client";
 
-import { BrandGlyph } from "@/components/brand-glyph";
-import { useRef } from "react";
-import { DropdownMenu } from "radix-ui";
 import {
+  Brain,
   Command,
   LogOut,
   Menu,
   PanelRight,
+  ScanSearch,
   Search,
   Settings2,
-  Brain,
-  ScanSearch,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { DropdownMenu } from "radix-ui";
+import { useRef } from "react";
+import { BrandGlyph } from "@/components/brand-glyph";
 import { Benchmarks } from "@/components/market-widgets";
-import { MarketClock } from "./market-clock";
-import { CommandLine } from "./command-line";
+import { Button } from "@/components/ui/button";
 import type { Command as TerminalCommand } from "@/lib/terminal";
+import { CommandLine } from "./command-line";
+import { MarketClock } from "./market-clock";
 import type { Account } from "./settings";
 
 export function Topbar({

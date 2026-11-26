@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import useSWR from "swr";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
+import { type FormEvent, useState } from "react";
+import useSWR from "swr";
+import { api } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -11,12 +12,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { api } from "@/components/shared";
 import {
-  memoryKinds,
   type Memory,
   type MemoryInput,
   type MemoryKind,
+  memoryKinds,
 } from "@/lib/memory-types";
 import { symbolPattern } from "@/lib/universes";
 import { ago, useNow } from "./format";

@@ -1,21 +1,21 @@
 "use client";
 
+import { ExternalLink } from "lucide-react";
 import { useEffect, useState } from "react";
 import useSWR from "swr";
-import { ExternalLink } from "lucide-react";
-import { api, Empty, Failure, Loading } from "@/components/shared";
 import { useQuotes } from "@/components/market-widgets";
+import { api, Empty, Failure, Loading } from "@/components/shared";
+import { downloadCsv } from "@/lib/export";
+import type { RelationNote } from "@/lib/models";
 import type {
   Candidate,
   Link,
   OwnDisclosure,
   Verified,
 } from "@/lib/supply-chain-types";
-import { amount, percent, tone } from "@/lib/utils";
 import type { SecurityFunction } from "@/lib/terminal";
-import { downloadCsv } from "@/lib/export";
+import { amount, percent, tone } from "@/lib/utils";
 import { SupplyGraph } from "./supply-graph";
-import type { RelationNote } from "@/lib/models";
 
 type Check = { state: "pending" | "done" | "failed"; link: Link | null };
 const CONCURRENCY = 3;
@@ -34,7 +34,10 @@ function useVerifications(ticker: string, list: Candidate[] | undefined) {
     const record = (cik: string, check: Check) =>
       setResults((current) => ({
         key,
-        checks: { ...(current.key === key ? current.checks : {}), [cik]: check },
+        checks: {
+          ...(current.key === key ? current.checks : {}),
+          [cik]: check,
+        },
       }));
     async function worker() {
       while (cursor < ciks.length && !controller.signal.aborted) {
@@ -172,14 +175,17 @@ export function SupplyChain({
   for (const link of links) {
     const key = `${link.role}:${link.ticker ?? link.counterparty.toLowerCase()}`;
     const prior = unique.get(key);
-    if (!prior || (prior.share == null && link.share != null)) unique.set(key, link);
+    if (!prior || (prior.share == null && link.share != null))
+      unique.set(key, link);
   }
   const all = [...unique.values()].sort(
     (a, b) => (b.share ?? -1) - (a.share ?? -1),
   );
   const symbols = all.flatMap((link) => (link.ticker ? [link.ticker] : []));
   const { data: quotes } = useQuotes([ticker, ...symbols], true);
-  const move = new Map(quotes?.quotes.map((quote) => [quote.symbol, quote.percent]));
+  const move = new Map(
+    quotes?.quotes.map((quote) => [quote.symbol, quote.percent]),
+  );
   const self = quotes?.quotes.find((quote) => quote.symbol === ticker);
   const company = own.data?.filing.name ?? ticker;
   const pending = Object.values(checks).filter(
@@ -288,7 +294,10 @@ export function SupplyChain({
             </thead>
             <tbody>
               {all.map((link) => (
-                <tr key={`${link.role}-${link.counterparty}`} data-role={link.role}>
+                <tr
+                  key={`${link.role}-${link.counterparty}`}
+                  data-role={link.role}
+                >
                   <td>{link.counterparty}</td>
                   <td>
                     {link.ticker ? (
@@ -309,12 +318,19 @@ export function SupplyChain({
                       ? "—"
                       : `${amount(link.share * 100)}%${link.shareOf === "counterparty" ? "*" : ""}`}
                   </td>
-                  <td className={`num ${tone(link.ticker ? move.get(link.ticker) : null)}`}>
+                  <td
+                    className={`num ${tone(link.ticker ? move.get(link.ticker) : null)}`}
+                  >
                     {link.ticker ? percent(move.get(link.ticker)) : "—"}
                   </td>
                   <td>{link.period ?? "—"}</td>
                   <td>
-                    <a href={link.source.url} target="_blank" rel="noreferrer" title={link.quote}>
+                    <a
+                      href={link.source.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={link.quote}
+                    >
                       {filingLabel(link)}
                     </a>
                   </td>
@@ -323,48 +339,53 @@ export function SupplyChain({
             </tbody>
           </table>
           <p className="term-source">
-            * share of the counterparty&apos;s revenue rather than {ticker}&apos;s.
+            * share of the counterparty&apos;s revenue rather than {ticker}
+            &apos;s.
           </p>
         </div>
       ) : null}
       {mode === "cards" ? (
-      <div className="splc-grid">
-        <section aria-label="Suppliers">
-          <h3>Suppliers · sell to {ticker}</h3>
-          {suppliers.length ? (
-            <ul>{suppliers.map(card)}</ul>
-          ) : (
-            <Empty title={pending || own.isLoading ? "Checking…" : "None disclosed"} />
-          )}
-        </section>
-        <section className="splc-center" aria-label={company}>
-          <div className="splc-self" data-tone={tone(self?.percent)}>
-            <strong>{ticker}</strong>
-            <span>{company}</span>
-            {self ? (
-              <span>
-                {amount(self.price)} {percent(self.percent)}
-              </span>
+        <div className="splc-grid">
+          <section aria-label="Suppliers">
+            <h3>Suppliers · sell to {ticker}</h3>
+            {suppliers.length ? (
+              <ul>{suppliers.map(card)}</ul>
+            ) : (
+              <Empty
+                title={
+                  pending || own.isLoading ? "Checking…" : "None disclosed"
+                }
+              />
+            )}
+          </section>
+          <section className="splc-center" aria-label={company}>
+            <div className="splc-self" data-tone={tone(self?.percent)}>
+              <strong>{ticker}</strong>
+              <span>{company}</span>
+              {self ? (
+                <span>
+                  {amount(self.price)} {percent(self.percent)}
+                </span>
+              ) : null}
+            </div>
+            {others.length ? (
+              <>
+                <h3>Partners & competitors</h3>
+                <ul>{others.map(card)}</ul>
+              </>
             ) : null}
-          </div>
-          {others.length ? (
-            <>
-              <h3>Partners & competitors</h3>
-              <ul>{others.map(card)}</ul>
-            </>
-          ) : null}
-        </section>
-        <section aria-label="Customers">
-          <h3>Customers · buy from {ticker}</h3>
-          {customers.length ? (
-            <ul>{customers.map(card)}</ul>
-          ) : own.isLoading || pending ? (
-            <Loading message="Reading filings" />
-          ) : (
-            <Empty title="None disclosed" />
-          )}
-        </section>
-      </div>
+          </section>
+          <section aria-label="Customers">
+            <h3>Customers · buy from {ticker}</h3>
+            {customers.length ? (
+              <ul>{customers.map(card)}</ul>
+            ) : own.isLoading || pending ? (
+              <Loading message="Reading filings" />
+            ) : (
+              <Empty title="None disclosed" />
+            )}
+          </section>
+        </div>
       ) : null}
       {unconfirmed.length ? (
         <details className="splc-unconfirmed">

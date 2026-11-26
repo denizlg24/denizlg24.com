@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import useSWR from "swr";
 import {
   CartesianGrid,
   Line,
@@ -11,34 +10,37 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { api, Change, Empty, Failure, Loading, Tick } from "@/components/shared";
-import { useQuotes } from "@/components/market-widgets";
+import useSWR from "swr";
 import { Freshness } from "@/components/freshness";
-import type { Quote } from "@/lib/models";
-import type {
-  MacroCatalog,
-  MacroHistory,
-  Movers,
-} from "@/lib/security-types";
-import { monitorFunctions, type MonitorFunction } from "@/lib/terminal";
+import { useQuotes } from "@/components/market-widgets";
+import {
+  api,
+  Change,
+  Empty,
+  Failure,
+  Loading,
+  Tick,
+} from "@/components/shared";
+import type { Quote, Workspace } from "@/lib/models";
+import type { Screen } from "@/lib/screens";
+import type { MacroCatalog, MacroHistory, Movers } from "@/lib/security-types";
+import type { SecurityFunction } from "@/lib/terminal";
+import { type MonitorFunction, monitorFunctions } from "@/lib/terminal";
+import { amount, compact, number, tone } from "@/lib/utils";
 import {
   Correlation,
   CrossRates,
-  QuoteBoard,
-  YieldCurve,
   commodityBoard,
   cryptoBoard,
+  QuoteBoard,
+  YieldCurve,
 } from "./boards";
-import { Screener } from "./screener";
-import type { Screen } from "@/lib/screens";
-import { Rotation } from "./rotation";
+import { EarningsCalendar } from "./calendar";
 import { ChartGrid } from "./grid";
 import { PortfolioRiskView } from "./risk";
+import { Rotation } from "./rotation";
+import { Screener } from "./screener";
 import { NewsWire } from "./wire";
-import { EarningsCalendar } from "./calendar";
-import type { SecurityFunction } from "@/lib/terminal";
-import type { Workspace } from "@/lib/models";
-import { amount, compact, number, tone } from "@/lib/utils";
 
 const heat = (value: number | null | undefined) => {
   if (value == null) return undefined;
@@ -232,10 +234,7 @@ function IndexRow({
         <Change value={ytd} />
       </td>
       <td className="num">
-        <Freshness
-          symbol={symbol}
-          quoteMs={quote ? quote.time * 1000 : null}
-        />
+        <Freshness symbol={symbol} quoteMs={quote ? quote.time * 1000 : null} />
       </td>
     </tr>
   );
@@ -323,7 +322,11 @@ function Economics() {
     (row) =>
       latest &&
       new Date(row.date) <=
-        new Date(new Date(latest.date).setFullYear(new Date(latest.date).getFullYear() - 1)),
+        new Date(
+          new Date(latest.date).setFullYear(
+            new Date(latest.date).getFullYear() - 1,
+          ),
+        ),
   );
   return (
     <div className="eco-layout">
@@ -369,7 +372,10 @@ function Economics() {
             </div>
             <div className="eco-chart">
               <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                <LineChart data={observations} margin={{ top: 8, right: 0, left: 0, bottom: 0 }}>
+                <LineChart
+                  data={observations}
+                  margin={{ top: 8, right: 0, left: 0, bottom: 0 }}
+                >
                   <CartesianGrid vertical={false} stroke="var(--rule)" />
                   <XAxis
                     dataKey="date"
@@ -408,7 +414,11 @@ function Economics() {
             </div>
             <p className="term-source">
               FRED · {history.data.series.name} ·{" "}
-              <a href={history.data.series.url} target="_blank" rel="noreferrer">
+              <a
+                href={history.data.series.url}
+                target="_blank"
+                rel="noreferrer"
+              >
                 source
               </a>
             </p>
@@ -498,7 +508,11 @@ export function Monitor({
       ) : null}
       {fn === "RRG" ? <Rotation select={select} /> : null}
       {fn === "EVTS" ? (
-        <EarningsCalendar watchlists={watchlists} trades={trades} open={openFunction} />
+        <EarningsCalendar
+          watchlists={watchlists}
+          trades={trades}
+          open={openFunction}
+        />
       ) : null}
       {fn === "TOP" ? (
         <NewsWire

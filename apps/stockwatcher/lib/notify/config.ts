@@ -107,7 +107,9 @@ export function describeTarget(config: ChannelConfig): string {
       return `${new URL(config.server).host}/${config.topic.slice(0, 4)}${hide(config.topic.slice(4), 3)}`;
     case "webhook": {
       const url = new URL(config.url);
-      return url.pathname === "/" ? url.host : `${url.host}/${hide(url.pathname, 4)}`;
+      return url.pathname === "/"
+        ? url.host
+        : `${url.host}/${hide(url.pathname, 4)}`;
     }
   }
 }

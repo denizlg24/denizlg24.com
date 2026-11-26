@@ -1,21 +1,22 @@
 "use client";
 
-import { tidyPrice } from "@/lib/alerts";
+import { BellPlus, Minus } from "lucide-react";
 
 import {
+  type CSSProperties,
+  type ReactNode,
   useEffect,
   useId,
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
-  type ReactNode,
 } from "react";
 import {
   Area,
   Bar,
   CartesianGrid,
   ComposedChart,
+  DefaultZIndexes,
   Line,
   ReferenceDot,
   ReferenceLine,
@@ -24,21 +25,8 @@ import {
   XAxis,
   YAxis,
   ZIndexLayer,
-  DefaultZIndexes,
 } from "recharts";
-import {
-  defaultAppearance,
-  type ChartAppearance,
-  type ChartPoint,
-  type ChartScale,
-  type ChartStyle,
-  type CorporateEvent,
-  customAverageSchema,
-  customPaneSchema,
-  type CustomAverage,
-  type CustomPane,
-  type Drawing,
-} from "@/lib/models";
+import { tidyPrice } from "@/lib/alerts";
 import {
   averageKey,
   averageLabel,
@@ -49,18 +37,30 @@ import {
   paneLabel,
   rebaseOnto,
 } from "@/lib/chart-studio";
-import { BellPlus, Minus } from "lucide-react";
-import { DrawingLayer, type Tool } from "./chart/drawing-layer";
-import { PromptDialog } from "./ui/prompt-dialog";
-import type { Range } from "@/lib/universes";
 import {
   computeStudies,
   heikinAshi,
-  studyInfo,
   type StudyKey,
   type StudyRow,
+  studyInfo,
 } from "@/lib/indicators";
+import {
+  type ChartAppearance,
+  type ChartPoint,
+  type ChartScale,
+  type ChartStyle,
+  type CorporateEvent,
+  type CustomAverage,
+  type CustomPane,
+  customAverageSchema,
+  customPaneSchema,
+  type Drawing,
+  defaultAppearance,
+} from "@/lib/models";
+import type { Range } from "@/lib/universes";
 import { amount, compact, percent, tone } from "@/lib/utils";
+import { DrawingLayer, type Tool } from "./chart/drawing-layer";
+import { PromptDialog } from "./ui/prompt-dialog";
 
 type Entry = ChartPoint & {
   span: [number, number];
@@ -437,25 +437,26 @@ const paneSpecs: Partial<Record<StudyKey, PaneSpec>> = {
   },
 };
 
-const readoutLines: Partial<Record<StudyKey, { key: string; label: string }[]>> =
-  {
-    bollinger: [
-      { key: "bbUpper", label: "BB↑" },
-      { key: "bbLower", label: "BB↓" },
-    ],
-    keltner: [
-      { key: "kcUpper", label: "KC↑" },
-      { key: "kcLower", label: "KC↓" },
-    ],
-    donchian: [
-      { key: "dcUpper", label: "DC↑" },
-      { key: "dcLower", label: "DC↓" },
-    ],
-    ichimoku: [
-      { key: "ichiConversion", label: "Tenkan" },
-      { key: "ichiBase", label: "Kijun" },
-    ],
-  };
+const readoutLines: Partial<
+  Record<StudyKey, { key: string; label: string }[]>
+> = {
+  bollinger: [
+    { key: "bbUpper", label: "BB↑" },
+    { key: "bbLower", label: "BB↓" },
+  ],
+  keltner: [
+    { key: "kcUpper", label: "KC↑" },
+    { key: "kcLower", label: "KC↓" },
+  ],
+  donchian: [
+    { key: "dcUpper", label: "DC↑" },
+    { key: "dcLower", label: "DC↓" },
+  ],
+  ichimoku: [
+    { key: "ichiConversion", label: "Tenkan" },
+    { key: "ichiBase", label: "Kijun" },
+  ],
+};
 
 const numberAt = (entry: Entry | undefined, key: string) => {
   const value = entry?.[key];
@@ -468,7 +469,11 @@ const axisTick = { fill: "var(--muted-foreground)", fontSize: 11 };
 /** Above every built-in recharts layer, so drawing clicks are never swallowed. */
 const drawingZIndex = Math.max(...Object.values(DefaultZIndexes)) + 1;
 
-export type CompareSeries = { symbol: string; points: ChartPoint[]; color: string };
+export type CompareSeries = {
+  symbol: string;
+  points: ChartPoint[];
+  color: string;
+};
 const MIN_BARS = 12;
 
 export default function PriceChart({
@@ -525,11 +530,15 @@ export default function PriceChart({
   const gradient = useId().replaceAll(":", "");
   const sync = useId();
   const [hover, setHover] = useState<number | null>(null);
-  const [noteDraft, setNoteDraft] = useState<{ t: number; p: number }[] | null>(null);
-  const locator = useRef<((clientY: number) => number | null) | null>(null);
-  const [menu, setMenu] = useState<{ x: number; y: number; price: number } | null>(
+  const [noteDraft, setNoteDraft] = useState<{ t: number; p: number }[] | null>(
     null,
   );
+  const locator = useRef<((clientY: number) => number | null) | null>(null);
+  const [menu, setMenu] = useState<{
+    x: number;
+    y: number;
+    price: number;
+  } | null>(null);
   useEffect(() => {
     if (!menu) return;
     const dismiss = (event: Event) => {
@@ -614,7 +623,10 @@ export default function PriceChart({
     function wheel(event: WheelEvent) {
       event.preventDefault();
       const rect = element!.getBoundingClientRect();
-      const fraction = Math.min(1, Math.max(0, (event.clientX - rect.left) / Math.max(1, rect.width - 66)));
+      const fraction = Math.min(
+        1,
+        Math.max(0, (event.clientX - rect.left) / Math.max(1, rect.width - 66)),
+      );
       setWindow((current) => {
         const [a, b] = current && current[1] <= total ? current : [0, total];
         const span = b - a;
@@ -624,7 +636,10 @@ export default function PriceChart({
           return [start, start + span];
         }
         const next = Math.round(
-          Math.min(total, Math.max(MIN_BARS, span * Math.exp(event.deltaY * 0.002))),
+          Math.min(
+            total,
+            Math.max(MIN_BARS, span * Math.exp(event.deltaY * 0.002)),
+          ),
         );
         const anchor = a + span * fraction;
         let start = Math.round(anchor - next * fraction);
@@ -660,7 +675,8 @@ export default function PriceChart({
     if (!appearance.events || small || !values.length) return [];
     return events.flatMap((event) => {
       const index = times.findIndex((time) => time >= event.time - 43200);
-      if (index < 0 || Math.abs(times[index] - event.time) > 8 * 86400) return [];
+      if (index < 0 || Math.abs(times[index] - event.time) > 8 * 86400)
+        return [];
       return [{ event, entry: values[index] }];
     });
   }, [appearance.events, small, events, times, values]);
@@ -792,16 +808,18 @@ export default function PriceChart({
               ];
               return lines.flatMap((line) => {
                 const value = numberAt(active, line.key);
-                return value == null ? [] : (
-                    <div
-                      key={line.key}
-                      className="readout-study"
-                      style={{ color: studyColors[key] }}
-                    >
-                      <dt>{line.label}</dt>
-                      <dd>{amount(value)}</dd>
-                    </div>
-                  );
+                return value == null ? (
+                  []
+                ) : (
+                  <div
+                    key={line.key}
+                    className="readout-study"
+                    style={{ color: studyColors[key] }}
+                  >
+                    <dt>{line.label}</dt>
+                    <dd>{amount(value)}</dd>
+                  </div>
+                );
               });
             })}
             {averages.map((average, index) => {
@@ -866,14 +884,21 @@ export default function PriceChart({
             if (!start || !(event.buttons & 1)) return;
             const span = start.to - start.from;
             if (span >= total) return;
-            const width = event.currentTarget.getBoundingClientRect().width - 66;
-            const shift = Math.round(((start.x - event.clientX) / width) * span);
-            const next = Math.min(total - span, Math.max(0, start.from + shift));
+            const width =
+              event.currentTarget.getBoundingClientRect().width - 66;
+            const shift = Math.round(
+              ((start.x - event.clientX) / width) * span,
+            );
+            const next = Math.min(
+              total - span,
+              Math.max(0, start.from + shift),
+            );
             if (next !== from) setWindow([next, next + span]);
           }}
           onPointerUp={() => (pan.current = null)}
           onContextMenu={(event) => {
-            if (tool !== "cursor" || small || !(onAlert || onAddDrawing)) return;
+            if (tool !== "cursor" || small || !(onAlert || onAddDrawing))
+              return;
             const price = locator.current?.(event.clientY);
             if (price == null) return;
             event.preventDefault();
@@ -991,7 +1016,10 @@ export default function PriceChart({
                 overlayLine(averageKey(index), average.color, { width: 1.3 }),
               )}
               {compare.map((item, index) =>
-                overlayLine(`cmp${index}`, item.color, { width: 1.4, dash: "5 2" }),
+                overlayLine(`cmp${index}`, item.color, {
+                  width: 1.4,
+                  dash: "5 2",
+                }),
               )}
               {style === "area" ? (
                 <Area
@@ -1117,7 +1145,11 @@ export default function PriceChart({
                     ) : (
                       <g className="event-marker" data-kind={event.kind}>
                         <circle cx={props.cx} cy={props.cy + 12} r={6} />
-                        <text x={props.cx} y={props.cy + 15.5} textAnchor="middle">
+                        <text
+                          x={props.cx}
+                          y={props.cy + 15.5}
+                          textAnchor="middle"
+                        >
                           {event.kind === "dividend" ? "D" : "S"}
                         </text>
                         <title>
@@ -1164,18 +1196,18 @@ export default function PriceChart({
               ) : null}
               {onAddDrawing && onRemoveDrawing && !small ? (
                 <ZIndexLayer zIndex={drawingZIndex}>
-                <DrawingLayer
-                  times={times}
-                  drawings={visibleDrawings}
-                  tool={tool}
-                  color={drawColor}
-                  symbol={symbol}
-                  onAdd={onAddDrawing}
-                  onRemove={onRemoveDrawing}
-                  onAlert={onAlert}
-                  onNote={setNoteDraft}
-                  locatorRef={locator}
-                />
+                  <DrawingLayer
+                    times={times}
+                    drawings={visibleDrawings}
+                    tool={tool}
+                    color={drawColor}
+                    symbol={symbol}
+                    onAdd={onAddDrawing}
+                    onRemove={onRemoveDrawing}
+                    onAlert={onAlert}
+                    onNote={setNoteDraft}
+                    locatorRef={locator}
+                  />
                 </ZIndexLayer>
               ) : null}
             </ComposedChart>
@@ -1219,8 +1251,8 @@ export default function PriceChart({
                   onMouseLeave={() => setHover(null)}
                 >
                   {appearance.grid ? (
-                <CartesianGrid vertical={false} stroke="var(--rule)" />
-              ) : null}
+                    <CartesianGrid vertical={false} stroke="var(--rule)" />
+                  ) : null}
                   {xAxis(pane.key === lastPane)}
                   <YAxis
                     orientation="right"

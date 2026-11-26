@@ -1,16 +1,16 @@
 import "server-only";
-import { archive, sec, submission } from "@/lib/research";
-import { lookupCik, secFetch } from "@/lib/sec-data";
 import {
+  type FilingSection,
   findSections,
   htmlToText,
   layoutFor,
+  type Passage,
   resolveSection,
   searchPassages,
   sliceBudget,
-  type FilingSection,
-  type Passage,
 } from "@/lib/filing-text";
+import { archive, sec, submission } from "@/lib/research";
+import { lookupCik, secFetch } from "@/lib/sec-data";
 
 const READ_BUDGET = 13_000;
 const MAX_DOCUMENT_BYTES = 30_000_000;
@@ -57,7 +57,9 @@ async function findFiling(cik: string, form: string, which: string) {
   for (const file of record.filings.files?.slice(0, 4) ?? []) {
     if (found) break;
     if (!/^CIK\d+-submissions-\d+\.json$/.test(file.name)) continue;
-    found = rowsOf(await sec<Recent>("data.sec.gov", `/submissions/${file.name}`)).find(matches);
+    found = rowsOf(
+      await sec<Recent>("data.sec.gov", `/submissions/${file.name}`),
+    ).find(matches);
   }
   if (!found)
     throw new Error(
@@ -111,7 +113,9 @@ async function parseFiling(cik: string, row: FilingRow): Promise<ParsedFiling> {
   if (layout === "events") {
     exhibitUrl = await exhibit991(cik, row.accession).catch(() => null);
     if (exhibitUrl) {
-      const body = await documentText(exhibitUrl, MAX_EXHIBIT_CHARS).catch(() => "");
+      const body = await documentText(exhibitUrl, MAX_EXHIBIT_CHARS).catch(
+        () => "",
+      );
       if (body) text += `\nEXHIBIT 99.1\n${body}`;
     }
   }
@@ -165,7 +169,11 @@ export async function readFiling(input: {
       `${input.symbol} is not an SEC registrant; filings are only available for US-listed filers.`,
     );
   const form = input.form.trim().toUpperCase();
-  const { company: name, row } = await findFiling(company.cik, form, input.which.trim());
+  const { company: name, row } = await findFiling(
+    company.cik,
+    form,
+    input.which.trim(),
+  );
   const filing = await parseFiling(company.cik, row);
   const listed = filing.sections.map((item) => ({
     id: item.id,
@@ -193,24 +201,29 @@ export async function readFiling(input: {
       notice = `No section matched "${input.section}"; showing the best passages for it instead. Available sections are listed.`;
     }
   }
-  const firstEvent = layoutFor(row.form) === "events" ? filing.sections[0] : undefined;
+  const firstEvent =
+    layoutFor(row.form) === "events" ? filing.sections[0] : undefined;
   const scope = picked
     ? { start: picked.start, end: picked.end }
     : { start: firstEvent?.start ?? 0, end: filing.text.length };
-  const searchTerm = input.query ?? (input.section && !picked ? input.section : undefined);
+  const searchTerm =
+    input.query ?? (input.section && !picked ? input.section : undefined);
 
   if (searchTerm) {
     const body = filing.text.slice(scope.start, scope.end);
     const passages = searchPassages(body, scope.start, searchTerm, READ_BUDGET);
     return {
       ...base,
-      section: picked ? { id: picked.id, title: picked.title, chars: scope.end - scope.start } : null,
+      section: picked
+        ? { id: picked.id, title: picked.title, chars: scope.end - scope.start }
+        : null,
       offset: 0,
       nextOffset: null,
       text: null,
       passages,
       notice:
-        notice ?? (passages.length === 0 ? `No passages matched "${searchTerm}".` : null),
+        notice ??
+        (passages.length === 0 ? `No passages matched "${searchTerm}".` : null),
     };
   }
 
@@ -219,7 +232,9 @@ export async function readFiling(input: {
   const chunk = sliceBudget(window, startAt, READ_BUDGET);
   return {
     ...base,
-    section: picked ? { id: picked.id, title: picked.title, chars: scope.end - scope.start } : null,
+    section: picked
+      ? { id: picked.id, title: picked.title, chars: scope.end - scope.start }
+      : null,
     offset: startAt - scope.start,
     nextOffset: chunk.next === null ? null : chunk.next - scope.start,
     text: chunk.text,

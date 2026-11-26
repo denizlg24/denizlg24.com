@@ -1,8 +1,8 @@
 "use client";
 
 import useSWR from "swr";
-import { api } from "../shared";
 import type { ChannelsResponse } from "@/lib/notify/types";
+import { api } from "../shared";
 
 const empty: ChannelsResponse = {
   channels: [],

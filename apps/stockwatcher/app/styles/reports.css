@@ -575,7 +575,9 @@
   flex-direction: column;
   padding: 36px 64px 30px;
   background: var(--background);
-  box-shadow: 0 1px 0 var(--rule), 0 18px 48px -28px #0000004d;
+  box-shadow:
+    0 1px 0 var(--rule),
+    0 18px 48px -28px #0000004d;
   opacity: 0;
   pointer-events: none;
   font-variant-numeric: tabular-nums;
@@ -934,7 +936,9 @@
   height: 300px;
 }
 .deck[data-mode="narrow"] .slide-bullets,
-.deck[data-mode="narrow"] .slide-content[data-layout="chart-bullets"] .slide-bullets {
+.deck[data-mode="narrow"]
+  .slide-content[data-layout="chart-bullets"]
+  .slide-bullets {
   font-size: 16px;
 }
 .deck[data-mode="narrow"] .slide-bullets li {
@@ -1190,7 +1194,9 @@
     min-width: 160px;
   }
 }
-.deck[data-mode="narrow"] .slide-content[data-layout="chart-bullets"] .slide-bullets {
+.deck[data-mode="narrow"]
+  .slide-content[data-layout="chart-bullets"]
+  .slide-bullets {
   align-self: stretch;
 }
 @media (max-width: 760px) {

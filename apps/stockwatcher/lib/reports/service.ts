@@ -2,12 +2,12 @@ import "server-only";
 import { resolveDeck, resolveReport } from "./resolve";
 import { createReport, setSharing } from "./store";
 import {
-  previewPath,
-  sharePath,
   type DeckInput,
   type PublishedDoc,
+  previewPath,
   type ReportInput,
   type ReportSummary,
+  sharePath,
 } from "./types";
 
 export function links(summary: ReportSummary, origin: string): PublishedDoc {

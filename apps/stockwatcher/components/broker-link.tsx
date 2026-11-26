@@ -1,14 +1,14 @@
 "use client";
 
+import { Link2, RefreshCw, Unlink } from "lucide-react";
 import { useState } from "react";
 import useSWR from "swr";
-import { Link2, RefreshCw, Unlink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { BrokerBook } from "@/lib/models";
 import { amount } from "@/lib/utils";
-import { api, Failure } from "./shared";
 import { FormDialog } from "./forms";
 import { IbkrGuide, tokenStep } from "./ibkr-guide";
+import { api, Failure } from "./shared";
 
 type PublicLink = {
   provider: "ibkr";

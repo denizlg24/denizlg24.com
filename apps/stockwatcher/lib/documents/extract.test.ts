@@ -1,9 +1,9 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import { deflateRawSync } from "node:zlib";
 import {
-  ExtractError,
   detectKind,
+  ExtractError,
   extractDocument,
   htmlToText,
   normalizeText,
@@ -24,7 +24,8 @@ function pdf(pages: string[]) {
       : "0 0 100 100 re f";
     objects[4 + i * 2] =
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${5 + i * 2} 0 R /Resources << /Font << /F1 3 0 R >> >> >>`;
-    objects[5 + i * 2] = `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`;
+    objects[5 + i * 2] =
+      `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`;
   });
   let out = "%PDF-1.4\n";
   const offsets: number[] = [];
@@ -68,10 +69,19 @@ function zip(name: string, content: string) {
 }
 
 test("pdf text is extracted per page", async () => {
-  const result = await extractDocument("memo.pdf", pdf(["Alpha revenue grew strongly in the quarter", "Beta margins compressed on input costs"]));
+  const result = await extractDocument(
+    "memo.pdf",
+    pdf([
+      "Alpha revenue grew strongly in the quarter",
+      "Beta margins compressed on input costs",
+    ]),
+  );
   assert.equal(result.kind, "pdf");
   assert.equal(result.pageCount, 2);
-  assert.deepEqual(result.pages.map((page) => page.page), [1, 2]);
+  assert.deepEqual(
+    result.pages.map((page) => page.page),
+    [1, 2],
+  );
   assert.match(result.pages[0].text, /Alpha revenue/);
   assert.match(result.pages[1].text, /Beta margins/);
   assert.deepEqual(result.warnings, []);
@@ -80,12 +90,18 @@ test("pdf text is extracted per page", async () => {
 test("pdf without a text layer is rejected as scanned", async () => {
   await assert.rejects(
     extractDocument("scan.pdf", pdf(["", "", ""])),
-    (error) => error instanceof ExtractError && /no readable text layer/.test(error.message) && /OCR/.test(error.message),
+    (error) =>
+      error instanceof ExtractError &&
+      /no readable text layer/.test(error.message) &&
+      /OCR/.test(error.message),
   );
 });
 
 test("pdf with some empty pages warns", async () => {
-  const result = await extractDocument("mixed.pdf", pdf(["Alpha revenue grew strongly in the quarter", ""]));
+  const result = await extractDocument(
+    "mixed.pdf",
+    pdf(["Alpha revenue grew strongly in the quarter", ""]),
+  );
   assert.equal(result.warnings.length, 1);
   assert.match(result.warnings[0], /1 of 2 pages/);
 });
@@ -104,17 +120,26 @@ test("kind follows content for pdfs and the extension for text", () => {
   assert.equal(detectKind("a.htm", bytes("<p>")), "html");
   assert.throws(() => detectKind("a.pdf", bytes("hello")), ExtractError);
   assert.throws(() => detectKind("a.exe", bytes("MZ")), ExtractError);
-  assert.throws(() => detectKind("a.zip", bytes("PK\u0003\u0004")), ExtractError);
+  assert.throws(
+    () => detectKind("a.zip", bytes("PK\u0003\u0004")),
+    ExtractError,
+  );
 });
 
 test("plain text is normalized and keeps paragraphs", async () => {
-  const result = await extractDocument("n.txt", bytes("﻿Line one  \r\n\r\n\r\n\r\nLine\ttwo\u0000"));
+  const result = await extractDocument(
+    "n.txt",
+    bytes("﻿Line one  \r\n\r\n\r\n\r\nLine\ttwo\u0000"),
+  );
   assert.equal(result.pages[0].text, "Line one\n\nLine two");
   assert.equal(result.pageCount, null);
 });
 
 test("legacy single-byte encodings fall back to windows-1252", async () => {
-  const result = await extractDocument("n.txt", new Uint8Array([0x43, 0x61, 0x66, 0xe9]));
+  const result = await extractDocument(
+    "n.txt",
+    new Uint8Array([0x43, 0x61, 0x66, 0xe9]),
+  );
   assert.equal(result.pages[0].text, "Café");
 });
 
@@ -130,8 +155,11 @@ test("html drops scripts and styles and keeps block structure", async () => {
 
 test("docx paragraphs and entities are extracted", async () => {
   const xml =
-    '<w:document><w:body><w:p><w:r><w:t>Thesis &amp; risks</w:t></w:r></w:p><w:p><w:r><w:t>Second</w:t></w:r><w:tab/><w:r><w:t>para</w:t></w:r></w:p></w:body></w:document>';
-  const result = await extractDocument("memo.docx", zip("word/document.xml", xml));
+    "<w:document><w:body><w:p><w:r><w:t>Thesis &amp; risks</w:t></w:r></w:p><w:p><w:r><w:t>Second</w:t></w:r><w:tab/><w:r><w:t>para</w:t></w:r></w:p></w:body></w:document>";
+  const result = await extractDocument(
+    "memo.docx",
+    zip("word/document.xml", xml),
+  );
   assert.equal(result.kind, "docx");
   assert.equal(result.pages[0].text, "Thesis & risks\n\nSecond para");
 });
@@ -150,7 +178,10 @@ test("empty and whitespace-only files are rejected", async () => {
 
 test("oversized text is truncated with a warning", async () => {
   const line = "word ".repeat(200);
-  const text = Array.from({ length: Math.ceil(documentLimits.textChars / line.length) + 50 }, () => line).join("\n\n");
+  const text = Array.from(
+    { length: Math.ceil(documentLimits.textChars / line.length) + 50 },
+    () => line,
+  ).join("\n\n");
   const result = await extractDocument("big.txt", bytes(text));
   const length = result.pages.reduce((sum, page) => sum + page.text.length, 0);
   assert.equal(length, documentLimits.textChars);
@@ -159,7 +190,13 @@ test("oversized text is truncated with a warning", async () => {
 
 test("markup stripping is linear on unclosed tags, comments and script bodies", () => {
   const size = 2 * 1024 * 1024;
-  const inputs = ["<".repeat(size), "<a".repeat(size / 2), "<!--".repeat(size / 4), "<script>".repeat(size / 8), "<x ".repeat(size / 3)];
+  const inputs = [
+    "<".repeat(size),
+    "<a".repeat(size / 2),
+    "<!--".repeat(size / 4),
+    "<script>".repeat(size / 8),
+    "<x ".repeat(size / 3),
+  ];
   const started = performance.now();
   for (const input of inputs) htmlToText(input);
   assert.ok(performance.now() - started < 2000);

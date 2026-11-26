@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { z } from "zod";
 import { dashboardFromHash } from "@/lib/assistant-types";
 import { viewFromHash, viewLabel } from "./nav";
@@ -9,7 +9,9 @@ import { viewFromHash, viewLabel } from "./nav";
 const STORE = "stockwatcher.panels";
 const MAX_TABS = 12;
 const tabsSchema = z.object({
-  tabs: z.array(z.object({ id: z.string().max(64), hash: z.string().max(2000) })).max(MAX_TABS),
+  tabs: z
+    .array(z.object({ id: z.string().max(64), hash: z.string().max(2000) }))
+    .max(MAX_TABS),
   active: z.string().max(64),
 });
 type Tabs = z.infer<typeof tabsSchema>;
@@ -17,9 +19,12 @@ type Tabs = z.infer<typeof tabsSchema>;
 export function panelLabel(hash: string) {
   const view = viewFromHash(hash) ?? "desk";
   const state = dashboardFromHash(hash);
-  if (view === "security") return `${state?.ticker ?? ""} ${state?.fn ?? "GP"}`.trim();
+  if (view === "security")
+    return `${state?.ticker ?? ""} ${state?.fn ?? "GP"}`.trim();
   if (view === "monitor") {
-    const symbols = state?.symbols?.length ? ` ${state.symbols.slice(0, 2).join(" ")}` : "";
+    const symbols = state?.symbols?.length
+      ? ` ${state.symbols.slice(0, 2).join(" ")}`
+      : "";
     return `${state?.fn ?? "MOST"}${symbols}`;
   }
   if (view === "markets" && state?.ticker) return `MKT ${state.ticker}`;
@@ -29,7 +34,9 @@ export function panelLabel(hash: string) {
 
 function load(hash: string): Tabs {
   try {
-    const parsed = tabsSchema.safeParse(JSON.parse(localStorage.getItem(STORE) ?? "null"));
+    const parsed = tabsSchema.safeParse(
+      JSON.parse(localStorage.getItem(STORE) ?? "null"),
+    );
     if (parsed.success && parsed.data.tabs.length) return parsed.data;
   } catch {}
   return { tabs: [{ id: "t1", hash }], active: "t1" };
@@ -78,7 +85,9 @@ function Strip({
     if (activeHash === hash) return;
     setState({
       ...state,
-      tabs: state.tabs.map((tab) => (tab.id === state.active ? { ...tab, hash } : tab)),
+      tabs: state.tabs.map((tab) =>
+        tab.id === state.active ? { ...tab, hash } : tab,
+      ),
     });
   }, [activeHash, hash, state, setState]);
 
@@ -98,7 +107,8 @@ function Strip({
     if (state.tabs.length === 1) return;
     const index = state.tabs.findIndex((tab) => tab.id === id);
     const tabs = state.tabs.filter((tab) => tab.id !== id);
-    const active = id === state.active ? tabs[Math.max(0, index - 1)].id : state.active;
+    const active =
+      id === state.active ? tabs[Math.max(0, index - 1)].id : state.active;
     update({ tabs, active });
     if (id === state.active) go(tabs.find((tab) => tab.id === active)!.hash);
   };
@@ -110,7 +120,8 @@ function Strip({
       if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
         event.preventDefault();
         const step = event.key === "ArrowRight" ? 1 : -1;
-        const next = state.tabs[(index + step + state.tabs.length) % state.tabs.length];
+        const next =
+          state.tabs[(index + step + state.tabs.length) % state.tabs.length];
         select(next.id);
       } else if (event.key.toLowerCase() === "t" || event.code === "KeyT") {
         event.preventDefault();
@@ -131,9 +142,18 @@ function Strip({
   });
 
   return (
-    <div className="panel-tabs" role="tablist" aria-label="Open panels" data-tour="tabs">
+    <div
+      className="panel-tabs"
+      role="tablist"
+      aria-label="Open panels"
+      data-tour="tabs"
+    >
       {state.tabs.map((tab, index) => (
-        <div key={tab.id} className="panel-tab" data-active={tab.id === state.active || undefined}>
+        <div
+          key={tab.id}
+          className="panel-tab"
+          data-active={tab.id === state.active || undefined}
+        >
           <button
             type="button"
             role="tab"
@@ -148,7 +168,12 @@ function Strip({
             {panelLabel(tab.hash)}
           </button>
           {state.tabs.length > 1 ? (
-            <button type="button" className="panel-tab-close" aria-label={`Close ${panelLabel(tab.hash)}`} onClick={() => close(tab.id)}>
+            <button
+              type="button"
+              className="panel-tab-close"
+              aria-label={`Close ${panelLabel(tab.hash)}`}
+              onClick={() => close(tab.id)}
+            >
               <X size={11} />
             </button>
           ) : null}

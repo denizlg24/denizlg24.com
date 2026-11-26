@@ -1,24 +1,24 @@
 "use client";
 
-import { DropdownMenu } from "radix-ui";
 import {
   BarChart3,
   CandlestickChart,
-  Check,
   ChartCandlestick,
   ChartLine,
   ChartNoAxesCombined,
+  Check,
   ChevronDown,
   Layers,
   type LucideIcon,
 } from "lucide-react";
+import { DropdownMenu } from "radix-ui";
+import { type StudyKey, studies, studyInfo } from "@/lib/indicators";
 import {
-  chartStyleLabels,
-  chartStyles,
   type ChartPreferences,
   type ChartStyle,
+  chartStyleLabels,
+  chartStyles,
 } from "@/lib/models";
-import { studies, studyInfo, type StudyKey } from "@/lib/indicators";
 import { studyColors } from "./price-chart";
 
 const styleIcons: Record<ChartStyle, LucideIcon> = {

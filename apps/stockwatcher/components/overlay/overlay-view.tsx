@@ -1,24 +1,24 @@
 "use client";
 
-import { useState } from "react";
 import { Pin, Plus, Save, Trash2, X } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
-import { Button } from "@/components/ui/button";
+import { useState } from "react";
 import type { Save as SaveWorkspace } from "@/components/forms";
-import type { Workspace } from "@/lib/models";
+import { Button } from "@/components/ui/button";
 import { defaultDesk } from "@/lib/desk";
 import { studyInfo } from "@/lib/indicators";
+import type { Workspace } from "@/lib/models";
 import {
   decodeOverlay,
   encodeOverlay,
-  overlayRanges,
-  overlayStudies,
-  parseExpression,
-  quickSeries,
   type OverlayAxis,
   type OverlayMode,
   type OverlayRange,
   type OverlaySeries,
+  overlayRanges,
+  overlayStudies,
+  parseExpression,
+  quickSeries,
 } from "@/lib/overlay";
 import { OverlayChart, seriesColors } from "./overlay-chart";
 
@@ -48,7 +48,9 @@ export function OverlayView({
   const commit = (next: OverlaySeries[], nextRange = range) =>
     onChange(encodeOverlay(next), nextRange);
   const update = (index: number, patch: Partial<OverlaySeries>) =>
-    commit(series.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+    commit(
+      series.map((item, i) => (i === index ? { ...item, ...patch } : item)),
+    );
   function add(expr: string) {
     const check = parseExpression(expr);
     if (!check.ok || series.length >= MAX_SERIES) return;
@@ -72,7 +74,12 @@ export function OverlayView({
         ...current,
         overlays: [
           ...current.overlays.filter((item) => item.name !== title),
-          { id: crypto.randomUUID(), name: title.slice(0, 120), spec: encoded, range },
+          {
+            id: crypto.randomUUID(),
+            name: title.slice(0, 120),
+            spec: encoded,
+            range,
+          },
         ].slice(-30),
       }));
       setName("");
@@ -83,14 +90,17 @@ export function OverlayView({
   }
   async function pin() {
     const title =
-      name.trim() || series.map((item) => item.expr).join(" vs ").slice(0, 80);
+      name.trim() ||
+      series
+        .map((item) => item.expr)
+        .join(" vs ")
+        .slice(0, 80);
     try {
       await save((current) => ({
         ...current,
         desk: {
           widgets: [
-            ...(current.desk ?? defaultDesk(() => crypto.randomUUID()))
-              .widgets,
+            ...(current.desk ?? defaultDesk(() => crypto.randomUUID())).widgets,
             {
               id: crypto.randomUUID(),
               span: 2 as const,
@@ -159,7 +169,9 @@ export function OverlayView({
             <li key={`${item.expr}-${index}`}>
               <i
                 className="overlay-swatch"
-                style={{ background: seriesColors[index % seriesColors.length] }}
+                style={{
+                  background: seriesColors[index % seriesColors.length],
+                }}
                 aria-hidden
               />
               <code>{item.expr}</code>
@@ -198,11 +210,16 @@ export function OverlayView({
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
                   <button type="button" className="chip">
-                    Studies{item.studies.length ? ` · ${item.studies.length}` : ""}
+                    Studies
+                    {item.studies.length ? ` · ${item.studies.length}` : ""}
                   </button>
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>
-                  <DropdownMenu.Content className="menu-content" align="start" sideOffset={4}>
+                  <DropdownMenu.Content
+                    className="menu-content"
+                    align="start"
+                    sideOffset={4}
+                  >
                     {overlayStudies.map((key) => (
                       <DropdownMenu.CheckboxItem
                         key={key}
@@ -218,7 +235,9 @@ export function OverlayView({
                         }
                       >
                         {studyInfo.get(key)?.label}
-                        <DropdownMenu.ItemIndicator className="menu-check">✓</DropdownMenu.ItemIndicator>
+                        <DropdownMenu.ItemIndicator className="menu-check">
+                          ✓
+                        </DropdownMenu.ItemIndicator>
                       </DropdownMenu.CheckboxItem>
                     ))}
                   </DropdownMenu.Content>
@@ -256,10 +275,20 @@ export function OverlayView({
               aria-label="Layout name"
               maxLength={80}
             />
-            <Button size="sm" variant="outline" disabled={!series.length} onClick={() => void saveLayout()}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!series.length}
+              onClick={() => void saveLayout()}
+            >
               <Save /> Save
             </Button>
-            <Button size="sm" variant="outline" disabled={!series.length} onClick={() => void pin()}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!series.length}
+              onClick={() => void pin()}
+            >
               <Pin /> Pin to desk
             </Button>
           </div>
@@ -271,7 +300,10 @@ export function OverlayView({
                 <button
                   type="button"
                   className="chip"
-                  aria-pressed={layout.spec === encodeOverlay(series) && layout.range === range}
+                  aria-pressed={
+                    layout.spec === encodeOverlay(series) &&
+                    layout.range === range
+                  }
                   onClick={() => onChange(layout.spec, layout.range)}
                 >
                   {layout.name}
@@ -283,7 +315,9 @@ export function OverlayView({
                   onClick={() =>
                     void save((current) => ({
                       ...current,
-                      overlays: current.overlays.filter((item) => item.id !== layout.id),
+                      overlays: current.overlays.filter(
+                        (item) => item.id !== layout.id,
+                      ),
                     })).catch((error: Error) => notify(error.message, true))
                   }
                 >

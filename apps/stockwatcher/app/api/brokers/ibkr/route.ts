@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { currentUser, json, sameOrigin } from "@/lib/auth";
-import { readWorkspace, saveWorkspace } from "@/lib/db";
 import {
   deleteLink,
   publicLink,
@@ -8,6 +7,7 @@ import {
   writeLink,
 } from "@/lib/brokers/link";
 import { syncUser } from "@/lib/brokers/sync";
+import { readWorkspace, saveWorkspace } from "@/lib/db";
 
 const connect = z.object({
   token: z

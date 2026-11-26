@@ -1,8 +1,6 @@
+import { getToolName, isToolUIPart } from "ai";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getToolName, isToolUIPart } from "ai";
-import { Markdown } from "@/components/assistant/markdown";
-import { JsonBlock, Status, ToolNames } from "@/components/admin/parts";
 import {
   count,
   duration,
@@ -10,16 +8,18 @@ import {
   utcClock,
   utcStamp,
 } from "@/components/admin/format";
+import { JsonBlock, Status, ToolNames } from "@/components/admin/parts";
+import { Markdown } from "@/components/assistant/markdown";
 import {
+  type ChatRun,
   getUser,
   listRuns,
   requireAdmin,
+  type ToolCallRecord,
   userFromSlug,
   userSlug,
-  type ChatRun,
-  type ToolCallRecord,
 } from "@/lib/admin";
-import { getThread, threadIdSchema, type StoredMessage } from "@/lib/memory";
+import { getThread, type StoredMessage, threadIdSchema } from "@/lib/memory";
 
 type Part = StoredMessage["parts"][number];
 

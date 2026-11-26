@@ -1,6 +1,5 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -9,9 +8,8 @@ import {
   Repeat,
   Repeat1,
 } from "lucide-react";
+import { type FormEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -20,17 +18,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Failure } from "../shared";
-import { useQuotes } from "../market-widgets";
-import { channelMeta } from "./channel-guide";
-import type { Save } from "../forms";
-import type { Channel } from "@/lib/notify/types";
-import {
-  alertMetrics,
-  symbolSchema,
-  type AlertMetric,
-  type AlertRule,
-} from "@/lib/models";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   conditionMet,
   describeRule,
@@ -40,7 +29,18 @@ import {
   reading,
   tidyPrice,
 } from "@/lib/alerts";
+import {
+  type AlertMetric,
+  type AlertRule,
+  alertMetrics,
+  symbolSchema,
+} from "@/lib/models";
+import type { Channel } from "@/lib/notify/types";
 import { amount, cn, percent } from "@/lib/utils";
+import type { Save } from "../forms";
+import { useQuotes } from "../market-widgets";
+import { Failure } from "../shared";
+import { channelMeta } from "./channel-guide";
 
 export type AlertDraft = {
   symbol: string;
@@ -119,7 +119,9 @@ export function AlertEditor({
   const numeric = Number(target);
   const ready = target !== "" && Number.isFinite(numeric);
   const already =
-    ready && value != null && conditionMet({ direction, target: numeric }, value);
+    ready &&
+    value != null &&
+    conditionMet({ direction, target: numeric }, value);
 
   function chooseMetric(next: AlertMetric) {
     setMetric(next);
@@ -144,7 +146,9 @@ export function AlertEditor({
         throw new Error("Price and volume targets must be positive.");
       if (metric === "move" && ticker !== lookup) {
         setLookup(ticker);
-        throw new Error(`Loading ${ticker}’s price for the starting point. Try again in a moment.`);
+        throw new Error(
+          `Loading ${ticker}’s price for the starting point. Try again in a moment.`,
+        );
       }
       if (metric === "move" && reference == null)
         throw new Error("Waiting for a quote to set the starting price.");
@@ -156,7 +160,9 @@ export function AlertEditor({
         reference: metric === "move" ? reference : null,
         repeat,
         note: note.trim(),
-        channels: picked.filter((id) => channels.some((item) => item.id === id)),
+        channels: picked.filter((id) =>
+          channels.some((item) => item.id === id),
+        ),
         expires: expires || null,
       };
       const fresh: AlertRule = {
@@ -232,7 +238,9 @@ export function AlertEditor({
                 autoFocus={!symbol}
                 maxLength={20}
                 required
-                onChange={(event) => setSymbol(event.target.value.toUpperCase())}
+                onChange={(event) =>
+                  setSymbol(event.target.value.toUpperCase())
+                }
                 onBlur={() => setLookup(symbol.trim())}
               />
             </label>
@@ -276,7 +284,11 @@ export function AlertEditor({
           </fieldset>
 
           <div className="alert-condition">
-            <div className="seg alert-direction-seg" role="group" aria-label="Direction">
+            <div
+              className="seg alert-direction-seg"
+              role="group"
+              aria-label="Direction"
+            >
               <button
                 type="button"
                 aria-pressed={direction === "above"}
@@ -299,7 +311,13 @@ export function AlertEditor({
                 step="any"
                 inputMode="decimal"
                 required
-                placeholder={metric === "price" ? "Price" : metric === "volume" ? "Shares" : "Percent"}
+                placeholder={
+                  metric === "price"
+                    ? "Price"
+                    : metric === "volume"
+                      ? "Shares"
+                      : "Percent"
+                }
                 value={target}
                 onChange={(event) => setTarget(event.target.value)}
               />
@@ -328,11 +346,18 @@ export function AlertEditor({
               {ready ? (
                 <>
                   Fires when <b>{lookup || "—"}</b>{" "}
-                  {describeRule({ metric, direction, target: numeric, reference }).toLowerCase()}
+                  {describeRule({
+                    metric,
+                    direction,
+                    target: numeric,
+                    reference,
+                  }).toLowerCase()}
                   {value != null
                     ? `. Now ${metric === "price" ? amount(value) : formatTarget(metric, value)}`
                     : ""}
-                  {already ? ". Already met, so it fires on the next check." : "."}
+                  {already
+                    ? ". Already met, so it fires on the next check."
+                    : "."}
                 </>
               ) : (
                 "Pick a target to see when this alert fires."
@@ -425,14 +450,21 @@ export function AlertEditor({
                 onClick={setupChannel}
               >
                 <Plus size={14} />
-                {channels.length ? "Add channel" : "Get alerts on email, WhatsApp, Telegram…"}
+                {channels.length
+                  ? "Add channel"
+                  : "Get alerts on email, WhatsApp, Telegram…"}
               </button>
             ) : null}
           </fieldset>
 
           <Failure error={error} />
           <DialogFooter>
-            <Button type="button" variant="outline" disabled={working} onClick={close}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={working}
+              onClick={close}
+            >
               Cancel
             </Button>
             <Button type="submit" disabled={working}>

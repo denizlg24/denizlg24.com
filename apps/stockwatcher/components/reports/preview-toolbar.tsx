@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
-import Link from "next/link";
 import { ArrowLeft, Printer } from "lucide-react";
+import Link from "next/link";
+import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { ShareControl } from "./share-control";
 

@@ -1,9 +1,20 @@
+import { FileSearch, Files, FileText } from "lucide-react";
 import type { ReactNode } from "react";
-import { FileSearch, FileText, Files } from "lucide-react";
 
-type Hit = { docId: string; name: string; page: number | null; snippet: string };
+type Hit = {
+  docId: string;
+  name: string;
+  page: number | null;
+  snippet: string;
+};
 
-export function DocumentChip({ icon, text }: { icon: ReactNode; text: string }) {
+export function DocumentChip({
+  icon,
+  text,
+}: {
+  icon: ReactNode;
+  text: string;
+}) {
   return (
     <p className="chat-chip-line">
       <span className="chip" title={text}>
@@ -39,11 +50,20 @@ export function DocumentRead({
         ? ` · p.${fromPage}`
         : ` · pp.${fromPage}–${toPage}`;
   return (
-    <DocumentChip icon={<FileText aria-hidden />} text={`Read “${name}”${pages}`} />
+    <DocumentChip
+      icon={<FileText aria-hidden />}
+      text={`Read “${name}”${pages}`}
+    />
   );
 }
 
-export function DocumentHits({ query, results }: { query: string; results: Hit[] }) {
+export function DocumentHits({
+  query,
+  results,
+}: {
+  query: string;
+  results: Hit[];
+}) {
   return (
     <div className="doc-hits">
       <DocumentChip

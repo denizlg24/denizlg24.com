@@ -1,13 +1,6 @@
 "use client";
 
 import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import {
   ChevronLeft,
   ChevronRight,
   Maximize2,
@@ -15,12 +8,19 @@ import {
   NotebookText,
   Printer,
 } from "lucide-react";
-import type { Deck, Slide } from "@/lib/reports/types";
-import { editionDate } from "@/lib/reports/format";
-import { ChartView, type ChartSize } from "./chart";
-import { DocTable } from "./doc-table";
-import { disclaimer } from "./brand";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useHash } from "@/components/shell/hooks";
+import { editionDate } from "@/lib/reports/format";
+import type { Deck, Slide } from "@/lib/reports/types";
+import { disclaimer } from "./brand";
+import { type ChartSize, ChartView } from "./chart";
+import { DocTable } from "./doc-table";
 
 const canvas = { width: 1280, height: 720 };
 

@@ -1,11 +1,16 @@
 import "server-only";
 import { tool } from "ai";
 import { z } from "zod";
-import { attempt, round, ticker } from "./shared";
-import { optionsReport, type Contract, type ExpirySummary } from "@/lib/options";
+import {
+  type Contract,
+  type ExpirySummary,
+  optionsReport,
+} from "@/lib/options";
 import { relay } from "@/lib/relay-data";
+import { attempt, round, ticker } from "./shared";
 
-const percent = (value: number | null) => round(value == null ? null : value * 100, 2);
+const percent = (value: number | null) =>
+  round(value == null ? null : value * 100, 2);
 
 const leg = (contract?: Contract) =>
   contract
@@ -57,14 +62,18 @@ export function optionsTools() {
         expiry: z.iso
           .date()
           .optional()
-          .describe("YYYY-MM-DD; start at the first listed expiry on or after this date"),
+          .describe(
+            "YYYY-MM-DD; start at the first listed expiry on or after this date",
+          ),
         expiries: z
           .number()
           .int()
           .min(1)
           .max(6)
           .optional()
-          .describe("How many consecutive expiries to analyze (default 3, or 1 when expiry is set)"),
+          .describe(
+            "How many consecutive expiries to analyze (default 3, or 1 when expiry is set)",
+          ),
         windowPercent: z
           .number()
           .min(1)
@@ -95,10 +104,14 @@ export function optionsTools() {
             nextEarningsDate: report.nextEarningsDate,
             earningsImpliedMove: report.earnings && {
               ...report.earnings,
-              straddleMovePercent: round(report.earnings.straddleMovePercent, 2),
+              straddleMovePercent: round(
+                report.earnings.straddleMovePercent,
+                2,
+              ),
               eventMovePercent: round(report.earnings.eventMovePercent, 2),
             },
-            assumptions: "Black-Scholes, 4% risk-free rate, zero dividends; max pain uses open interest across the whole chain.",
+            assumptions:
+              "Black-Scholes, 4% risk-free rate, zero dividends; max pain uses open interest across the whole chain.",
             source: "Yahoo Finance options",
             asOf: report.asOf,
           };

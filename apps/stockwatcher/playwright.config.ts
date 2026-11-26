@@ -1,7 +1,7 @@
-import { defineConfig } from "@playwright/test";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { defineConfig } from "@playwright/test";
 
 const baseURL = "http://127.0.0.1:3290";
 process.env.STOCKWATCHER_TEST_DB ??= join(

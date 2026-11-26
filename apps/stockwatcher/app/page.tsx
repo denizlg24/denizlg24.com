@@ -1,8 +1,8 @@
 import { Suspense } from "react";
-import { Landing } from "@/components/landing/landing";
 import { Dashboard } from "@/components/dashboard";
-import { authReady, currentUser, demoEnabled, isAdmin } from "@/lib/auth";
+import { Landing } from "@/components/landing/landing";
 import { aiEnabled } from "@/lib/ai/config";
+import { authReady, currentUser, demoEnabled, isAdmin } from "@/lib/auth";
 import { readWorkspaceView } from "@/lib/db";
 
 const messages: Record<string, string> = {

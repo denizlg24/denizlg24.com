@@ -1,8 +1,8 @@
 import "server-only";
 import { quotes } from "@/lib/market";
-import { benchmarks } from "@/lib/universes";
 import type { Memory } from "@/lib/memory-types";
 import type { Workspace } from "@/lib/models";
+import { benchmarks } from "@/lib/universes";
 import { newsFor, portfolioSnapshot, watchlistSnapshot } from "./data";
 import { memoryBlock } from "./prompt";
 

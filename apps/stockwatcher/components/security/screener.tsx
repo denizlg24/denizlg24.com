@@ -3,14 +3,6 @@
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 import {
-  lookbackKeys,
-  screenLookbacks,
-  type Lookback,
-  type Range,
-  type Screen,
-} from "@/lib/screens";
-import constituents from "@/data/sp500.json";
-import {
   api,
   Change,
   Empty,
@@ -19,9 +11,17 @@ import {
   SortHead,
   useSort,
 } from "@/components/shared";
-import type { Quote } from "@/lib/models";
-import { downloadCsv } from "@/lib/export";
 import { PromptDialog } from "@/components/ui/prompt-dialog";
+import constituents from "@/data/sp500.json";
+import { downloadCsv } from "@/lib/export";
+import type { Quote } from "@/lib/models";
+import {
+  type Lookback,
+  lookbackKeys,
+  type Range,
+  type Screen,
+  screenLookbacks,
+} from "@/lib/screens";
 import { amount, compact } from "@/lib/utils";
 
 type Row = {
@@ -57,7 +57,12 @@ const builtIns: Screen[] = [
   { ...blank, name: "Today's big movers", day: ["3", ""] },
   { ...blank, name: "Today's big decliners", day: ["", "-3"] },
   { ...blank, name: "YTD laggards", period: ["", "-15"] },
-  { ...blank, name: "Liquid momentum", period: ["20", ""], turnover: "1000000000" },
+  {
+    ...blank,
+    name: "Liquid momentum",
+    period: ["20", ""],
+    turnover: "1000000000",
+  },
 ];
 
 function sinceDate(lookback: Lookback) {
@@ -74,7 +79,6 @@ const within = (value: number | null, [lo, hi]: Range) => {
   if (hi !== "" && value > Number(hi)) return false;
   return true;
 };
-
 
 function RangeField({
   label,
@@ -129,22 +133,34 @@ export function Screener({
   const [screen, setScreen] = useState<Screen>(builtIns[0]);
   const [naming, setNaming] = useState(false);
   const universe = encodeURIComponent("S&P 500");
-  const day = useSWR<{ quotes: Quote[] }>(`/api/market?universe=${universe}`, api, {
-    revalidateOnFocus: false,
-    errorRetryCount: 1,
-  });
+  const day = useSWR<{ quotes: Quote[] }>(
+    `/api/market?universe=${universe}`,
+    api,
+    {
+      revalidateOnFocus: false,
+      errorRetryCount: 1,
+    },
+  );
   const period = useSWR<{ quotes: Quote[] }>(
     `/api/market?universe=${universe}&since=${sinceDate(screen.lookback)}`,
     api,
     { revalidateOnFocus: false, errorRetryCount: 1, keepPreviousData: true },
   );
   const rows = useMemo<Row[]>(() => {
-    const periods = new Map(period.data?.quotes.map((quote) => [quote.symbol, quote.periodPercent ?? null]));
+    const periods = new Map(
+      period.data?.quotes.map((quote) => [
+        quote.symbol,
+        quote.periodPercent ?? null,
+      ]),
+    );
     return (day.data?.quotes ?? []).map((quote) => {
       const info = sectorOf.get(quote.symbol);
       const span =
-        quote.yearHigh != null && quote.yearLow != null && quote.yearHigh > quote.yearLow
-          ? ((quote.price - quote.yearLow) / (quote.yearHigh - quote.yearLow)) * 100
+        quote.yearHigh != null &&
+        quote.yearLow != null &&
+        quote.yearHigh > quote.yearLow
+          ? ((quote.price - quote.yearLow) / (quote.yearHigh - quote.yearLow)) *
+            100
           : null;
       return {
         symbol: quote.symbol,
@@ -166,12 +182,15 @@ export function Screener({
       rows.filter(
         (row) =>
           (!screen.sectors.length || screen.sectors.includes(row.sector)) &&
-          (!query || row.symbol.toLowerCase().includes(query) || row.name.toLowerCase().includes(query)) &&
+          (!query ||
+            row.symbol.toLowerCase().includes(query) ||
+            row.name.toLowerCase().includes(query)) &&
           within(row.price, screen.price) &&
           within(row.day, screen.day) &&
           within(row.period, screen.period) &&
           within(row.position, screen.position) &&
-          (screen.turnover === "" || (row.turnover ?? 0) >= Number(screen.turnover)),
+          (screen.turnover === "" ||
+            (row.turnover ?? 0) >= Number(screen.turnover)),
       ),
     [rows, screen, query],
   );
@@ -188,11 +207,15 @@ export function Screener({
     }),
     [],
   );
-  const { sorted, sort, toggle } = useSort(matches, accessors, { key: "day", dir: "desc" });
+  const { sorted, sort, toggle } = useSort(matches, accessors, {
+    key: "day",
+    dir: "desc",
+  });
   const sectorStats = useMemo(() => {
     const groups = new Map<string, number[]>();
     for (const row of matches)
-      if (row.day != null) groups.set(row.sector, [...(groups.get(row.sector) ?? []), row.day]);
+      if (row.day != null)
+        groups.set(row.sector, [...(groups.get(row.sector) ?? []), row.day]);
     return [...groups.entries()]
       .map(([sector, values]) => ({
         sector,
@@ -202,7 +225,8 @@ export function Screener({
       .sort((a, b) => b.average - a.average);
   }, [matches]);
   const update = (patch: Partial<Screen>) => setScreen({ ...screen, ...patch });
-  const persist = (next: Screen[]) => void saveScreens(next).catch(() => undefined);
+  const persist = (next: Screen[]) =>
+    void saveScreens(next).catch(() => undefined);
   const top = sorted.slice(0, 12).map((row) => row.symbol);
 
   return (
@@ -215,7 +239,9 @@ export function Screener({
             value=""
             onChange={(event) => {
               const all = [...builtIns, ...saved];
-              const chosen = all.find((item) => item.name === event.target.value);
+              const chosen = all.find(
+                (item) => item.name === event.target.value,
+              );
               if (chosen) setScreen(chosen);
             }}
           >
@@ -261,8 +287,17 @@ export function Screener({
             </label>
           ))}
         </fieldset>
-        <RangeField label="Price" value={screen.price} onChange={(price) => update({ price, name: "" })} />
-        <RangeField label="Day change" unit="%" value={screen.day} onChange={(value) => update({ day: value, name: "" })} />
+        <RangeField
+          label="Price"
+          value={screen.price}
+          onChange={(price) => update({ price, name: "" })}
+        />
+        <RangeField
+          label="Day change"
+          unit="%"
+          value={screen.day}
+          onChange={(value) => update({ day: value, name: "" })}
+        />
         <div className="eqs-period">
           <RangeField
             label="Period change"
@@ -272,7 +307,12 @@ export function Screener({
           />
           <div className="seg seg-tight" role="group" aria-label="Period">
             {lookbackKeys.map((key) => (
-              <button key={key} type="button" aria-pressed={screen.lookback === key} onClick={() => update({ lookback: key })}>
+              <button
+                key={key}
+                type="button"
+                aria-pressed={screen.lookback === key}
+                onClick={() => update({ lookback: key })}
+              >
                 {key}
               </button>
             ))}
@@ -286,7 +326,13 @@ export function Screener({
         />
         <label className="graph-select eqs-block">
           Min turnover
-          <select className="studio-select" value={screen.turnover} onChange={(event) => update({ turnover: event.target.value, name: "" })}>
+          <select
+            className="studio-select"
+            value={screen.turnover}
+            onChange={(event) =>
+              update({ turnover: event.target.value, name: "" })
+            }
+          >
             <option value="">Any</option>
             <option value="100000000">100M</option>
             <option value="500000000">500M</option>
@@ -310,18 +356,33 @@ export function Screener({
               initial={screen.name || "My screen"}
               maxLength={80}
               onSubmit={(name) => {
-                persist([...saved.filter((item) => item.name !== name), { ...screen, name }].slice(-20));
+                persist(
+                  [
+                    ...saved.filter((item) => item.name !== name),
+                    { ...screen, name },
+                  ].slice(-20),
+                );
                 update({ name });
               }}
               onClose={() => setNaming(false)}
             />
           ) : null}
           {saved.some((item) => item.name === screen.name) ? (
-            <button type="button" className="chip" onClick={() => persist(saved.filter((item) => item.name !== screen.name))}>
+            <button
+              type="button"
+              className="chip"
+              onClick={() =>
+                persist(saved.filter((item) => item.name !== screen.name))
+              }
+            >
               Delete
             </button>
           ) : null}
-          <button type="button" className="chip" onClick={() => setScreen({ ...blank, name: "" })}>
+          <button
+            type="button"
+            className="chip"
+            onClick={() => setScreen({ ...blank, name: "" })}
+          >
             Reset
           </button>
         </div>
@@ -332,29 +393,52 @@ export function Screener({
             {matches.length} <span>of {rows.length} S&amp;P 500 members</span>
           </strong>
           <div className="row-actions">
-            <button type="button" className="chip" disabled={top.length < 2} onClick={() => correlate(top)} title="Correlation matrix of the top 12 rows">
+            <button
+              type="button"
+              className="chip"
+              disabled={top.length < 2}
+              onClick={() => correlate(top)}
+              title="Correlation matrix of the top 12 rows"
+            >
               CORR top {Math.min(12, top.length)}
             </button>
-            <button type="button" className="chip" disabled={!top.length} onClick={() => overlay(top.slice(0, 6))} title="Overlay the top 6 rows, rebased">
+            <button
+              type="button"
+              className="chip"
+              disabled={!top.length}
+              onClick={() => overlay(top.slice(0, 6))}
+              title="Overlay the top 6 rows, rebased"
+            >
               G top {Math.min(6, top.length)}
             </button>
             <button
               type="button"
               className="chip"
               disabled={!sorted.length}
-              onClick={() => downloadCsv(sorted.map((row) => ({ ...row })), "equity-screen")}
+              onClick={() =>
+                downloadCsv(
+                  sorted.map((row) => ({ ...row })),
+                  "equity-screen",
+                )
+              }
             >
               Export CSV
             </button>
           </div>
         </div>
         {sectorStats.length > 1 ? (
-          <ul className="eqs-sector-bar" aria-label="Average day change by sector">
+          <ul
+            className="eqs-sector-bar"
+            aria-label="Average day change by sector"
+          >
             {sectorStats.map((item) => (
               <li key={item.sector}>
                 <button
                   type="button"
-                  aria-pressed={screen.sectors.length === 1 && screen.sectors[0] === item.sector}
+                  aria-pressed={
+                    screen.sectors.length === 1 &&
+                    screen.sectors[0] === item.sector
+                  }
                   onClick={() => update({ sectors: [item.sector], name: "" })}
                 >
                   <span>{item.sector}</span>
@@ -365,7 +449,10 @@ export function Screener({
             ))}
           </ul>
         ) : null}
-        <Failure error={day.error ?? period.error} retry={() => void day.mutate()} />
+        <Failure
+          error={day.error ?? period.error}
+          retry={() => void day.mutate()}
+        />
         {day.isLoading ? (
           <Loading message="Loading 500 quotes" />
         ) : !sorted.length ? (
@@ -375,21 +462,70 @@ export function Screener({
             <table className="data-table term-table">
               <thead>
                 <tr>
-                  <SortHead label="Ticker" column="symbol" sort={sort} toggle={toggle} />
-                  <SortHead label="Name" column="name" sort={sort} toggle={toggle} />
-                  <SortHead label="Sector" column="sector" sort={sort} toggle={toggle} />
-                  <SortHead label="Last" column="price" sort={sort} toggle={toggle} numeric />
-                  <SortHead label="Day" column="day" sort={sort} toggle={toggle} numeric />
-                  <SortHead label={screen.lookback} column="period" sort={sort} toggle={toggle} numeric />
-                  <SortHead label="52W pos." column="position" sort={sort} toggle={toggle} numeric />
-                  <SortHead label="Turnover" column="turnover" sort={sort} toggle={toggle} numeric />
+                  <SortHead
+                    label="Ticker"
+                    column="symbol"
+                    sort={sort}
+                    toggle={toggle}
+                  />
+                  <SortHead
+                    label="Name"
+                    column="name"
+                    sort={sort}
+                    toggle={toggle}
+                  />
+                  <SortHead
+                    label="Sector"
+                    column="sector"
+                    sort={sort}
+                    toggle={toggle}
+                  />
+                  <SortHead
+                    label="Last"
+                    column="price"
+                    sort={sort}
+                    toggle={toggle}
+                    numeric
+                  />
+                  <SortHead
+                    label="Day"
+                    column="day"
+                    sort={sort}
+                    toggle={toggle}
+                    numeric
+                  />
+                  <SortHead
+                    label={screen.lookback}
+                    column="period"
+                    sort={sort}
+                    toggle={toggle}
+                    numeric
+                  />
+                  <SortHead
+                    label="52W pos."
+                    column="position"
+                    sort={sort}
+                    toggle={toggle}
+                    numeric
+                  />
+                  <SortHead
+                    label="Turnover"
+                    column="turnover"
+                    sort={sort}
+                    toggle={toggle}
+                    numeric
+                  />
                 </tr>
               </thead>
               <tbody>
                 {sorted.slice(0, 300).map((row) => (
                   <tr key={row.symbol}>
                     <td>
-                      <button type="button" className="security-link" onClick={() => select(row.symbol)}>
+                      <button
+                        type="button"
+                        className="security-link"
+                        onClick={() => select(row.symbol)}
+                      >
                         {row.symbol}
                       </button>
                     </td>
@@ -406,8 +542,15 @@ export function Screener({
                       {row.position == null ? (
                         "—"
                       ) : (
-                        <span className="range-bar" title={`${row.position.toFixed(0)}% of the 52-week range`}>
-                          <i style={{ left: `${Math.min(100, Math.max(0, row.position))}%` }} />
+                        <span
+                          className="range-bar"
+                          title={`${row.position.toFixed(0)}% of the 52-week range`}
+                        >
+                          <i
+                            style={{
+                              left: `${Math.min(100, Math.max(0, row.position))}%`,
+                            }}
+                          />
                         </span>
                       )}
                     </td>
@@ -419,7 +562,9 @@ export function Screener({
           </div>
         )}
         <p className="term-source">
-          S&amp;P 500 constituents · exchange-delayed Yahoo Finance quotes · turnover is volume × last price. Saved screens sync with your workspace.
+          S&amp;P 500 constituents · exchange-delayed Yahoo Finance quotes ·
+          turnover is volume × last price. Saved screens sync with your
+          workspace.
         </p>
       </div>
     </div>

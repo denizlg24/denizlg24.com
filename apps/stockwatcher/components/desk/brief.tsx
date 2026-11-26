@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import useSWR, { useSWRConfig } from "swr";
-import { Streamdown } from "streamdown";
 import { RefreshCw, Sparkles } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Streamdown } from "streamdown";
+import useSWR, { useSWRConfig } from "swr";
 import { markdownComponents } from "@/components/assistant/markdown";
 import { api, Change, Failure } from "@/components/shared";
+import { Button } from "@/components/ui/button";
 import type { Brief } from "@/lib/memory-types";
 import { amount } from "@/lib/utils";
 import { useHoldings } from "./data";
@@ -15,9 +15,9 @@ import {
   SkeletonRows,
   Stamp,
   SymbolButton,
-  WidgetFrame,
   useLocalDate,
   useNow,
+  WidgetFrame,
   type WidgetProps,
 } from "./frame";
 

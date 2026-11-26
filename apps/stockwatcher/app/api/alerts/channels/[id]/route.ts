@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { currentUser, json, sameOrigin } from "@/lib/auth";
 import { readWorkspace, saveWorkspace } from "@/lib/db";
+import { allowTest, readBody, tryDeliver } from "@/lib/notify/channel-api";
 import {
   deleteChannel,
   markChannel,
@@ -8,7 +9,6 @@ import {
   readChannel,
   renameChannel,
 } from "@/lib/notify/store";
-import { allowTest, readBody, tryDeliver } from "@/lib/notify/channel-api";
 
 async function owner(request: Request) {
   if (!sameOrigin(request))

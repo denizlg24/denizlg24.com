@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -12,8 +12,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { type Quote, symbolSchema, type Workspace } from "@/lib/models";
 import { amount, compact, marketTime, tone } from "@/lib/utils";
-import { symbolSchema, type Quote, type Workspace } from "@/lib/models";
+import { Field, FormDialog, RemoveDialog, type Save, value } from "./forms";
+import { useQuotes } from "./market-widgets";
 import {
   Change,
   Empty,
@@ -22,14 +24,12 @@ import {
   PanelHeading,
   quoteTime,
   SectionFoot,
-  signed,
   SortHead,
   SymbolLink,
-  useSort,
+  signed,
   Tick,
+  useSort,
 } from "./shared";
-import { useQuotes } from "./market-widgets";
-import { Field, FormDialog, RemoveDialog, value, type Save } from "./forms";
 
 type List = Workspace["watchlists"][number];
 type WatchRow = { ticker: string; quote?: Quote };
@@ -419,8 +419,8 @@ export function Watchlists({
               ) : (
                 <>
                   <p>
-                    Group the names you follow to see live quotes, day moves
-                    and headlines side by side.
+                    Group the names you follow to see live quotes, day moves and
+                    headlines side by side.
                   </p>
                   <Button
                     size="sm"

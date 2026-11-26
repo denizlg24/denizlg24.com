@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
-import useSWR from "swr";
+import { type ReactNode, useMemo, useState } from "react";
 import {
   Area,
   CartesianGrid,
@@ -16,8 +15,8 @@ import {
   YAxis,
   ZAxis,
 } from "recharts";
+import useSWR from "swr";
 import { api, Empty, Failure, Loading } from "@/components/shared";
-import type { History } from "@/lib/market";
 import {
   backtest,
   drawdowns,
@@ -25,12 +24,13 @@ import {
   regression,
   rollingBeta,
   rollingVolatility,
+  type Strategy,
   seasonality,
   strategyKinds,
   strategyLabels,
-  type Strategy,
 } from "@/lib/analytics";
 import { downloadCsv } from "@/lib/export";
+import type { History } from "@/lib/market";
 import { amount, number, percent, tone } from "@/lib/utils";
 
 export type HistoryResponse = { series: History[]; missing: string[] };
@@ -54,15 +54,32 @@ const axisTick = { fill: "var(--muted-foreground)", fontSize: 11 };
 const dateTick = (years: number) => (value: number) =>
   new Intl.DateTimeFormat(
     "en-GB",
-    years > 2 ? { month: "short", year: "2-digit" } : { day: "numeric", month: "short" },
+    years > 2
+      ? { month: "short", year: "2-digit" }
+      : { day: "numeric", month: "short" },
   ).format(value * 1000);
 const fullDate = (value: number) =>
-  new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(
-    value * 1000,
-  );
+  new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(value * 1000);
 const pct = (value: number | null | undefined, digits = 1) =>
   value == null ? "—" : `${value.toFixed(digits)}%`;
-const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const months = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 const yearOptions = [1, 2, 3, 5, 10, 20];
 
 function YearPicker({
@@ -116,7 +133,15 @@ function ChartTip({
   );
 }
 
-function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
+function Stat({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: ReactNode;
+  hint?: string;
+}) {
   return (
     <div title={hint}>
       <dt>{label}</dt>
@@ -148,19 +173,34 @@ export function Volatility({ ticker }: { ticker: string }) {
   const sorted = [...series30].sort((a, b) => a - b);
   const rank =
     last?.v30 != null && sorted.length
-      ? (sorted.filter((value) => value <= last.v30!).length / sorted.length) * 100
+      ? (sorted.filter((value) => value <= last.v30!).length / sorted.length) *
+        100
       : null;
-  const colors = ["var(--chart-5)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)"];
+  const colors = [
+    "var(--chart-5)",
+    "var(--chart-2)",
+    "var(--chart-3)",
+    "var(--chart-4)",
+  ];
   if (error) return <Failure error={error} retry={() => void mutate()} />;
   return (
     <div className="term-stack">
       <div className="term-toolbar">
-        <YearPicker value={years} onChange={setYears} options={[1, 2, 3, 5, 10]} />
+        <YearPicker
+          value={years}
+          onChange={setYears}
+          options={[1, 2, 3, 5, 10]}
+        />
         <button
           type="button"
           className="chip"
           disabled={!rows.length}
-          onClick={() => downloadCsv(rows.map((row) => ({ date: fullDate(row.time), ...row })), `${ticker}-HVT`)}
+          onClick={() =>
+            downloadCsv(
+              rows.map((row) => ({ date: fullDate(row.time), ...row })),
+              `${ticker}-HVT`,
+            )
+          }
         >
           Export CSV
         </button>
@@ -180,17 +220,48 @@ export function Volatility({ ticker }: { ticker: string }) {
                 hint={`Annualised close-to-close volatility over ${window} trading days`}
               />
             ))}
-            <Stat label="30D Parkinson" value={pct(last?.park)} hint="High/low range estimator, annualised" />
-            <Stat label="30D percentile" value={pct(rank, 0)} hint={`Today's 30-day volatility versus the last ${years} years`} />
-            <Stat label={`${years}Y range`} value={`${pct(sorted[0], 0)} – ${pct(sorted.at(-1), 0)}`} />
+            <Stat
+              label="30D Parkinson"
+              value={pct(last?.park)}
+              hint="High/low range estimator, annualised"
+            />
+            <Stat
+              label="30D percentile"
+              value={pct(rank, 0)}
+              hint={`Today's 30-day volatility versus the last ${years} years`}
+            />
+            <Stat
+              label={`${years}Y range`}
+              value={`${pct(sorted[0], 0)} – ${pct(sorted.at(-1), 0)}`}
+            />
           </dl>
           <div className="quant-chart">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={rows} margin={{ top: 8, right: 0, left: 0, bottom: 0 }}>
+              <ComposedChart
+                data={rows}
+                margin={{ top: 8, right: 0, left: 0, bottom: 0 }}
+              >
                 <CartesianGrid vertical={false} stroke="var(--rule)" />
-                <XAxis dataKey="time" tickFormatter={dateTick(years)} tick={axisTick} minTickGap={50} axisLine={false} tickLine={false} />
-                <YAxis orientation="right" width={52} tick={axisTick} tickFormatter={(v: number) => `${v.toFixed(0)}%`} axisLine={false} tickLine={false} />
-                <Tooltip content={<ChartTip format={(v) => pct(v)} />} isAnimationActive={false} />
+                <XAxis
+                  dataKey="time"
+                  tickFormatter={dateTick(years)}
+                  tick={axisTick}
+                  minTickGap={50}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  orientation="right"
+                  width={52}
+                  tick={axisTick}
+                  tickFormatter={(v: number) => `${v.toFixed(0)}%`}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  content={<ChartTip format={(v) => pct(v)} />}
+                  isAnimationActive={false}
+                />
                 {windows.map((window, i) => (
                   <Line
                     key={window}
@@ -202,7 +273,15 @@ export function Volatility({ ticker }: { ticker: string }) {
                     isAnimationActive={false}
                   />
                 ))}
-                <Line dataKey="park" name="Parkinson 30D" stroke="var(--muted-foreground)" strokeDasharray="3 3" strokeWidth={1} dot={false} isAnimationActive={false} />
+                <Line
+                  dataKey="park"
+                  name="Parkinson 30D"
+                  stroke="var(--muted-foreground)"
+                  strokeDasharray="3 3"
+                  strokeWidth={1}
+                  dot={false}
+                  isAnimationActive={false}
+                />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -217,7 +296,8 @@ export function Volatility({ ticker }: { ticker: string }) {
         </>
       )}
       <p className="term-source">
-        Realised volatility from dividend- and split-adjusted daily closes, annualised with √252. Yahoo Finance history.
+        Realised volatility from dividend- and split-adjusted daily closes,
+        annualised with √252. Yahoo Finance history.
       </p>
     </div>
   );
@@ -226,11 +306,16 @@ export function Volatility({ ticker }: { ticker: string }) {
 /* BETA · regression against a benchmark */
 const benchmarks = ["^GSPC", "^NDX", "^STOXX50E", "^FTSE", "SPY", "QQQ", "IWM"];
 export function BetaView({ ticker }: { ticker: string }) {
-  const [benchmark, setBenchmark] = useState(ticker.includes(".") ? "^STOXX50E" : "^GSPC");
+  const [benchmark, setBenchmark] = useState(
+    ticker.includes(".") ? "^STOXX50E" : "^GSPC",
+  );
   const [years, setYears] = useState(2);
   const [step, setStep] = useState(1);
   const [custom, setCustom] = useState("");
-  const { data, error, isLoading, mutate } = useHistory([ticker, benchmark], years);
+  const { data, error, isLoading, mutate } = useHistory(
+    [ticker, benchmark],
+    years,
+  );
   const security = useMemo(
     () => data?.series.find((item) => item.symbol === ticker)?.points ?? [],
     [data, ticker],
@@ -239,7 +324,10 @@ export function BetaView({ ticker }: { ticker: string }) {
     () => data?.series.find((item) => item.symbol === benchmark)?.points ?? [],
     [data, benchmark],
   );
-  const fit = useMemo(() => regression(security, bench, step), [security, bench, step]);
+  const fit = useMemo(
+    () => regression(security, bench, step),
+    [security, bench, step],
+  );
   const rolling = useMemo(
     () => rollingBeta(security, bench, 60).filter((row) => row.beta != null),
     [security, bench],
@@ -262,13 +350,22 @@ export function BetaView({ ticker }: { ticker: string }) {
         <div className="row-actions">
           <label className="graph-select">
             vs
-            <select className="studio-select" value={benchmarks.includes(benchmark) ? benchmark : "custom"} onChange={(event) => event.target.value !== "custom" && setBenchmark(event.target.value)}>
+            <select
+              className="studio-select"
+              value={benchmarks.includes(benchmark) ? benchmark : "custom"}
+              onChange={(event) =>
+                event.target.value !== "custom" &&
+                setBenchmark(event.target.value)
+              }
+            >
               {benchmarks.map((item) => (
                 <option key={item} value={item}>
                   {item}
                 </option>
               ))}
-              {!benchmarks.includes(benchmark) ? <option value="custom">{benchmark}</option> : null}
+              {!benchmarks.includes(benchmark) ? (
+                <option value="custom">{benchmark}</option>
+              ) : null}
             </select>
           </label>
           <form
@@ -293,13 +390,22 @@ export function BetaView({ ticker }: { ticker: string }) {
               [5, "Weekly"],
               [21, "Monthly"],
             ].map(([value, label]) => (
-              <button key={value} type="button" aria-pressed={step === value} onClick={() => setStep(Number(value))}>
+              <button
+                key={value}
+                type="button"
+                aria-pressed={step === value}
+                onClick={() => setStep(Number(value))}
+              >
                 {label}
               </button>
             ))}
           </div>
         </div>
-        <YearPicker value={years} onChange={setYears} options={[1, 2, 3, 5, 10]} />
+        <YearPicker
+          value={years}
+          onChange={setYears}
+          options={[1, 2, 3, 5, 10]}
+        />
       </div>
       {isLoading && !data ? (
         <Loading message="Loading history" />
@@ -309,8 +415,17 @@ export function BetaView({ ticker }: { ticker: string }) {
         <>
           <dl className="quant-stats">
             <Stat label="Raw beta" value={number(fit.beta)} />
-            <Stat label="Adjusted beta" value={number(0.67 * fit.beta + 0.33)} hint="Blume adjustment: 0.67 × raw + 0.33, as on BETA <GO>" />
-            <Stat label="Alpha (ann.)" value={<span className={tone(fit.alpha)}>{percent(fit.alpha)}</span>} />
+            <Stat
+              label="Adjusted beta"
+              value={number(0.67 * fit.beta + 0.33)}
+              hint="Blume adjustment: 0.67 × raw + 0.33, as on BETA <GO>"
+            />
+            <Stat
+              label="Alpha (ann.)"
+              value={
+                <span className={tone(fit.alpha)}>{percent(fit.alpha)}</span>
+              }
+            />
             <Stat label="R²" value={number(fit.r2)} />
             <Stat label="Correlation" value={number(fit.correlation)} />
             <Stat label="Std error" value={number(fit.standardError)} />
@@ -321,52 +436,136 @@ export function BetaView({ ticker }: { ticker: string }) {
               <ResponsiveContainer width="100%" height="100%">
                 <ScatterChart margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
                   <CartesianGrid stroke="var(--rule)" />
-                  <XAxis type="number" dataKey="x" name={benchmark} tick={axisTick} tickFormatter={(v: number) => `${v.toFixed(0)}%`} domain={["auto", "auto"]} label={{ value: `${benchmark} return`, position: "insideBottom", offset: -4, fill: "var(--muted-foreground)", fontSize: 10 }} />
-                  <YAxis type="number" dataKey="y" name={ticker} tick={axisTick} tickFormatter={(v: number) => `${v.toFixed(0)}%`} width={44} domain={["auto", "auto"]} />
+                  <XAxis
+                    type="number"
+                    dataKey="x"
+                    name={benchmark}
+                    tick={axisTick}
+                    tickFormatter={(v: number) => `${v.toFixed(0)}%`}
+                    domain={["auto", "auto"]}
+                    label={{
+                      value: `${benchmark} return`,
+                      position: "insideBottom",
+                      offset: -4,
+                      fill: "var(--muted-foreground)",
+                      fontSize: 10,
+                    }}
+                  />
+                  <YAxis
+                    type="number"
+                    dataKey="y"
+                    name={ticker}
+                    tick={axisTick}
+                    tickFormatter={(v: number) => `${v.toFixed(0)}%`}
+                    width={44}
+                    domain={["auto", "auto"]}
+                  />
                   <ZAxis range={[10, 10]} />
                   <ReferenceLine x={0} stroke="var(--strong-border)" />
                   <ReferenceLine y={0} stroke="var(--strong-border)" />
                   <Tooltip
                     isAnimationActive={false}
                     content={({ active, payload }) => {
-                      const point = payload?.[0]?.payload as { x: number; y: number; time?: number } | undefined;
+                      const point = payload?.[0]?.payload as
+                        | { x: number; y: number; time?: number }
+                        | undefined;
                       if (!active || !point?.time) return null;
                       return (
                         <div className="quant-tip">
                           <b>{fullDate(point.time)}</b>
-                          <span>{benchmark} {percent(point.x)}</span>
-                          <span>{ticker} {percent(point.y)}</span>
+                          <span>
+                            {benchmark} {percent(point.x)}
+                          </span>
+                          <span>
+                            {ticker} {percent(point.y)}
+                          </span>
                         </div>
                       );
                     }}
                   />
-                  <Scatter data={fit.points} fill="var(--chart-3)" fillOpacity={0.45} isAnimationActive={false} />
-                  <Scatter data={line} line={{ stroke: "var(--term-header)", strokeWidth: 2 }} shape={() => <g />} isAnimationActive={false} />
+                  <Scatter
+                    data={fit.points}
+                    fill="var(--chart-3)"
+                    fillOpacity={0.45}
+                    isAnimationActive={false}
+                  />
+                  <Scatter
+                    data={line}
+                    line={{ stroke: "var(--term-header)", strokeWidth: 2 }}
+                    shape={() => <g />}
+                    isAnimationActive={false}
+                  />
                 </ScatterChart>
               </ResponsiveContainer>
             </div>
             <div className="quant-chart">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={rolling} margin={{ top: 8, right: 0, left: 0, bottom: 0 }}>
+                <ComposedChart
+                  data={rolling}
+                  margin={{ top: 8, right: 0, left: 0, bottom: 0 }}
+                >
                   <CartesianGrid vertical={false} stroke="var(--rule)" />
-                  <XAxis dataKey="time" tickFormatter={dateTick(years)} tick={axisTick} minTickGap={50} axisLine={false} tickLine={false} />
-                  <YAxis orientation="right" width={44} tick={axisTick} axisLine={false} tickLine={false} />
-                  <ReferenceLine y={1} stroke="var(--strong-border)" strokeDasharray="3 3" />
-                  <Tooltip content={<ChartTip format={(v) => number(v)} />} isAnimationActive={false} />
-                  <Line dataKey="beta" name="60D beta" stroke="var(--term-header)" dot={false} strokeWidth={1.5} isAnimationActive={false} />
-                  <Line dataKey="correlation" name="60D correlation" stroke="var(--chart-3)" dot={false} strokeWidth={1} isAnimationActive={false} />
+                  <XAxis
+                    dataKey="time"
+                    tickFormatter={dateTick(years)}
+                    tick={axisTick}
+                    minTickGap={50}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    orientation="right"
+                    width={44}
+                    tick={axisTick}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <ReferenceLine
+                    y={1}
+                    stroke="var(--strong-border)"
+                    strokeDasharray="3 3"
+                  />
+                  <Tooltip
+                    content={<ChartTip format={(v) => number(v)} />}
+                    isAnimationActive={false}
+                  />
+                  <Line
+                    dataKey="beta"
+                    name="60D beta"
+                    stroke="var(--term-header)"
+                    dot={false}
+                    strokeWidth={1.5}
+                    isAnimationActive={false}
+                  />
+                  <Line
+                    dataKey="correlation"
+                    name="60D correlation"
+                    stroke="var(--chart-3)"
+                    dot={false}
+                    strokeWidth={1}
+                    isAnimationActive={false}
+                  />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
           </div>
           <ul className="quant-legend">
-            <li style={{ color: "var(--chart-3)" }}>Each dot: one period&apos;s returns</li>
-            <li style={{ color: "var(--term-header)" }}>Fitted line · rolling 60-day beta</li>
-            <li style={{ color: "var(--chart-3)" }}>Rolling 60-day correlation</li>
+            <li style={{ color: "var(--chart-3)" }}>
+              Each dot: one period&apos;s returns
+            </li>
+            <li style={{ color: "var(--term-header)" }}>
+              Fitted line · rolling 60-day beta
+            </li>
+            <li style={{ color: "var(--chart-3)" }}>
+              Rolling 60-day correlation
+            </li>
           </ul>
         </>
       )}
-      <p className="term-source">Ordinary least squares on adjusted close-to-close returns. Yahoo Finance history.</p>
+      <p className="term-source">
+        Ordinary least squares on adjusted close-to-close returns. Yahoo Finance
+        history.
+      </p>
     </div>
   );
 }
@@ -386,14 +585,24 @@ const heatClass = (value: number | null) => {
 export function SeasonalityView({ ticker }: { ticker: string }) {
   const [years, setYears] = useState(10);
   const { data, error, isLoading, mutate } = useHistory([ticker], years, "1d");
-  const table = useMemo(() => seasonality(data?.series[0]?.points ?? []), [data]);
+  const table = useMemo(
+    () => seasonality(data?.series[0]?.points ?? []),
+    [data],
+  );
   const current = new Date().getUTCMonth();
   if (error) return <Failure error={error} retry={() => void mutate()} />;
   return (
     <div className="term-stack">
       <div className="term-toolbar">
-        <YearPicker value={years} onChange={setYears} options={[5, 10, 15, 20, 30]} />
-        <span className="term-source">Month-end to month-end total returns. The current month is month-to-date.</span>
+        <YearPicker
+          value={years}
+          onChange={setYears}
+          options={[5, 10, 15, 20, 30]}
+        />
+        <span className="term-source">
+          Month-end to month-end total returns. The current month is
+          month-to-date.
+        </span>
       </div>
       {isLoading && !data ? (
         <Loading message="Loading history" />
@@ -406,7 +615,11 @@ export function SeasonalityView({ ticker }: { ticker: string }) {
               <tr>
                 <th>Year</th>
                 {months.map((month, i) => (
-                  <th key={month} className="num" data-now={i === current || undefined}>
+                  <th
+                    key={month}
+                    className="num"
+                    data-now={i === current || undefined}
+                  >
                     {month}
                   </th>
                 ))}
@@ -422,7 +635,9 @@ export function SeasonalityView({ ticker }: { ticker: string }) {
                       {value == null ? "" : value.toFixed(1)}
                     </td>
                   ))}
-                  <td className={`num ${tone(row.total)}`}>{row.total == null ? "" : row.total.toFixed(1)}</td>
+                  <td className={`num ${tone(row.total)}`}>
+                    {row.total == null ? "" : row.total.toFixed(1)}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -437,7 +652,10 @@ export function SeasonalityView({ ticker }: { ticker: string }) {
                 <tr key={label}>
                   <th>{label}</th>
                   {values.map((value, i) => (
-                    <td key={i} className={`num ${label === "% positive" ? "" : `heat-cell ${heatClass(value)}`}`}>
+                    <td
+                      key={i}
+                      className={`num ${label === "% positive" ? "" : `heat-cell ${heatClass(value)}`}`}
+                    >
                       {value == null ? "" : format(value)}
                     </td>
                   ))}
@@ -474,13 +692,22 @@ export function Backtest({ ticker }: { ticker: string }) {
   });
   const { data, error, isLoading, mutate } = useHistory([ticker], years);
   const bars = useMemo(() => data?.series[0]?.points ?? [], [data]);
-  const result = useMemo(() => (bars.length > 30 ? backtest(bars, strategy) : null), [bars, strategy]);
+  const result = useMemo(
+    () => (bars.length > 30 ? backtest(bars, strategy) : null),
+    [bars, strategy],
+  );
   const hold = useMemo(() => drawdowns(bars.map((bar) => bar.close)), [bars]);
   const rows = useMemo(
-    () => result?.equity.map((row, i) => ({ ...row, holdDrawdown: hold[i] })) ?? [],
+    () =>
+      result?.equity.map((row, i) => ({ ...row, holdDrawdown: hold[i] })) ?? [],
     [result, hold],
   );
-  const field = (key: "fast" | "slow" | "lower" | "upper" | "costBps", label: string, min: number, max: number) => (
+  const field = (
+    key: "fast" | "slow" | "lower" | "upper" | "costBps",
+    label: string,
+    min: number,
+    max: number,
+  ) => (
     <label className="graph-select">
       {label}
       <input
@@ -508,7 +735,9 @@ export function Backtest({ ticker }: { ticker: string }) {
             value={strategy.kind}
             aria-label="Strategy"
             onChange={(event) => {
-              const kind = strategyKinds.find((item) => item === event.target.value) ?? "hold";
+              const kind =
+                strategyKinds.find((item) => item === event.target.value) ??
+                "hold";
               setStrategy({ ...strategy, ...defaults[kind], kind });
             }}
           >
@@ -537,20 +766,28 @@ export function Backtest({ ticker }: { ticker: string }) {
               {field("slow", "Exit", 2, 300)}
             </>
           ) : null}
-          {strategy.kind === "momentum" ? field("slow", "Look-back", 5, 500) : null}
+          {strategy.kind === "momentum"
+            ? field("slow", "Look-back", 5, 500)
+            : null}
           {strategy.kind !== "hold" ? (
             <button
               type="button"
               className="chip"
               aria-pressed={strategy.shorts}
-              onClick={() => setStrategy({ ...strategy, shorts: !strategy.shorts })}
+              onClick={() =>
+                setStrategy({ ...strategy, shorts: !strategy.shorts })
+              }
             >
               Allow shorts
             </button>
           ) : null}
           {field("costBps", "Cost bps", 0, 200)}
         </div>
-        <YearPicker value={years} onChange={setYears} options={[3, 5, 10, 20]} />
+        <YearPicker
+          value={years}
+          onChange={setYears}
+          options={[3, 5, 10, 20]}
+        />
       </div>
       {isLoading && !data ? (
         <Loading message="Loading history" />
@@ -559,13 +796,34 @@ export function Backtest({ ticker }: { ticker: string }) {
       ) : (
         <>
           <dl className="quant-stats">
-            <Stat label="Total return" value={<span className={tone(stats.totalReturn)}>{percent(stats.totalReturn)}</span>} />
-            <Stat label="Buy & hold" value={<span className={tone(rows.at(-1)?.hold)}>{percent(rows.at(-1)?.hold)}</span>} />
+            <Stat
+              label="Total return"
+              value={
+                <span className={tone(stats.totalReturn)}>
+                  {percent(stats.totalReturn)}
+                </span>
+              }
+            />
+            <Stat
+              label="Buy & hold"
+              value={
+                <span className={tone(rows.at(-1)?.hold)}>
+                  {percent(rows.at(-1)?.hold)}
+                </span>
+              }
+            />
             <Stat label="CAGR" value={percent(stats.cagr)} />
             <Stat label="Volatility" value={pct(stats.volatility)} />
-            <Stat label="Sharpe" value={number(stats.sharpe)} hint="Zero risk-free rate" />
+            <Stat
+              label="Sharpe"
+              value={number(stats.sharpe)}
+              hint="Zero risk-free rate"
+            />
             <Stat label="Sortino" value={number(stats.sortino)} />
-            <Stat label="Max drawdown" value={<span className="negative">{pct(stats.maxDrawdown)}</span>} />
+            <Stat
+              label="Max drawdown"
+              value={<span className="negative">{pct(stats.maxDrawdown)}</span>}
+            />
             <Stat label="Calmar" value={number(stats.calmar)} />
             <Stat label="Exposure" value={pct(stats.exposure, 0)} />
             <Stat label="Trades" value={stats.trades} />
@@ -574,25 +832,98 @@ export function Backtest({ ticker }: { ticker: string }) {
           </dl>
           <div className="quant-chart quant-chart-tall">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={rows} syncId="btst" margin={{ top: 8, right: 0, left: 0, bottom: 0 }}>
+              <ComposedChart
+                data={rows}
+                syncId="btst"
+                margin={{ top: 8, right: 0, left: 0, bottom: 0 }}
+              >
                 <CartesianGrid vertical={false} stroke="var(--rule)" />
-                <XAxis dataKey="time" tickFormatter={dateTick(years)} tick={axisTick} minTickGap={50} axisLine={false} tickLine={false} hide />
-                <YAxis orientation="right" width={56} tick={axisTick} tickFormatter={(v: number) => `${v.toFixed(0)}%`} axisLine={false} tickLine={false} />
+                <XAxis
+                  dataKey="time"
+                  tickFormatter={dateTick(years)}
+                  tick={axisTick}
+                  minTickGap={50}
+                  axisLine={false}
+                  tickLine={false}
+                  hide
+                />
+                <YAxis
+                  orientation="right"
+                  width={56}
+                  tick={axisTick}
+                  tickFormatter={(v: number) => `${v.toFixed(0)}%`}
+                  axisLine={false}
+                  tickLine={false}
+                />
                 <ReferenceLine y={0} stroke="var(--strong-border)" />
-                <Tooltip content={<ChartTip format={(v) => percent(v)} />} isAnimationActive={false} />
-                <Line dataKey="hold" name="Buy & hold" stroke="var(--muted-foreground)" strokeDasharray="4 3" dot={false} strokeWidth={1.1} isAnimationActive={false} />
-                <Line dataKey="strategy" name="Strategy" stroke="var(--term-header)" dot={false} strokeWidth={1.8} isAnimationActive={false} />
+                <Tooltip
+                  content={<ChartTip format={(v) => percent(v)} />}
+                  isAnimationActive={false}
+                />
+                <Line
+                  dataKey="hold"
+                  name="Buy & hold"
+                  stroke="var(--muted-foreground)"
+                  strokeDasharray="4 3"
+                  dot={false}
+                  strokeWidth={1.1}
+                  isAnimationActive={false}
+                />
+                <Line
+                  dataKey="strategy"
+                  name="Strategy"
+                  stroke="var(--term-header)"
+                  dot={false}
+                  strokeWidth={1.8}
+                  isAnimationActive={false}
+                />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
           <div className="quant-chart quant-chart-short">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={rows} syncId="btst" margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
-                <XAxis dataKey="time" tickFormatter={dateTick(years)} tick={axisTick} minTickGap={50} axisLine={false} tickLine={false} />
-                <YAxis orientation="right" width={56} tick={axisTick} tickFormatter={(v: number) => `${v.toFixed(0)}%`} axisLine={false} tickLine={false} />
-                <Tooltip content={<ChartTip format={(v) => pct(v)} />} isAnimationActive={false} />
-                <Area dataKey="drawdown" name="Strategy drawdown" stroke="var(--loss)" fill="var(--loss)" fillOpacity={0.18} isAnimationActive={false} />
-                <Line dataKey="holdDrawdown" name="Hold drawdown" stroke="var(--muted-foreground)" strokeDasharray="4 3" dot={false} strokeWidth={1} isAnimationActive={false} />
+              <ComposedChart
+                data={rows}
+                syncId="btst"
+                margin={{ top: 4, right: 0, left: 0, bottom: 0 }}
+              >
+                <XAxis
+                  dataKey="time"
+                  tickFormatter={dateTick(years)}
+                  tick={axisTick}
+                  minTickGap={50}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  orientation="right"
+                  width={56}
+                  tick={axisTick}
+                  tickFormatter={(v: number) => `${v.toFixed(0)}%`}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  content={<ChartTip format={(v) => pct(v)} />}
+                  isAnimationActive={false}
+                />
+                <Area
+                  dataKey="drawdown"
+                  name="Strategy drawdown"
+                  stroke="var(--loss)"
+                  fill="var(--loss)"
+                  fillOpacity={0.18}
+                  isAnimationActive={false}
+                />
+                <Line
+                  dataKey="holdDrawdown"
+                  name="Hold drawdown"
+                  stroke="var(--muted-foreground)"
+                  strokeDasharray="4 3"
+                  dot={false}
+                  strokeWidth={1}
+                  isAnimationActive={false}
+                />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -640,7 +971,9 @@ export function Backtest({ ticker }: { ticker: string }) {
                       <td className="num">{amount(trade.entryPrice)}</td>
                       <td>{trade.exit ? fullDate(trade.exit) : "Open"}</td>
                       <td className="num">{amount(trade.exitPrice)}</td>
-                      <td className={`num ${tone(trade.pnl)}`}>{percent(trade.pnl)}</td>
+                      <td className={`num ${tone(trade.pnl)}`}>
+                        {percent(trade.pnl)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -650,8 +983,9 @@ export function Backtest({ ticker }: { ticker: string }) {
         </>
       )}
       <p className="term-source">
-        Signals act at the close and are held over the next bar; costs are charged per unit of turnover. Hypothetical results on adjusted
-        daily closes, without slippage, borrow or financing costs.
+        Signals act at the close and are held over the next bar; costs are
+        charged per unit of turnover. Hypothetical results on adjusted daily
+        closes, without slippage, borrow or financing costs.
       </p>
     </div>
   );

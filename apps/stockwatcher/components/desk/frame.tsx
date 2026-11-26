@@ -1,17 +1,17 @@
 "use client";
 
+import { MessageSquareText } from "lucide-react";
 import {
   createContext,
+  type ReactNode,
   use,
   useSyncExternalStore,
-  type ReactNode,
 } from "react";
-import { MessageSquareText } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn, today } from "@/lib/utils";
 import type { DashboardState } from "@/lib/assistant-types";
 import type { Widget } from "@/lib/desk";
 import type { Workspace } from "@/lib/models";
+import { cn, today } from "@/lib/utils";
 
 export type WidgetContext = {
   workspace: Workspace;

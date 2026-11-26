@@ -15,7 +15,10 @@ const SERIES_ID = /^[A-Za-z0-9_.-]{1,40}$/;
 const TTL_MS = 3_600_000;
 const MAX_CACHED_OBSERVATIONS = 400_000;
 
-const cache = new Map<string, { at: number; series: MacroSeries; titled: boolean }>();
+const cache = new Map<
+  string,
+  { at: number; series: MacroSeries; titled: boolean }
+>();
 let cachedObservations = 0;
 
 const apiKey = () => process.env.FRED_API_KEY?.trim() || null;
@@ -64,10 +67,16 @@ type ApiSeries = {
     units: string;
   }>;
 };
-type ApiObservations = { observations?: Array<{ date: string; value: string }> };
+type ApiObservations = {
+  observations?: Array<{ date: string; value: string }>;
+};
 
 async function fromApi(id: string, key: string) {
-  const query = new URLSearchParams({ series_id: id, api_key: key, file_type: "json" });
+  const query = new URLSearchParams({
+    series_id: id,
+    api_key: key,
+    file_type: "json",
+  });
   const meta = await fetch(`https://api.stlouisfed.org/fred/series?${query}`, {
     cache: "no-store",
     signal: AbortSignal.timeout(20_000),
@@ -120,12 +129,17 @@ export async function fredSeries(
   withTitle = false,
 ): Promise<MacroSeries> {
   const id = rawId.trim().toUpperCase();
-  if (!SERIES_ID.test(id)) throw new Error(`"${rawId}" is not a FRED series id.`);
+  if (!SERIES_ID.test(id))
+    throw new Error(`"${rawId}" is not a FRED series id.`);
   const hit = cache.get(id);
-  const fresh = hit && Date.now() - hit.at < TTL_MS && (hit.titled || !withTitle);
+  const fresh =
+    hit && Date.now() - hit.at < TTL_MS && (hit.titled || !withTitle);
   const series = fresh ? hit.series : await load(id, withTitle);
   return from
-    ? { ...series, observations: series.observations.filter((item) => item.date >= from) }
+    ? {
+        ...series,
+        observations: series.observations.filter((item) => item.date >= from),
+      }
     : series;
 }
 
@@ -150,7 +164,11 @@ async function load(id: string, withTitle: boolean): Promise<MacroSeries> {
   const previous = cache.get(id);
   if (previous) cachedObservations -= previous.series.observations.length;
   cache.delete(id);
-  cache.set(id, { at: Date.now(), series, titled: Boolean(token) || withTitle });
+  cache.set(id, {
+    at: Date.now(),
+    series,
+    titled: Boolean(token) || withTitle,
+  });
   cachedObservations += series.observations.length;
   for (const [oldest, entry] of cache) {
     if (cachedObservations <= MAX_CACHED_OBSERVATIONS) break;

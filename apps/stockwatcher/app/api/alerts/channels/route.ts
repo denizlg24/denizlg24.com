@@ -1,16 +1,12 @@
 import { currentUser, json, sameOrigin } from "@/lib/auth";
 import {
-  createChannel,
-  listChannels,
-  publicChannel,
-} from "@/lib/notify/store";
-import { emailReady } from "@/lib/notify/send";
-import {
   allowTest,
   parseChannel,
   readBody,
   tryDeliver,
 } from "@/lib/notify/channel-api";
+import { emailReady } from "@/lib/notify/send";
+import { createChannel, listChannels, publicChannel } from "@/lib/notify/store";
 
 export async function GET() {
   const user = await currentUser();

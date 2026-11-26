@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import {
   Bell,
   BellOff,
@@ -15,6 +14,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -24,31 +24,37 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { RemoveDialog, type Save } from "./forms";
 import {
+  describeRule,
+  expired,
+  formatTarget,
+  gap,
+  reading,
+} from "@/lib/alerts";
+import {
+  type AlertEvent,
+  type AlertRule,
+  type ChannelKind,
+  channelKinds,
+  type Signal,
+} from "@/lib/models";
+import type { Channel } from "@/lib/notify/types";
+import { amount, cn, marketTime, percent } from "@/lib/utils";
+import { type AlertDraft, AlertEditor } from "./alerts/alert-editor";
+import { useBrowserAlerts } from "./alerts/browser-alerts";
+import { ChannelGuide, channelMeta } from "./alerts/channel-guide";
+import { SignalsPanel } from "./alerts/signals-panel";
+import { useChannels } from "./alerts/use-channels";
+import { RemoveDialog, type Save } from "./forms";
+import { useQuotes } from "./market-widgets";
+import {
+  api,
   Empty,
   PanelHeading,
   SectionFoot,
   SymbolLink,
   Tick,
-  api,
 } from "./shared";
-import { useQuotes } from "./market-widgets";
-import { AlertEditor, type AlertDraft } from "./alerts/alert-editor";
-import { SignalsPanel } from "./alerts/signals-panel";
-import { ChannelGuide, channelMeta } from "./alerts/channel-guide";
-import { useChannels } from "./alerts/use-channels";
-import { useBrowserAlerts } from "./alerts/browser-alerts";
-import {
-  channelKinds,
-  type AlertEvent,
-  type AlertRule,
-  type ChannelKind,
-  type Signal,
-} from "@/lib/models";
-import type { Channel } from "@/lib/notify/types";
-import { describeRule, expired, formatTarget, gap, reading } from "@/lib/alerts";
-import { amount, cn, marketTime, percent } from "@/lib/utils";
 
 const ago = (iso: string | null) => {
   if (!iso) return "never";
@@ -225,7 +231,9 @@ function Channels({
             type="button"
             className="channel-tile"
             data-kind="browser"
-            disabled={browser.state === "unsupported" || browser.state === "denied"}
+            disabled={
+              browser.state === "unsupported" || browser.state === "denied"
+            }
             onClick={() => void browser.toggle()}
           >
             <span className="channel-icon" data-kind="browser">
@@ -338,7 +346,8 @@ function Activity({
                         data-ok={item.ok}
                         title={item.error ?? "Delivered"}
                       >
-                        <Icon size={12} /> {names.get(item.channel) ?? item.label}
+                        <Icon size={12} />{" "}
+                        {names.get(item.channel) ?? item.label}
                         {item.ok ? <Check size={11} /> : <X size={11} />}
                       </span>
                     );
@@ -386,9 +395,10 @@ export function Alerts({
   clearProposed: () => void;
   notify: (message: string, error?: boolean) => void;
 }) {
-  const [editing, setEditing] = useState<
-    { rule?: AlertRule; draft?: AlertDraft } | null
-  >(null);
+  const [editing, setEditing] = useState<{
+    rule?: AlertRule;
+    draft?: AlertDraft;
+  } | null>(null);
   const [removing, setRemoving] = useState<AlertRule>();
   const [guide, setGuide] = useState<ChannelKind | null>(null);
   const { data: channelData, mutate: refreshChannels } = useChannels();
@@ -424,7 +434,10 @@ export function Alerts({
               : "Checked every two minutes. Right-click any chart, or use its bell tool, to set one at a price."
           }
         >
-          <Button size="sm" onClick={() => setEditing({ draft: { symbol: ticker } })}>
+          <Button
+            size="sm"
+            onClick={() => setEditing({ draft: { symbol: ticker } })}
+          >
             <Plus /> New alert
           </Button>
         </PanelHeading>
@@ -470,14 +483,18 @@ export function Alerts({
                         />
                       </TableCell>
                       <TableCell className="alert-rule-cell">
-                        <span className="strong-cell">{describeRule(item)}</span>
+                        <span className="strong-cell">
+                          {describeRule(item)}
+                        </span>
                         <span className="alert-rule-meta muted">
                           {item.repeat === "rearm" ? (
                             <span title="Re-arms after the condition clears">
                               <Repeat size={11} /> every crossing
                             </span>
                           ) : null}
-                          {item.expires ? <span>until {item.expires}</span> : null}
+                          {item.expires ? (
+                            <span>until {item.expires}</span>
+                          ) : null}
                           {item.note ? (
                             <span className="alert-note" title={item.note}>
                               {item.note}
@@ -539,7 +556,9 @@ export function Alerts({
                           <Button
                             variant="ghost"
                             size="icon-xs"
-                            aria-label={item.enabled ? "Pause alert" : "Arm alert"}
+                            aria-label={
+                              item.enabled ? "Pause alert" : "Arm alert"
+                            }
                             onClick={() => toggle(item)}
                           >
                             {item.enabled ? <BellOff /> : <Bell />}
@@ -592,12 +611,7 @@ export function Alerts({
         notify={notify}
         monitoring={monitoring && !demo}
       />
-      <Channels
-        demo={demo}
-        notify={notify}
-        setup={setGuide}
-        reload={reload}
-      />
+      <Channels demo={demo} notify={notify} setup={setGuide} reload={reload} />
       <Activity
         log={log}
         channels={channelData.channels}
@@ -614,7 +628,9 @@ export function Alerts({
           save={save}
           close={closeEditor}
           saved={(rule) =>
-            notify(`${open.rule ? "Saved" : "Alert set"}: ${rule.symbol} ${describeRule(rule).toLowerCase()}.`)
+            notify(
+              `${open.rule ? "Saved" : "Alert set"}: ${rule.symbol} ${describeRule(rule).toLowerCase()}.`,
+            )
           }
           setupChannel={demo ? undefined : () => setGuide("email")}
         />
@@ -638,7 +654,9 @@ export function Alerts({
           remove={() =>
             save((workspace) => ({
               ...workspace,
-              alerts: workspace.alerts.filter((item) => item.id !== removing.id),
+              alerts: workspace.alerts.filter(
+                (item) => item.id !== removing.id,
+              ),
             }))
           }
         />

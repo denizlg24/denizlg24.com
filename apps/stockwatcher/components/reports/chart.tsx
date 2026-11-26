@@ -1,21 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   Area,
   Bar,
+  type BarShapeProps,
   CartesianGrid,
   ComposedChart,
   Line,
   ReferenceLine,
   Scatter,
   Tooltip,
-  XAxis,
-  YAxis,
   usePlotArea,
   useXAxisScale,
   useYAxisScale,
-  type BarShapeProps,
+  XAxis,
+  YAxis,
 } from "recharts";
 import type { AxisFormat, Chart } from "@/lib/reports/chart";
 import {

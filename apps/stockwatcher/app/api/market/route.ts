@@ -1,13 +1,13 @@
 import { supportedStartDate } from "@/lib/assistant-types";
-import { isMoex } from "@/lib/moex";
 import { currentUser, json } from "@/lib/auth";
 import { comparison, members, quotes, search, series } from "@/lib/market";
+import { isMoex } from "@/lib/moex";
 import {
+  type Range,
   ranges,
   symbolPattern,
-  universes,
-  type Range,
   type Universe,
+  universes,
 } from "@/lib/universes";
 
 export async function GET(request: Request) {

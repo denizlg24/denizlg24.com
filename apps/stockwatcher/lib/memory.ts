@@ -8,7 +8,6 @@ import {
   store,
   type WorkspaceRecord,
 } from "./db";
-import { workspaceSchema, type Workspace } from "./models";
 import type {
   Brief,
   Memory,
@@ -17,6 +16,7 @@ import type {
   ThreadSummary,
 } from "./memory-types";
 import { memoryKinds } from "./memory-types";
+import { type Workspace, workspaceSchema } from "./models";
 
 export type StoredMessage = UIMessage;
 export type StoredThread = {
@@ -227,9 +227,7 @@ export async function deleteMemory(
 export async function listThreads(userId: string): Promise<ThreadSummary[]> {
   const s = await store();
   if (s.kind === "pg") {
-    const rows = await s.sql<
-      { id: string; title: string; updated_at: Date }[]
-    >`
+    const rows = await s.sql<{ id: string; title: string; updated_at: Date }[]>`
       SELECT id, title, updated_at FROM stockwatcher_threads
       WHERE user_id = ${userId} ORDER BY updated_at DESC LIMIT ${threadLimit}`;
     return rows.map((row) => ({
@@ -261,7 +259,9 @@ export async function getThread(
 ): Promise<StoredThread | null> {
   const s = await store();
   if (s.kind === "pg") {
-    const [row] = await s.sql<{ id: string; title: string; messages: unknown }[]>`
+    const [row] = await s.sql<
+      { id: string; title: string; messages: unknown }[]
+    >`
       SELECT id, title, messages FROM stockwatcher_threads
       WHERE user_id = ${userId} AND id = ${id}`;
     return row

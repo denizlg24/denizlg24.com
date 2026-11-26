@@ -1,7 +1,6 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
-import useSWR from "swr";
 import {
   Area,
   CartesianGrid,
@@ -13,21 +12,22 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import useSWR from "swr";
 import { api, Empty, Failure, Loading } from "@/components/shared";
-import { computeStudies, studyInfo, type Bar } from "@/lib/indicators";
+import { type Bar, computeStudies, studyInfo } from "@/lib/indicators";
 import type { MarketSeries } from "@/lib/models";
-import type { MacroHistory } from "@/lib/security-types";
 import {
   alignSeries,
   evaluate,
   isFred,
-  parseExpression,
-  relation,
-  scaler,
   type Observation,
   type OverlayRange,
   type OverlaySeries,
+  parseExpression,
+  relation,
+  scaler,
 } from "@/lib/overlay";
+import type { MacroHistory } from "@/lib/security-types";
 import { amount, compact, number } from "@/lib/utils";
 
 export const seriesColors = [
@@ -169,7 +169,9 @@ function build(series: OverlaySeries[], loaded: Loaded): Built | null {
           const high = scale(study[1]);
           rows[i][name] = low == null || high == null ? null : [low, high];
         } else
-          rows[i][name] = ["rsi", "macd", "macdSignal", "macdHist"].includes(key)
+          rows[i][name] = ["rsi", "macd", "macdSignal", "macdHist"].includes(
+            key,
+          )
             ? study
             : scale(study);
       }
@@ -181,11 +183,16 @@ function build(series: OverlaySeries[], loaded: Loaded): Built | null {
     stats: visible.map((values, s) =>
       s === 0 ? null : relation(visible[0], values),
     ),
-    last: raw.map((values) => values.findLast((value) => value != null) ?? null),
+    last: raw.map(
+      (values) => values.findLast((value) => value != null) ?? null,
+    ),
   };
 }
 
-const format = (value: number | null | undefined, mode: OverlaySeries["mode"]) =>
+const format = (
+  value: number | null | undefined,
+  mode: OverlaySeries["mode"],
+) =>
   value == null
     ? "—"
     : mode === "rebased"
@@ -199,7 +206,9 @@ const format = (value: number | null | undefined, mode: OverlaySeries["mode"]) =
 const shortDate = (date: string, range: OverlayRange) =>
   new Intl.DateTimeFormat(
     "en-GB",
-    range === "5Y" ? { month: "short", year: "2-digit" } : { day: "numeric", month: "short" },
+    range === "5Y"
+      ? { month: "short", year: "2-digit" }
+      : { day: "numeric", month: "short" },
   ).format(new Date(`${date}T12:00:00Z`));
 
 export function OverlayChart({
@@ -256,7 +265,9 @@ export function OverlayChart({
         .map((key) => ({ item, s, kind: key })),
     ),
   ];
-  const usesLeft = main.some(({ item }) => !item.invert && item.axis === "left");
+  const usesLeft = main.some(
+    ({ item }) => !item.invert && item.axis === "left",
+  );
   const usesRight = main.some(
     ({ item }) => !item.invert && item.axis === "right",
   );
@@ -291,9 +302,14 @@ export function OverlayChart({
         {series.map((item, s) => {
           const value = active?.[`s${s}`];
           return (
-            <div key={s} style={{ color: seriesColors[s % seriesColors.length] }}>
+            <div
+              key={s}
+              style={{ color: seriesColors[s % seriesColors.length] }}
+            >
               <dt>{item.expr}</dt>
-              <dd>{format(typeof value === "number" ? value : null, item.mode)}</dd>
+              <dd>
+                {format(typeof value === "number" ? value : null, item.mode)}
+              </dd>
             </div>
           );
         })}
@@ -340,7 +356,10 @@ export function OverlayChart({
                   reversed
                   width={56}
                   domain={["auto", "auto"]}
-                  tick={{ ...tick, fill: seriesColors[s % seriesColors.length] }}
+                  tick={{
+                    ...tick,
+                    fill: seriesColors[s % seriesColors.length],
+                  }}
                   axisLine={false}
                   tickLine={false}
                   tickFormatter={(value: number) => compactAxis(value)}
@@ -353,7 +372,13 @@ export function OverlayChart({
             />
             {series.some((item) => item.mode !== "price") ? (
               <ReferenceLine
-                yAxisId={usesLeft ? "left" : usesRight ? "right" : `inv${main[0]?.s ?? 0}`}
+                yAxisId={
+                  usesLeft
+                    ? "left"
+                    : usesRight
+                      ? "right"
+                      : `inv${main[0]?.s ?? 0}`
+                }
                 y={0}
                 stroke="var(--strong-border)"
                 strokeDasharray="3 3"
@@ -397,7 +422,9 @@ export function OverlayChart({
                           stroke={color}
                           strokeOpacity={0.7}
                           strokeWidth={1}
-                          strokeDasharray={key.startsWith("ema") ? "5 3" : "2 2"}
+                          strokeDasharray={
+                            key.startsWith("ema") ? "5 3" : "2 2"
+                          }
                           dot={false}
                           activeDot={false}
                           isAnimationActive={false}
@@ -428,7 +455,11 @@ export function OverlayChart({
             const color = seriesColors[pane.s % seriesColors.length];
             const key = `pane-${pane.kind}-${pane.s}`;
             return (
-              <div key={key} className="study-pane" data-last={index === lastPane || undefined}>
+              <div
+                key={key}
+                className="study-pane"
+                data-last={index === lastPane || undefined}
+              >
                 <div className="study-legend">
                   <strong style={{ color }}>
                     {pane.kind === "series"
@@ -457,20 +488,53 @@ export function OverlayChart({
                       tickLine={false}
                       tickFormatter={(value: number) => compactAxis(value)}
                     />
-                    <Tooltip content={() => null} cursor={{ stroke: "var(--muted-foreground)" }} isAnimationActive={false} />
+                    <Tooltip
+                      content={() => null}
+                      cursor={{ stroke: "var(--muted-foreground)" }}
+                      isAnimationActive={false}
+                    />
                     {pane.kind === "rsi"
                       ? [70, 30].map((level) => (
-                          <ReferenceLine key={level} y={level} stroke="var(--strong-border)" strokeDasharray="3 3" />
+                          <ReferenceLine
+                            key={level}
+                            y={level}
+                            stroke="var(--strong-border)"
+                            strokeDasharray="3 3"
+                          />
                         ))
                       : null}
                     {pane.kind === "series" ? (
-                      <Line dataKey={`s${pane.s}`} stroke={color} strokeWidth={1.4} dot={false} connectNulls isAnimationActive={false} />
+                      <Line
+                        dataKey={`s${pane.s}`}
+                        stroke={color}
+                        strokeWidth={1.4}
+                        dot={false}
+                        connectNulls
+                        isAnimationActive={false}
+                      />
                     ) : pane.kind === "rsi" ? (
-                      <Line dataKey={`s${pane.s}_rsi`} stroke={color} dot={false} isAnimationActive={false} />
+                      <Line
+                        dataKey={`s${pane.s}_rsi`}
+                        stroke={color}
+                        dot={false}
+                        isAnimationActive={false}
+                      />
                     ) : (
                       [
-                        <Line key="m" dataKey={`s${pane.s}_macd`} stroke={color} dot={false} isAnimationActive={false} />,
-                        <Line key="g" dataKey={`s${pane.s}_macdSignal`} stroke="var(--muted-foreground)" dot={false} isAnimationActive={false} />,
+                        <Line
+                          key="m"
+                          dataKey={`s${pane.s}_macd`}
+                          stroke={color}
+                          dot={false}
+                          isAnimationActive={false}
+                        />,
+                        <Line
+                          key="g"
+                          dataKey={`s${pane.s}_macdSignal`}
+                          stroke="var(--muted-foreground)"
+                          dot={false}
+                          isAnimationActive={false}
+                        />,
                       ]
                     )}
                   </ComposedChart>
@@ -481,16 +545,25 @@ export function OverlayChart({
       {small ? null : (
         <div className="overlay-foot">
           {series.length > 1 ? (
-            <ul className="overlay-stats" aria-label="Relationship to the first series">
+            <ul
+              className="overlay-stats"
+              aria-label="Relationship to the first series"
+            >
               {series.slice(1).map((item, i) => {
                 const stat = built.stats[i + 1];
                 return (
                   <li key={i}>
-                    <i style={{ background: seriesColors[(i + 1) % seriesColors.length] }} aria-hidden />
+                    <i
+                      style={{
+                        background: seriesColors[(i + 1) % seriesColors.length],
+                      }}
+                      aria-hidden
+                    />
                     {item.expr} vs {series[0].expr}:{" "}
                     {stat ? (
                       <>
-                        ρ <b>{number(stat.correlation)}</b> · β <b>{number(stat.beta)}</b>{" "}
+                        ρ <b>{number(stat.correlation)}</b> · β{" "}
+                        <b>{number(stat.beta)}</b>{" "}
                         <small>({stat.days} days of changes)</small>
                       </>
                     ) : (

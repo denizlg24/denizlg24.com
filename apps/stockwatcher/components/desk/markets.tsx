@@ -1,8 +1,11 @@
 "use client";
 
+import { ArrowDown, ArrowUp } from "lucide-react";
 import dynamic from "next/dynamic";
 import useSWR from "swr";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { Freshness, ListFreshness } from "@/components/freshness";
+import { useQuotes } from "@/components/market-widgets";
+import { api, Change, Failure, Tick } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -11,25 +14,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { api, Change, Failure, Tick } from "@/components/shared";
-import { useQuotes } from "@/components/market-widgets";
 import type { Instrument, MarketSeries, Quote } from "@/lib/models";
+import { decodeOverlay } from "@/lib/overlay";
 import {
   benchmarks,
-  universes,
   type Range,
   type Universe,
+  universes,
 } from "@/lib/universes";
 import { compact, percent } from "@/lib/utils";
 import { firstWatchlist } from "./data";
-import { decodeOverlay } from "@/lib/overlay";
-import { Freshness, ListFreshness } from "@/components/freshness";
 import {
   DeskEmpty,
+  latestTime,
   SkeletonRows,
   SymbolButton,
   WidgetFrame,
-  latestTime,
   type WidgetProps,
 } from "./frame";
 
@@ -394,7 +394,9 @@ export function MarketWidget({ widget, ctx }: WidgetProps<"market">) {
               : ""}
           </span>
           <ListFreshness
-            symbols={refresh ? tiles.map((tile) => tile.symbol).slice(0, 120) : []}
+            symbols={
+              refresh ? tiles.map((tile) => tile.symbol).slice(0, 120) : []
+            }
             ms={asOf}
           />
         </>
@@ -434,7 +436,10 @@ const OverlayChart = dynamic(
     import("@/components/overlay/overlay-chart").then(
       (module) => module.OverlayChart,
     ),
-  { ssr: false, loading: () => <div className="desk-chart-placeholder skeleton" /> },
+  {
+    ssr: false,
+    loading: () => <div className="desk-chart-placeholder skeleton" />,
+  },
 );
 
 export function OverlayWidget({ widget, ctx }: WidgetProps<"overlay">) {

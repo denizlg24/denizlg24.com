@@ -58,11 +58,18 @@ export const extractionSchema = z.object({
           .min(0)
           .max(1)
           .nullable()
-          .describe("Fraction of the filer's revenue, e.g. 0.12; null if not stated"),
-        period: z.string().nullable().describe("Fiscal period the figure covers"),
+          .describe(
+            "Fraction of the filer's revenue, e.g. 0.12; null if not stated",
+          ),
+        period: z
+          .string()
+          .nullable()
+          .describe("Fiscal period the figure covers"),
         quote: z
           .string()
-          .describe("Exact sentence copied verbatim from the excerpt that supports this"),
+          .describe(
+            "Exact sentence copied verbatim from the excerpt that supports this",
+          ),
       }),
     )
     .max(25),
@@ -83,5 +90,7 @@ export const verificationSchema = z.object({
   period: z.string().nullable(),
   quote: z
     .string()
-    .describe("Exact sentence copied verbatim from the excerpts; empty if mention"),
+    .describe(
+      "Exact sentence copied verbatim from the excerpts; empty if mention",
+    ),
 });

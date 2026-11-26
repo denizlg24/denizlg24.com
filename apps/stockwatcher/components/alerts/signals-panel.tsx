@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import { Bell, BellOff, BellRing, Code2, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -11,13 +11,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import type { Signal } from "@/lib/models";
+import type { Channel } from "@/lib/notify/types";
+import { cadenceLabels, signalStatus } from "@/lib/signals";
+import { cn, marketTime } from "@/lib/utils";
 import { RemoveDialog, type Save } from "../forms";
 import { Empty, PanelHeading, SectionFoot } from "../shared";
 import { channelMeta } from "./channel-guide";
-import type { Channel } from "@/lib/notify/types";
-import type { Signal } from "@/lib/models";
-import { cadenceLabels, signalStatus } from "@/lib/signals";
-import { cn, marketTime } from "@/lib/utils";
 
 const checked = (iso: string | null) =>
   iso ? marketTime(Date.parse(iso) / 1000) : "Not yet";
@@ -145,7 +145,9 @@ export function SignalsPanel({
                         <Button
                           variant="ghost"
                           size="icon-xs"
-                          aria-label={item.enabled ? "Pause signal" : "Arm signal"}
+                          aria-label={
+                            item.enabled ? "Pause signal" : "Arm signal"
+                          }
                           onClick={() => toggle(item)}
                         >
                           {item.enabled ? <BellOff /> : <Bell />}

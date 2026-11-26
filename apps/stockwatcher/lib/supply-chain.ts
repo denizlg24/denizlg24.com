@@ -5,15 +5,15 @@ import { readExtract, writeExtract } from "./db";
 import { archive, sec, submission } from "./research";
 import { secHeaders, takeSlot } from "./sec-data";
 import {
+  type Candidate,
   cachedLinks,
   cachedVerification,
   extractionSchema,
-  verificationSchema,
-  type Candidate,
   type Filing,
   type Link,
   type OwnDisclosure,
   type Verified,
+  verificationSchema,
 } from "./supply-chain-types";
 
 type TickerRow = { ticker: string; cik: string; title: string };
@@ -124,13 +124,24 @@ async function filingText(url: string) {
     .replace(/\s+/g, " ");
 }
 
-function excerpts(text: string, patterns: RegExp[], radius = 450, cap = 24_000) {
+function excerpts(
+  text: string,
+  patterns: RegExp[],
+  radius = 450,
+  cap = 24_000,
+) {
   const spans: [number, number][] = [];
   for (const pattern of patterns) {
-    const global = new RegExp(pattern.source, `${pattern.flags.replace("g", "")}g`);
+    const global = new RegExp(
+      pattern.source,
+      `${pattern.flags.replace("g", "")}g`,
+    );
     for (const match of text.matchAll(global)) {
       const at = match.index ?? 0;
-      spans.push([Math.max(0, at - radius), Math.min(text.length, at + radius)]);
+      spans.push([
+        Math.max(0, at - radius),
+        Math.min(text.length, at + radius),
+      ]);
       if (spans.length > 120) break;
     }
   }
@@ -174,7 +185,9 @@ const ownPatterns = [
   /concentration of (credit )?risk/i,
 ];
 
-export async function ownDisclosure(ticker: string): Promise<OwnDisclosure | null> {
+export async function ownDisclosure(
+  ticker: string,
+): Promise<OwnDisclosure | null> {
   const index = await tickerIndex();
   const row = index.byTicker.get(ticker);
   if (!row) return null;
@@ -257,9 +270,11 @@ export async function candidates(ticker: string): Promise<Candidate[]> {
   const name = searchName(row.title);
   const [customers, suppliers] = await Promise.all([
     Promise.all(
-      ['"largest customers"', '"largest customer"', '"significant customers"'].map(
-        (phrase) => fullText(`"${name}" ${phrase}`).catch(() => []),
-      ),
+      [
+        '"largest customers"',
+        '"largest customer"',
+        '"significant customers"',
+      ].map((phrase) => fullText(`"${name}" ${phrase}`).catch(() => [])),
     ).then((lists) => lists.flat()),
     fullText(`"${name}" supplier`).catch(() => []),
   ]);

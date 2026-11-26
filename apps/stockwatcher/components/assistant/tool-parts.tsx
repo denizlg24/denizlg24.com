@@ -1,15 +1,6 @@
 "use client";
 
-import {
-  createContext,
-  use,
-  useEffect,
-  useEffectEvent,
-  useState,
-  type ReactNode,
-} from "react";
 import type { InferUITools } from "ai";
-import { mutate } from "swr";
 import {
   Activity,
   ArrowUpRight,
@@ -30,16 +21,28 @@ import {
   TrendingUp,
   Undo2,
 } from "lucide-react";
+import {
+  createContext,
+  type ReactNode,
+  use,
+  useEffect,
+  useEffectEvent,
+  useState,
+} from "react";
+import { mutate } from "swr";
+import { ChartView } from "@/components/reports/chart";
+import { ShareControl } from "@/components/reports/share-control";
 import type { StockwatcherMessage, StockwatcherTools } from "@/lib/ai/tools";
+import { formatTarget, metricLabels } from "@/lib/alerts";
 import type {
   AskUserInput,
   AskUserOutput,
   DashboardState,
 } from "@/lib/assistant-types";
-import { amount, compact, number, percent, tone } from "@/lib/utils";
-import { formatTarget, metricLabels } from "@/lib/alerts";
 import type { AlertMetric } from "@/lib/models";
-import { Sparkline } from "./sparkline";
+import type { PublishedDoc } from "@/lib/reports/types";
+import { amount, compact, number, percent, tone } from "@/lib/utils";
+import { DocumentHits, DocumentList, DocumentRead } from "./document-parts";
 import { ago, hostOf, listSymbols, stamp, useNow } from "./format";
 import { memoriesKey } from "./memory-panel";
 import {
@@ -47,14 +50,7 @@ import {
   InsiderBuyingView,
   PortfolioRiskView,
 } from "./risk-parts";
-import {
-  DocumentHits,
-  DocumentList,
-  DocumentRead,
-} from "./document-parts";
-import { ChartView } from "@/components/reports/chart";
-import { ShareControl } from "@/components/reports/share-control";
-import type { PublishedDoc } from "@/lib/reports/types";
+import { Sparkline } from "./sparkline";
 
 type Tools = InferUITools<StockwatcherTools>;
 type Part = StockwatcherMessage["parts"][number];
@@ -464,7 +460,11 @@ function ToolOutput({ part }: { part: DonePart }) {
     }
     case "tool-getOptions": {
       const output = part.output;
-      return isFailure(output) ? failed(output) : <OptionsSummary data={output} />;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <OptionsSummary data={output} />
+      );
     }
     case "tool-getWatchlists": {
       const output = part.output;
@@ -589,7 +589,10 @@ function ToolOutput({ part }: { part: DonePart }) {
       return isFailure(output) ? (
         failed(output)
       ) : (
-        <Chip icon={<FileText aria-hidden />} text={`Read note “${output.title}”`} />
+        <Chip
+          icon={<FileText aria-hidden />}
+          text={`Read note “${output.title}”`}
+        />
       );
     }
     case "tool-getTechnicals": {
@@ -777,18 +780,18 @@ function tabulate(result: ComputeResult) {
   if (records.length !== result.length) return null;
   if (!records.every((record) => Object.values(record).every(isCell)))
     return null;
-  const columns = [...new Set(records.flatMap((record) => Object.keys(record)))];
+  const columns = [
+    ...new Set(records.flatMap((record) => Object.keys(record))),
+  ];
   if (columns.length === 0 || columns.length > MAX_TABLE_COLUMNS) return null;
   return {
     columns,
-    rows: records
-      .slice(0, MAX_TABLE_ROWS)
-      .map((record) =>
-        columns.map((column) => {
-          const value = record[column];
-          return value !== undefined && isCell(value) ? value : null;
-        }),
-      ),
+    rows: records.slice(0, MAX_TABLE_ROWS).map((record) =>
+      columns.map((column) => {
+        const value = record[column];
+        return value !== undefined && isCell(value) ? value : null;
+      }),
+    ),
     total: records.length,
   };
 }
@@ -813,7 +816,10 @@ function ComputeResultView({ result }: { result: ComputeResult }) {
               {table.rows.map((row, r) => (
                 <tr key={r}>
                   {row.map((cell, c) => (
-                    <td key={table.columns[c]} className={c === 0 ? undefined : "num"}>
+                    <td
+                      key={table.columns[c]}
+                      className={c === 0 ? undefined : "num"}
+                    >
                       {cellText(cell)}
                     </td>
                   ))}
@@ -837,7 +843,9 @@ function ComputeResultView({ result }: { result: ComputeResult }) {
   return (
     <details className="chat-compute-details">
       <summary>
-        <pre className="chat-compute-code">{pretty.slice(0, PREVIEW_CHARS)}…</pre>
+        <pre className="chat-compute-code">
+          {pretty.slice(0, PREVIEW_CHARS)}…
+        </pre>
         <span className="muted">Expand full result</span>
       </summary>
       <pre className="chat-compute-code">{pretty}</pre>
@@ -871,9 +879,14 @@ function Compute({
       <p className="chat-compute-title">{output.description}</p>
       <ComputeResultView result={output.result} />
       {output.missingCount > 0 ? (
-        <p className="muted chat-compute-note" title={output.missing.join(", ")}>
+        <p
+          className="muted chat-compute-note"
+          title={output.missing.join(", ")}
+        >
           No data for {output.missing.slice(0, 8).join(", ")}
-          {output.missingCount > 8 ? ` and ${output.missingCount - 8} more` : ""}
+          {output.missingCount > 8
+            ? ` and ${output.missingCount - 8} more`
+            : ""}
         </p>
       ) : null}
       <ComputeCode code={input.code} />
@@ -977,7 +990,9 @@ function QuestionCard({
           <button
             key={option.label}
             type="button"
-            aria-pressed={multiple ? selected.includes(option.label) : undefined}
+            aria-pressed={
+              multiple ? selected.includes(option.label) : undefined
+            }
             onClick={() => toggle(option.label)}
           >
             <kbd aria-hidden>{index + 1}</kbd>
@@ -1480,7 +1495,9 @@ function Portfolio({ data }: { data: Success<"getPortfolio"> }) {
         </tbody>
       </table>
       <div className="chat-tool-foot">
-        <span>Weights within currency · net value converted at listed FX only</span>
+        <span>
+          Weights within currency · net value converted at listed FX only
+        </span>
         {data.positions.length > shown.length ? (
           <button
             type="button"
@@ -1705,8 +1722,8 @@ function OptionsSummary({ data }: { data: Success<"getOptions"> }) {
               ±{amount(move.eventMovePercent ?? move.straddleMovePercent)}%
             </strong>
             <span className="figure-sub">
-              {move.eventMovePercent == null ? "straddle" : "event est."} ·
-              exp {move.expiry}
+              {move.eventMovePercent == null ? "straddle" : "event est."} · exp{" "}
+              {move.expiry}
             </span>
           </div>
         ) : null}
@@ -1728,7 +1745,9 @@ function OptionsSummary({ data }: { data: Success<"getOptions"> }) {
             <tr key={row.expiry}>
               <td>{row.expiry}</td>
               <td className="num">
-                {row.atmIvPercent == null ? "—" : `${amount(row.atmIvPercent)}%`}
+                {row.atmIvPercent == null
+                  ? "—"
+                  : `${amount(row.atmIvPercent)}%`}
               </td>
               <td className="num">
                 {row.impliedMovePercent == null
@@ -1755,7 +1774,10 @@ function OptionsSummary({ data }: { data: Success<"getOptions"> }) {
 
 function YieldCurve({ data }: { data: Success<"getYieldCurve"> }) {
   return (
-    <Block title="US Treasury yield curve" meta={`${data.source} · as of ${data.asOf}`}>
+    <Block
+      title="US Treasury yield curve"
+      meta={`${data.source} · as of ${data.asOf}`}
+    >
       <div className="chat-compute-scroll">
         <table className="data-table chat-table">
           <thead>
@@ -1763,7 +1785,9 @@ function YieldCurve({ data }: { data: Success<"getYieldCurve"> }) {
               <th>Tenor</th>
               {data.curves.map((curve) => (
                 <th key={curve.label} className="num">
-                  {curve.label === "latest" ? curve.date : `${curve.label} · ${curve.date}`}
+                  {curve.label === "latest"
+                    ? curve.date
+                    : `${curve.label} · ${curve.date}`}
                 </th>
               ))}
             </tr>
@@ -1807,7 +1831,13 @@ function FilingRead({ data }: { data: Success<"readFiling"> }) {
     >
       <p className="chat-chip-line">
         {data.section
-          ? [/^(\d+[A-E]?|I{1,3}-.+|IV-.+|\d\.\d+)$/.test(data.section.id) && !data.section.id.includes("99.") ? `Item ${data.section.id}` : null, data.section.title]
+          ? [
+              /^(\d+[A-E]?|I{1,3}-.+|IV-.+|\d\.\d+)$/.test(data.section.id) &&
+              !data.section.id.includes("99.")
+                ? `Item ${data.section.id}`
+                : null,
+              data.section.title,
+            ]
               .filter(Boolean)
               .join(" · ")
           : "Whole filing"}

@@ -50,8 +50,7 @@ function flattenRow(line: string) {
   for (const cell of cells) {
     const last = merged.length - 1;
     if (last >= 0 && /^[)%]+$/.test(cell)) merged[last] += cell;
-    else if (last >= 0 && /^[$(]+$/.test(merged[last]))
-      merged[last] += cell;
+    else if (last >= 0 && /^[$(]+$/.test(merged[last])) merged[last] += cell;
     else merged.push(cell);
   }
   return merged.join(" | ");
@@ -64,7 +63,10 @@ export function htmlToText(html: string) {
     .replace(/<(script|style|head)\b[\s\S]*?<\/\1>/gi, "")
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/(td|th)\s*>/gi, CELL)
-    .replace(/<\/(p|div|h[1-6]|li|tr|table|ul|ol|section|blockquote|pre)\s*>/gi, "\n")
+    .replace(
+      /<\/(p|div|h[1-6]|li|tr|table|ul|ol|section|blockquote|pre)\s*>/gi,
+      "\n",
+    )
     .replace(/<(p|div|h[1-6]|li|tr|table|pre)\b[^>]*>/gi, "\n")
     .replace(/<[^>]+>/g, "");
   const lines: string[] = [];
@@ -130,7 +132,10 @@ function plainHeadings(lines: string[], offsets: number[]) {
     const upper = line.replace(/[^A-Z]/g, "").length;
     if (upper / letters.length < 0.85 || /[.:;,]$/.test(line)) return;
     found.push({
-      id: line.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+      id: line
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, ""),
       title: line,
       start: offsets[index],
     });
@@ -203,10 +208,13 @@ export function findSections(text: string, layout: Layout, form: string) {
     end: distinct[index + 1]?.start ?? text.length,
   }));
   const candidates = new Map<string, FilingSection[]>();
-  for (const span of spans) candidates.set(span.id, [...(candidates.get(span.id) ?? []), span]);
+  for (const span of spans)
+    candidates.set(span.id, [...(candidates.get(span.id) ?? []), span]);
   const ordered = layout === "items" && !quarterly;
   const rank = (id: string) =>
-    Number.parseInt(id, 10) * 10 + (id.match(/[A-E]$/)?.[0].charCodeAt(0) ?? 64) - 64;
+    Number.parseInt(id, 10) * 10 +
+    (id.match(/[A-E]$/)?.[0].charCodeAt(0) ?? 64) -
+    64;
   const ids = ordered
     ? [...candidates.keys()].toSorted((a, b) => rank(a) - rank(b))
     : [...candidates.keys()];
@@ -227,19 +235,61 @@ export function findSections(text: string, layout: Layout, form: string) {
     .slice(0, 60);
 }
 
-const SYNONYMS: Array<{ pattern: RegExp; annual: string; quarterly: string; foreign: string }> = [
+const SYNONYMS: Array<{
+  pattern: RegExp;
+  annual: string;
+  quarterly: string;
+  foreign: string;
+}> = [
   { pattern: /risk factor/, annual: "1A", quarterly: "II-1A", foreign: "3D" },
-  { pattern: /md&a|management.?s discussion|liquidity and capital|results of operations|operating and financial review/, annual: "7", quarterly: "I-2", foreign: "5" },
-  { pattern: /^business$|^overview$/, annual: "1", quarterly: "", foreign: "4" },
-  { pattern: /financial statements|balance sheet|income statement/, annual: "8", quarterly: "I-1", foreign: "18" },
-  { pattern: /legal proceeding|litigation/, annual: "3", quarterly: "II-1", foreign: "8A" },
+  {
+    pattern:
+      /md&a|management.?s discussion|liquidity and capital|results of operations|operating and financial review/,
+    annual: "7",
+    quarterly: "I-2",
+    foreign: "5",
+  },
+  {
+    pattern: /^business$|^overview$/,
+    annual: "1",
+    quarterly: "",
+    foreign: "4",
+  },
+  {
+    pattern: /financial statements|balance sheet|income statement/,
+    annual: "8",
+    quarterly: "I-1",
+    foreign: "18",
+  },
+  {
+    pattern: /legal proceeding|litigation/,
+    annual: "3",
+    quarterly: "II-1",
+    foreign: "8A",
+  },
   { pattern: /propert/, annual: "2", quarterly: "", foreign: "4D" },
   { pattern: /market risk/, annual: "7A", quarterly: "I-3", foreign: "11" },
-  { pattern: /controls and procedures|internal control/, annual: "9A", quarterly: "I-4", foreign: "15" },
-  { pattern: /executive compensation/, annual: "11", quarterly: "", foreign: "6B" },
+  {
+    pattern: /controls and procedures|internal control/,
+    annual: "9A",
+    quarterly: "I-4",
+    foreign: "15",
+  },
+  {
+    pattern: /executive compensation/,
+    annual: "11",
+    quarterly: "",
+    foreign: "6B",
+  },
   { pattern: /cybersecurity/, annual: "1C", quarterly: "", foreign: "16K" },
   { pattern: /unresolved staff/, annual: "1B", quarterly: "", foreign: "4A" },
-  { pattern: /market for (the )?registrant|common equity|share repurchase|issuer purchases/, annual: "5", quarterly: "II-2", foreign: "9" },
+  {
+    pattern:
+      /market for (the )?registrant|common equity|share repurchase|issuer purchases/,
+    annual: "5",
+    quarterly: "II-2",
+    foreign: "9",
+  },
 ];
 
 export function resolveSection(
@@ -258,27 +308,33 @@ export function resolveSection(
     );
   if (idMatch) {
     const part = idMatch[1]?.toUpperCase();
-    const item = idMatch[2].replace(/^(\d{1,2})\.([a-e])$/i, "$1$2").toUpperCase();
+    const item = idMatch[2]
+      .replace(/^(\d{1,2})\.([a-e])$/i, "$1$2")
+      .toUpperCase();
     const found =
       byId(part ? `${part}-${item}` : item) ??
       (form.replace(/\/A$/, "") === "10-Q"
-        ? byId(`I-${item}`) ?? byId(`II-${item}`)
+        ? (byId(`I-${item}`) ?? byId(`II-${item}`))
         : undefined);
     if (found) return found;
   }
   const exhibit = /^(?:ex(?:hibit)?\.?\s*)?(99\.\d+)$/i.exec(lowered);
   if (exhibit) return byId(exhibit[1]);
-  if (lowered === "exhibit" || lowered === "press release")
-    return byId("99.1");
+  if (lowered === "exhibit" || lowered === "press release") return byId("99.1");
 
   const base = form.replace(/\/A$/, "");
-  const kind = base === "10-Q" ? "quarterly" : /^(20-F|40-F)$/.test(base) ? "foreign" : "annual";
+  const kind =
+    base === "10-Q"
+      ? "quarterly"
+      : /^(20-F|40-F)$/.test(base)
+        ? "foreign"
+        : "annual";
   if (/^(10-K|10-KT|10-Q|20-F|40-F)$/.test(base))
     for (const synonym of SYNONYMS)
       if (synonym.pattern.test(lowered)) {
         const target = synonym[kind];
         const found = target
-          ? byId(target) ?? byId(target.replace(/\D+$/, ""))
+          ? (byId(target) ?? byId(target.replace(/\D+$/, "")))
           : undefined;
         if (found) return found;
       }
@@ -293,13 +349,38 @@ export function sliceBudget(text: string, offset: number, limit: number) {
   if (hardEnd >= text.length) return { text: text.slice(offset), next: null };
   const lineBreak = text.lastIndexOf("\n", hardEnd);
   const end = lineBreak > offset + limit * 0.6 ? lineBreak : hardEnd;
-  return { text: text.slice(offset, end), next: end + (text[end] === "\n" ? 1 : 0) };
+  return {
+    text: text.slice(offset, end),
+    next: end + (text[end] === "\n" ? 1 : 0),
+  };
 }
 
 const STOPWORDS = new Set([
-  "the", "and", "for", "that", "with", "from", "this", "are", "was", "were",
-  "has", "have", "its", "our", "their", "than", "into", "about", "what",
-  "which", "how", "does", "did", "any", "all",
+  "the",
+  "and",
+  "for",
+  "that",
+  "with",
+  "from",
+  "this",
+  "are",
+  "was",
+  "were",
+  "has",
+  "have",
+  "its",
+  "our",
+  "their",
+  "than",
+  "into",
+  "about",
+  "what",
+  "which",
+  "how",
+  "does",
+  "did",
+  "any",
+  "all",
 ]);
 
 export type Passage = { offset: number; text: string; score: number };
@@ -333,14 +414,17 @@ export function searchPassages(
       start = cursor;
     }
   }
-  if (start < text.length)
-    chunks.push({ start, end: text.length, score: 0 });
+  if (start < text.length) chunks.push({ start, end: text.length, score: 0 });
   for (const chunk of chunks) {
     const body = text.slice(chunk.start, chunk.end).toLowerCase();
     let score = 0;
     for (const term of terms) {
       let count = 0;
-      for (let at = body.indexOf(term); at !== -1 && count < 3; at = body.indexOf(term, at + term.length))
+      for (
+        let at = body.indexOf(term);
+        at !== -1 && count < 3;
+        at = body.indexOf(term, at + term.length)
+      )
         count++;
       score += count === 0 ? 0 : 1 + Math.log2(count);
     }
@@ -365,6 +449,10 @@ export function searchPassages(
     const from = chunks[Math.max(0, index - 1)].start;
     const to = chunks[Math.min(chunks.length - 1, index + 1)].end;
     const slice = text.slice(from, Math.min(to, from + perPassage));
-    return { offset: base + from, text: slice, score: Math.round(score * 10) / 10 };
+    return {
+      offset: base + from,
+      text: slice,
+      score: Math.round(score * 10) / 10,
+    };
   });
 }

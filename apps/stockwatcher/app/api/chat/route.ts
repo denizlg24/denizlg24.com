@@ -1,27 +1,27 @@
+import { randomUUID } from "node:crypto";
 import {
   convertToModelMessages,
   createIdGenerator,
   createUIMessageStreamResponse,
   isStepCount,
+  type LanguageModelUsage,
+  type StepResult,
   safeValidateUIMessages,
   smoothStream,
   streamText,
-  toUIMessageStream,
-  type LanguageModelUsage,
-  type StepResult,
   type ToolSet,
+  toUIMessageStream,
 } from "ai";
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { appOrigin, currentUser, json, sameOrigin } from "@/lib/auth";
-import { readWorkspace } from "@/lib/db";
-import { listMemories, saveThread, threadIdSchema } from "@/lib/memory";
-import { dashboardSchema } from "@/lib/assistant-types";
-import { symbolPattern } from "@/lib/universes";
+import { recordRun, type ToolCallRecord } from "@/lib/admin";
 import { aiEnabled, chatModel } from "@/lib/ai/config";
 import { chatInstructions } from "@/lib/ai/prompt";
 import { createTools, type StockwatcherMessage } from "@/lib/ai/tools";
-import { recordRun, type ToolCallRecord } from "@/lib/admin";
+import { dashboardSchema } from "@/lib/assistant-types";
+import { appOrigin, currentUser, json, sameOrigin } from "@/lib/auth";
+import { readWorkspace } from "@/lib/db";
+import { listMemories, saveThread, threadIdSchema } from "@/lib/memory";
+import { symbolPattern } from "@/lib/universes";
 
 export const maxDuration = 120;
 

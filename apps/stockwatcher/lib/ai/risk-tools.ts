@@ -1,18 +1,20 @@
 import "server-only";
 import { tool } from "ai";
 import { z } from "zod";
-import { attempt, round, ticker } from "./shared";
-import { readWorkspace, type Identity } from "@/lib/db";
+import { regression } from "@/lib/analytics";
+import { type Identity, readWorkspace } from "@/lib/db";
 import {
-  factorKeys,
-  famaFrench,
   type FactorData,
   type FactorKey,
+  factorKeys,
+  famaFrench,
 } from "@/lib/french-factors";
 import { history, quotes } from "@/lib/market";
 import type { ChartPoint } from "@/lib/models";
 import { mapLimit } from "@/lib/pool";
+import { positionsFor, valuePosition } from "@/lib/portfolio";
 import {
+  annualise,
   closeOnOrBefore,
   closesOn,
   dailyReturns,
@@ -27,16 +29,14 @@ import {
   parametricTail,
   parseDay,
   portfolioReturns,
+  type Scenario,
   sampleStdev,
   shockDriverKeys,
   shockDrivers,
-  annualise,
-  univariateBeta,
   unionDays,
-  type Scenario,
+  univariateBeta,
 } from "@/lib/portfolio-risk";
-import { regression } from "@/lib/analytics";
-import { positionsFor, valuePosition } from "@/lib/portfolio";
+import { attempt, round, ticker } from "./shared";
 
 const MAX_HOLDINGS = 40;
 const FETCH_CONCURRENCY = 6;
@@ -69,10 +69,17 @@ async function loadHoldings(user: Identity, bookId?: string): Promise<Loaded> {
   const books = bookId
     ? data.books.filter((book) => book.id === bookId)
     : data.books;
-  if (bookId && !books.length) throw new Error("That portfolio does not exist.");
+  if (bookId && !books.length)
+    throw new Error("That portfolio does not exist.");
   const aggregate = new Map<
     string,
-    { symbol: string; currency: string; quantity: number; cost: number; realized: number }
+    {
+      symbol: string;
+      currency: string;
+      quantity: number;
+      cost: number;
+      realized: number;
+    }
   >();
   for (const book of books)
     for (const position of positionsFor(
@@ -93,9 +100,9 @@ async function loadHoldings(user: Identity, bookId?: string): Promise<Loaded> {
         ? "That portfolio has no open positions."
         : "There are no open positions to analyse.",
     );
-  const live = await quotes([...new Set(open.map((item) => item.symbol))]).catch(
-    () => [],
-  );
+  const live = await quotes([
+    ...new Set(open.map((item) => item.symbol)),
+  ]).catch(() => []);
   const bySymbol = new Map(live.map((quote) => [quote.symbol, quote]));
   const unpriced: string[] = [];
   const byCurrency = new Map<string, Omit<Holding, "weight">[]>();
@@ -217,7 +224,9 @@ function factorGroup(
   });
   const fit = ols(y, x);
   if (!fit)
-    throw new Error("Not enough overlapping history to run the factor regression.");
+    throw new Error(
+      "Not enough overlapping history to run the factor regression.",
+    );
   const factorMeans = factorKeys.map(
     (_, i) => x.reduce((sum, row) => sum + row[i], 0) / x.length,
   );
@@ -261,7 +270,9 @@ async function factors(loaded: Loaded, years: number) {
   const [ff, histories] = await Promise.all([
     famaFrench(),
     fetchHistories(
-      loaded.groups.flatMap((group) => group.holdings.map((item) => item.symbol)),
+      loaded.groups.flatMap((group) =>
+        group.holdings.map((item) => item.symbol),
+      ),
       years + 0.3,
     ),
   ]);
@@ -309,7 +320,10 @@ const periodStart = (period: Period, now: Date) => {
 };
 
 const yearsBack = (fromDay: number) =>
-  Math.min(30, Math.max(0.3, (dayOf(Date.now() / 1000) - fromDay) / 365.25 + 0.1));
+  Math.min(
+    30,
+    Math.max(0.3, (dayOf(Date.now() / 1000) - fromDay) / 365.25 + 0.1),
+  );
 
 async function attribution(
   loaded: Loaded,
@@ -321,16 +335,22 @@ async function attribution(
   const today = dayOf(Date.now() / 1000);
   const fromDay = from ? parseDay(from) : periodStart(period, new Date());
   const toDay = to ? Math.min(parseDay(to), today) : today;
-  if (!(fromDay < toDay)) throw new Error("The start date must be before the end date.");
+  if (!(fromDay < toDay))
+    throw new Error("The start date must be before the end date.");
   const symbols = loaded.groups.flatMap((group) =>
     group.holdings.map((item) => item.symbol),
   );
-  const histories = await fetchHistories([...symbols, benchmark], yearsBack(fromDay));
+  const histories = await fetchHistories(
+    [...symbols, benchmark],
+    yearsBack(fromDay),
+  );
   const benchPoints = pointsOf(histories, benchmark);
   const b0 = closeOnOrBefore(benchPoints, fromDay);
   const b1 = closeOnOrBefore(benchPoints, toDay);
   if (b0 == null || b1 == null)
-    throw new Error(`No ${benchmark} history covers ${isoDay(fromDay)} to ${isoDay(toDay)}.`);
+    throw new Error(
+      `No ${benchmark} history covers ${isoDay(fromDay)} to ${isoDay(toDay)}.`,
+    );
   const benchReturn = b1 / b0 - 1;
   const groups = await perGroup(loaded.groups, (group) => {
     const rows = group.holdings.flatMap((holding) => {
@@ -345,7 +365,8 @@ async function attribution(
       .filter((holding) => !rows.some((row) => row.holding === holding))
       .map((holding) => holding.symbol);
     const start = rows.reduce((sum, row) => sum + row.startValue, 0);
-    if (!start) throw new Error("No holding has price history covering the period.");
+    if (!start)
+      throw new Error("No holding has price history covering the period.");
     const positions = rows
       .map((row) => {
         const weight = row.startValue / start;
@@ -359,7 +380,10 @@ async function attribution(
         };
       })
       .sort((a, b) => b.contribution - a.contribution);
-    const portfolioReturn = positions.reduce((sum, row) => sum + row.contribution, 0);
+    const portfolioReturn = positions.reduce(
+      (sum, row) => sum + row.contribution,
+      0,
+    );
     const covered =
       rows.reduce((sum, row) => sum + row.holding.value, 0) / group.total;
     return {
@@ -423,8 +447,16 @@ function resolveScenarios(
       throw new Error("A custom scenario needs both from and to dates.");
     const fromDay = parseDay(from);
     const toDay = parseDay(to);
-    if (!(fromDay < toDay)) throw new Error("The start date must be before the end date.");
-    out.push({ key: "custom", label: `Custom ${from} to ${to}`, from, to, fromDay, toDay });
+    if (!(fromDay < toDay))
+      throw new Error("The start date must be before the end date.");
+    out.push({
+      key: "custom",
+      label: `Custom ${from} to ${to}`,
+      from,
+      to,
+      fromDay,
+      toDay,
+    });
   }
   return out;
 }
@@ -478,7 +510,9 @@ function stressScenario(
     pnl: round(pnl),
     benchmarkReturnPercent: pct(benchReturn),
     proxiedPercentOfValue: pct(proxiedValue / group.total, 1),
-    positions: detailed.slice(0, 12).map((row) => ({ ...row, pnl: round(row.pnl) })),
+    positions: detailed
+      .slice(0, 12)
+      .map((row) => ({ ...row, pnl: round(row.pnl) })),
     omittedPositions: Math.max(0, detailed.length - 12),
     othersPnl: round(detailed.slice(12).reduce((sum, row) => sum + row.pnl, 0)),
   };
@@ -493,7 +527,10 @@ async function historicalStress(
   const symbols = loaded.groups.flatMap((group) =>
     group.holdings.map((item) => item.symbol),
   );
-  const histories = await fetchHistories([...symbols, benchmark], yearsBack(earliest));
+  const histories = await fetchHistories(
+    [...symbols, benchmark],
+    yearsBack(earliest),
+  );
   const benchPoints = pointsOf(histories, benchmark);
   return {
     kind: "historical" as const,
@@ -522,7 +559,9 @@ async function factorShocks(loaded: Loaded, shocks: Shock[], years: number) {
   const symbols = loaded.groups.flatMap((group) =>
     group.holdings.map((item) => item.symbol),
   );
-  const drivers = [...new Set(shocks.map((shock) => shockDrivers[shock.driver].symbol))];
+  const drivers = [
+    ...new Set(shocks.map((shock) => shockDrivers[shock.driver].symbol)),
+  ];
   const histories = await fetchHistories([...symbols, ...drivers], years + 0.1);
   const results = await perGroup(loaded.groups, (group) => {
     const firstDay = dayOf(Date.now() / 1000) - Math.round(years * 365.25);
@@ -671,7 +710,9 @@ async function valueAtRisk(loaded: Loaded, years: number) {
     ...header(loaded),
     method:
       "Historical simulation applies today's weights to every past day (10-day uses overlapping compounded windows); parametric assumes normally distributed returns with zero drift. VaR/ES are loss magnitudes at the stated confidence, in each currency's units. Fat tails (see kurtosis) make parametric figures understate historical ones.",
-    groups: await perGroup(loaded.groups, (group) => varGroup(group, histories, years)),
+    groups: await perGroup(loaded.groups, (group) =>
+      varGroup(group, histories, years),
+    ),
     source: "Yahoo Finance (adjusted closes)",
   };
 }
@@ -704,14 +745,20 @@ export function riskTools({ user }: { user: Identity }) {
           .string()
           .regex(DAY_PATTERN)
           .optional()
-          .describe("YYYY-MM-DD: custom attribution start or custom stress window start."),
+          .describe(
+            "YYYY-MM-DD: custom attribution start or custom stress window start.",
+          ),
         to: z
           .string()
           .regex(DAY_PATTERN)
           .optional()
-          .describe("YYYY-MM-DD: custom attribution end or custom stress window end."),
+          .describe(
+            "YYYY-MM-DD: custom attribution end or custom stress window end.",
+          ),
         scenarios: z
-          .array(z.enum(["gfc2008", "covid2020", "rates2022", "q42018", "custom"]))
+          .array(
+            z.enum(["gfc2008", "covid2020", "rates2022", "q42018", "custom"]),
+          )
           .max(5)
           .optional()
           .describe(

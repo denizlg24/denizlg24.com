@@ -1,13 +1,13 @@
 import { z } from "zod";
+import { editDashboard, parseStart } from "@/lib/assistant-commands";
+import { type AssistantResult, dashboardSchema } from "@/lib/assistant-types";
 import { currentUser, json, sameOrigin } from "@/lib/auth";
 import { readWorkspace } from "@/lib/db";
-import { search, quotes } from "@/lib/market";
+import { quotes, search } from "@/lib/market";
 import { companyResearch } from "@/lib/research";
-import { universes, symbolPattern } from "@/lib/universes";
 import { managers } from "@/lib/research-types";
+import { symbolPattern, universes } from "@/lib/universes";
 import { amount, percent } from "@/lib/utils";
-import { dashboardSchema, type AssistantResult } from "@/lib/assistant-types";
-import { editDashboard, parseStart } from "@/lib/assistant-commands";
 
 const prompt = z.object({
   query: z.string().trim().min(1).max(500),

@@ -7,6 +7,7 @@ import {
   financialsSchema,
   holdersSchema,
   instrumentSchema,
+  type MoverList,
   macroCatalogSchema,
   macroHistorySchema,
   marketStatsSchema,
@@ -14,7 +15,6 @@ import {
   peersSchema,
   peopleSchema,
   relayNewsSchema,
-  type MoverList,
 } from "./security-types";
 
 export class RelayUnavailable extends Error {

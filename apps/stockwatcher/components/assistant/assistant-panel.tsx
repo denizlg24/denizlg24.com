@@ -1,15 +1,5 @@
 "use client";
 
-import {
-  useEffect,
-  useImperativeHandle,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-  type KeyboardEvent,
-  type Ref,
-} from "react";
 import { useChat } from "@ai-sdk/react";
 import {
   APICallError,
@@ -17,7 +7,6 @@ import {
   generateId,
   lastAssistantMessageIsCompleteWithToolCalls,
 } from "ai";
-import { mutate } from "swr";
 import {
   ArrowUp,
   Check,
@@ -29,25 +18,36 @@ import {
   Square,
   X,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  type Ref,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { mutate } from "swr";
 import { api } from "@/components/shared";
+import { Button } from "@/components/ui/button";
 import type { StockwatcherMessage } from "@/lib/ai/tools";
 import type { AskUserOutput, DashboardState } from "@/lib/assistant-types";
+import { documentExtensions } from "@/lib/documents/types";
+import { errorMessage } from "./format";
 import { Markdown } from "./markdown";
+import { memoriesKey } from "./memory-panel";
+import { ThreadDrawer, threadsKey } from "./thread-drawer";
 import {
+  type AlertProposal,
+  isToolPart,
   SourceList,
   Status,
   ToolActions,
   ToolPartView,
-  isToolPart,
-  type AlertProposal,
 } from "./tool-parts";
-import { ThreadDrawer, threadsKey } from "./thread-drawer";
-import { memoriesKey } from "./memory-panel";
-import { errorMessage } from "./format";
 import { UploadList } from "./upload-list";
 import { useDocumentUpload } from "./use-document-upload";
-import { documentExtensions } from "@/lib/documents/types";
 
 const alertChannelsKey = "/api/alerts/channels";
 
@@ -195,20 +195,20 @@ export function AssistantPanel({
     clearError,
     addToolOutput,
   } = useChat<StockwatcherMessage>({
-      id: session.id,
-      messages: session.messages,
-      transport,
-      sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
-      onError: (reason) => {
-        if (APICallError.isInstance(reason) && reason.statusCode === 503) {
-          setRejected(true);
-          onUnavailable?.();
-        }
-      },
-      onFinish: () => {
-        void mutate(threadsKey);
-      },
-    });
+    id: session.id,
+    messages: session.messages,
+    transport,
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+    onError: (reason) => {
+      if (APICallError.isInstance(reason) && reason.statusCode === 503) {
+        setRejected(true);
+        onUnavailable?.();
+      }
+    },
+    onFinish: () => {
+      void mutate(threadsKey);
+    },
+  });
 
   const busy = status === "submitted" || status === "streaming";
 
@@ -250,7 +250,10 @@ export function AssistantPanel({
             handled.current.add(part.toolCallId);
             if (!("error" in part.output)) {
               onWorkspaceChanged();
-              if (part.type === "tool-manageAlerts" || part.type === "tool-manageSignals")
+              if (
+                part.type === "tool-manageAlerts" ||
+                part.type === "tool-manageSignals"
+              )
                 void mutate(alertChannelsKey);
             }
             break;
@@ -378,7 +381,8 @@ export function AssistantPanel({
         aria-label="Research assistant"
         data-dragging={dragging || undefined}
         onDragOver={(event) => {
-          if (unavailable || !event.dataTransfer.types.includes("Files")) return;
+          if (unavailable || !event.dataTransfer.types.includes("Files"))
+            return;
           event.preventDefault();
           setDragging(true);
         }}

@@ -13,12 +13,15 @@ import {
   YAxis,
 } from "recharts";
 import { Empty, Failure, Loading } from "@/components/shared";
-import { quadrant, rotation, type RotationPoint } from "@/lib/analytics";
+import { quadrant, type RotationPoint, rotation } from "@/lib/analytics";
 import { symbolPattern } from "@/lib/universes";
 import { number } from "@/lib/utils";
 import { useHistory } from "./quant";
 
-const universes: Record<string, { benchmark: string; members: [string, string][] }> = {
+const universes: Record<
+  string,
+  { benchmark: string; members: [string, string][] }
+> = {
   "US sectors": {
     benchmark: "SPY",
     members: [
@@ -49,7 +52,7 @@ const universes: Record<string, { benchmark: string; members: [string, string][]
       ["EWT", "Taiwan"],
     ],
   },
-  "Factors": {
+  Factors: {
     benchmark: "SPY",
     members: [
       ["MTUM", "Momentum"],
@@ -103,19 +106,29 @@ export function Rotation({ select }: { select: (symbol: string) => void }) {
     "1wk",
   );
   const paths = useMemo(() => {
-    const bench = data?.series.find((item) => item.symbol === benchmark)?.points ?? [];
+    const bench =
+      data?.series.find((item) => item.symbol === benchmark)?.points ?? [];
     return members.flatMap(([symbol, label], index) => {
-      const points = data?.series.find((item) => item.symbol === symbol)?.points;
+      const points = data?.series.find(
+        (item) => item.symbol === symbol,
+      )?.points;
       if (!points || !bench.length) return [];
       const path = rotation(points, bench, window);
-      return path.length ? [{ symbol, label, color: palette[index % palette.length], path }] : [];
+      return path.length
+        ? [{ symbol, label, color: palette[index % palette.length], path }]
+        : [];
     });
   }, [data, benchmark, members, window]);
   const shown = paths.filter((item) => !hidden.has(item.symbol));
   const extent = Math.max(
     2,
     ...shown.flatMap((item) =>
-      item.path.slice(-tail).flatMap((point) => [Math.abs(point.ratio - 100), Math.abs(point.momentum - 100)]),
+      item.path
+        .slice(-tail)
+        .flatMap((point) => [
+          Math.abs(point.ratio - 100),
+          Math.abs(point.momentum - 100),
+        ]),
     ),
   );
   const domain: [number, number] = [100 - extent * 1.1, 100 + extent * 1.1];
@@ -154,12 +167,22 @@ export function Rotation({ select }: { select: (symbol: string) => void }) {
           </label>
           <label className="graph-select">
             Tail
-            <input type="range" min={1} max={26} value={tail} onChange={(event) => setTail(Number(event.target.value))} />
+            <input
+              type="range"
+              min={1}
+              max={26}
+              value={tail}
+              onChange={(event) => setTail(Number(event.target.value))}
+            />
             <b>{tail}W</b>
           </label>
           <label className="graph-select">
             Smoothing
-            <select className="studio-select" value={window} onChange={(event) => setWindow(Number(event.target.value))}>
+            <select
+              className="studio-select"
+              value={window}
+              onChange={(event) => setWindow(Number(event.target.value))}
+            >
               {[5, 10, 14, 20].map((value) => (
                 <option key={value} value={value}>
                   {value}W
@@ -178,25 +201,82 @@ export function Rotation({ select }: { select: (symbol: string) => void }) {
         <div className="rrg">
           <div className="rrg-chart">
             <ResponsiveContainer width="100%" height="100%">
-              <ScatterChart margin={{ top: 10, right: 10, left: 0, bottom: 18 }}>
-                <ReferenceArea x1={100} x2={domain[1]} y1={100} y2={domain[1]} fill="var(--gain)" fillOpacity={0.07} />
-                <ReferenceArea x1={100} x2={domain[1]} y1={domain[0]} y2={100} fill="var(--term-key)" fillOpacity={0.07} />
-                <ReferenceArea x1={domain[0]} x2={100} y1={domain[0]} y2={100} fill="var(--loss)" fillOpacity={0.07} />
-                <ReferenceArea x1={domain[0]} x2={100} y1={100} y2={domain[1]} fill="var(--live)" fillOpacity={0.07} />
+              <ScatterChart
+                margin={{ top: 10, right: 10, left: 0, bottom: 18 }}
+              >
+                <ReferenceArea
+                  x1={100}
+                  x2={domain[1]}
+                  y1={100}
+                  y2={domain[1]}
+                  fill="var(--gain)"
+                  fillOpacity={0.07}
+                />
+                <ReferenceArea
+                  x1={100}
+                  x2={domain[1]}
+                  y1={domain[0]}
+                  y2={100}
+                  fill="var(--term-key)"
+                  fillOpacity={0.07}
+                />
+                <ReferenceArea
+                  x1={domain[0]}
+                  x2={100}
+                  y1={domain[0]}
+                  y2={100}
+                  fill="var(--loss)"
+                  fillOpacity={0.07}
+                />
+                <ReferenceArea
+                  x1={domain[0]}
+                  x2={100}
+                  y1={100}
+                  y2={domain[1]}
+                  fill="var(--live)"
+                  fillOpacity={0.07}
+                />
                 <CartesianGrid stroke="var(--rule)" />
-                <XAxis type="number" dataKey="ratio" domain={domain} tick={axisTick} tickFormatter={(v: number) => v.toFixed(1)} label={{ value: "RS-Ratio", position: "insideBottom", offset: -10, fill: "var(--muted-foreground)", fontSize: 10 }} allowDataOverflow />
-                <YAxis type="number" dataKey="momentum" domain={domain} tick={axisTick} tickFormatter={(v: number) => v.toFixed(1)} width={44} allowDataOverflow />
+                <XAxis
+                  type="number"
+                  dataKey="ratio"
+                  domain={domain}
+                  tick={axisTick}
+                  tickFormatter={(v: number) => v.toFixed(1)}
+                  label={{
+                    value: "RS-Ratio",
+                    position: "insideBottom",
+                    offset: -10,
+                    fill: "var(--muted-foreground)",
+                    fontSize: 10,
+                  }}
+                  allowDataOverflow
+                />
+                <YAxis
+                  type="number"
+                  dataKey="momentum"
+                  domain={domain}
+                  tick={axisTick}
+                  tickFormatter={(v: number) => v.toFixed(1)}
+                  width={44}
+                  allowDataOverflow
+                />
                 <ReferenceLine x={100} stroke="var(--strong-border)" />
                 <ReferenceLine y={100} stroke="var(--strong-border)" />
                 <Tooltip
                   isAnimationActive={false}
                   content={({ active, payload }) => {
-                    const point = payload?.[0]?.payload as (RotationPoint & { symbol?: string }) | undefined;
+                    const point = payload?.[0]?.payload as
+                      | (RotationPoint & { symbol?: string })
+                      | undefined;
                     if (!active || !point?.symbol) return null;
                     return (
                       <div className="quant-tip">
                         <b>
-                          {point.symbol} · {new Date(point.time * 1000).toISOString().slice(0, 10)}
+                          {point.symbol} ·{" "}
+                          {new Date(point.time * 1000)
+                            .toISOString()
+                            .slice(0, 10)}
                         </b>
                         <span>RS-Ratio {number(point.ratio)}</span>
                         <span>RS-Momentum {number(point.momentum)}</span>
@@ -206,7 +286,9 @@ export function Rotation({ select }: { select: (symbol: string) => void }) {
                   }}
                 />
                 {shown.map((item) => {
-                  const recent = item.path.slice(-tail).map((point) => ({ ...point, symbol: item.symbol }));
+                  const recent = item.path
+                    .slice(-tail)
+                    .map((point) => ({ ...point, symbol: item.symbol }));
                   return (
                     <Scatter
                       key={item.symbol}
@@ -214,14 +296,29 @@ export function Rotation({ select }: { select: (symbol: string) => void }) {
                       fill={item.color}
                       line={{ stroke: item.color, strokeWidth: 1.4 }}
                       isAnimationActive={false}
-                      shape={(props: { cx?: number; cy?: number; index?: number }) => {
+                      shape={(props: {
+                        cx?: number;
+                        cy?: number;
+                        index?: number;
+                      }) => {
                         const last = props.index === recent.length - 1;
                         if (props.cx == null || props.cy == null) return <g />;
                         return (
                           <g>
-                            <circle cx={props.cx} cy={props.cy} r={last ? 5 : 2} fill={item.color} fillOpacity={last ? 1 : 0.6} />
+                            <circle
+                              cx={props.cx}
+                              cy={props.cy}
+                              r={last ? 5 : 2}
+                              fill={item.color}
+                              fillOpacity={last ? 1 : 0.6}
+                            />
                             {last ? (
-                              <text x={props.cx + 7} y={props.cy + 4} className="rrg-label" fill={item.color}>
+                              <text
+                                x={props.cx + 7}
+                                y={props.cy + 4}
+                                className="rrg-label"
+                                fill={item.color}
+                              >
                                 {item.symbol}
                               </text>
                             ) : null}
@@ -233,10 +330,18 @@ export function Rotation({ select }: { select: (symbol: string) => void }) {
                 })}
               </ScatterChart>
             </ResponsiveContainer>
-            <span className="rrg-corner" data-at="tr">Leading</span>
-            <span className="rrg-corner" data-at="br">Weakening</span>
-            <span className="rrg-corner" data-at="bl">Lagging</span>
-            <span className="rrg-corner" data-at="tl">Improving</span>
+            <span className="rrg-corner" data-at="tr">
+              Leading
+            </span>
+            <span className="rrg-corner" data-at="br">
+              Weakening
+            </span>
+            <span className="rrg-corner" data-at="bl">
+              Lagging
+            </span>
+            <span className="rrg-corner" data-at="tl">
+              Improving
+            </span>
           </div>
           <table className="data-table term-table rrg-table">
             <thead>
@@ -252,7 +357,10 @@ export function Rotation({ select }: { select: (symbol: string) => void }) {
               {paths.map((item) => {
                 const last = item.path.at(-1)!;
                 return (
-                  <tr key={item.symbol} data-hidden={hidden.has(item.symbol) || undefined}>
+                  <tr
+                    key={item.symbol}
+                    data-hidden={hidden.has(item.symbol) || undefined}
+                  >
                     <td>
                       <input
                         type="checkbox"
@@ -268,7 +376,13 @@ export function Rotation({ select }: { select: (symbol: string) => void }) {
                       />
                     </td>
                     <td>
-                      <button type="button" className="security-link" style={{ color: item.color }} onClick={() => select(item.symbol)} title={item.label}>
+                      <button
+                        type="button"
+                        className="security-link"
+                        style={{ color: item.color }}
+                        onClick={() => select(item.symbol)}
+                        title={item.label}
+                      >
                         {item.symbol}
                       </button>{" "}
                       <small className="muted">{item.label}</small>
@@ -284,8 +398,10 @@ export function Rotation({ select }: { select: (symbol: string) => void }) {
         </div>
       )}
       <p className="term-source">
-        Weekly closes over two years. RS-Ratio is relative strength versus {benchmark} against its {window}-week mean; RS-Momentum is that
-        ratio&apos;s change over {Math.round(window / 2)} weeks. Rotation typically runs clockwise: improving, leading, weakening, lagging.
+        Weekly closes over two years. RS-Ratio is relative strength versus{" "}
+        {benchmark} against its {window}-week mean; RS-Momentum is that
+        ratio&apos;s change over {Math.round(window / 2)} weeks. Rotation
+        typically runs clockwise: improving, leading, weakening, lagging.
       </p>
     </div>
   );

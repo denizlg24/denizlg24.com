@@ -1,10 +1,10 @@
 "use client";
 
+import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import useSWR from "swr";
-import { Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { api } from "@/components/shared";
+import { Button } from "@/components/ui/button";
 import type { ThreadSummary } from "@/lib/memory-types";
 import { ago, useNow } from "./format";
 

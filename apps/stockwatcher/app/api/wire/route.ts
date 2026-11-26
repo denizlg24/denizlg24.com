@@ -8,10 +8,7 @@ export async function GET(request: Request) {
   const args = new URL(request.url).searchParams;
   const requested = [
     ...new Set(
-      (args.get("symbols") ?? "")
-        .toUpperCase()
-        .split(",")
-        .filter(Boolean),
+      (args.get("symbols") ?? "").toUpperCase().split(",").filter(Boolean),
     ),
   ];
   if (requested.some((symbol) => !symbolPattern.test(symbol)))
@@ -19,7 +16,11 @@ export async function GET(request: Request) {
   try {
     const hot = await trending().catch(() => []);
     const symbols = (requested.length ? requested : hot).slice(0, 40);
-    return json({ items: (await newsWire(symbols)).slice(0, 200), trending: hot, symbols });
+    return json({
+      items: (await newsWire(symbols)).slice(0, 200),
+      trending: hot,
+      symbols,
+    });
   } catch {
     return json({ error: "News is unavailable." }, 502);
   }

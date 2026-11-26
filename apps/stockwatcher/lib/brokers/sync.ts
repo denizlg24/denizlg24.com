@@ -3,10 +3,10 @@ import { createHash } from "node:crypto";
 import { readWorkspace, saveWorkspace } from "../db";
 import type { Trade, Workspace } from "../models";
 import {
-  fetchFlexStatement,
-  FlexError,
-  parseFlexStatement,
   type BrokerStatement,
+  FlexError,
+  fetchFlexStatement,
+  parseFlexStatement,
 } from "./ibkr";
 import { dueLinks, markLink, readLink } from "./link";
 import { resolveListings } from "./listing";

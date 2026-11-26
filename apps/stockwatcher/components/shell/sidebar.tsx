@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { preferenceViews, workspaceViews, type View } from "./nav";
+import { preferenceViews, type View, workspaceViews } from "./nav";
 
 type Item = (typeof workspaceViews)[number] | (typeof preferenceViews)[number];
 

@@ -5,10 +5,10 @@ import type postgres from "postgres";
 import { store } from "@/lib/db";
 import type { Chunk } from "./chunk";
 import {
-  documentKinds,
-  documentLimits,
   type DocumentKind,
   type DocumentMeta,
+  documentKinds,
+  documentLimits,
 } from "./types";
 
 export class DocumentError extends Error {
@@ -154,7 +154,9 @@ export async function getDocument(
     return row ? toMeta(row) : null;
   }
   const row = s.db
-    .prepare(`SELECT ${metaColumns} FROM documents WHERE user_id = ? AND id = ?`)
+    .prepare(
+      `SELECT ${metaColumns} FROM documents WHERE user_id = ? AND id = ?`,
+    )
     .get(userId, id);
   return row ? sqliteMeta(row) : null;
 }
@@ -172,7 +174,10 @@ export async function createDocument(
   const s = await store();
   const id = randomUUID();
   const uploadedAt = new Date().toISOString();
-  const chars = input.chunks.reduce((sum, chunk) => sum + chunk.content.length, 0);
+  const chars = input.chunks.reduce(
+    (sum, chunk) => sum + chunk.content.length,
+    0,
+  );
   if (s.kind === "pg") {
     const sql = s.sql;
     await sql.begin(async (tx) => {
@@ -226,10 +231,18 @@ export async function createDocument(
         "INSERT INTO document_chunks (doc_id, user_id, seq, page, content) VALUES (?, ?, ?, ?, ?)",
       );
       const index = hasFts
-        ? db.prepare("INSERT INTO document_chunks_fts (rowid, content) VALUES (?, ?)")
+        ? db.prepare(
+            "INSERT INTO document_chunks_fts (rowid, content) VALUES (?, ?)",
+          )
         : null;
       for (const chunk of input.chunks) {
-        const { lastInsertRowid } = insert.run(id, userId, chunk.seq, chunk.page, chunk.content);
+        const { lastInsertRowid } = insert.run(
+          id,
+          userId,
+          chunk.seq,
+          chunk.page,
+          chunk.content,
+        );
         index?.run(lastInsertRowid, chunk.content);
       }
       db.exec("COMMIT");
@@ -270,7 +283,9 @@ export async function deleteDocument(
       db.prepare(
         "DELETE FROM document_chunks_fts WHERE rowid IN (SELECT id FROM document_chunks WHERE doc_id = ? AND user_id = ?)",
       ).run(id, userId);
-    db.prepare("DELETE FROM document_chunks WHERE doc_id = ? AND user_id = ?").run(id, userId);
+    db.prepare(
+      "DELETE FROM document_chunks WHERE doc_id = ? AND user_id = ?",
+    ).run(id, userId);
     const removed = db
       .prepare("DELETE FROM documents WHERE id = ? AND user_id = ?")
       .run(id, userId).changes;
@@ -288,7 +303,9 @@ function ftsAvailable(db: DatabaseSync) {
   if (cached !== undefined) return cached;
   const found = Boolean(
     db
-      .prepare("SELECT 1 AS ok FROM sqlite_master WHERE name = 'document_chunks_fts'")
+      .prepare(
+        "SELECT 1 AS ok FROM sqlite_master WHERE name = 'document_chunks_fts'",
+      )
       .get(),
   );
   ftsCache.set(db, found);
@@ -352,7 +369,9 @@ async function searchPg(
       LIMIT ${options.limit}
     ) r
     ORDER BY r.score DESC, r.doc_id, r.seq`;
-  const strict = await run(sql`websearch_to_tsquery('english', ${options.query})`);
+  const strict = await run(
+    sql`websearch_to_tsquery('english', ${options.query})`,
+  );
   if (strict.length) return strict.map(hit);
   const loose = await run(sql`to_tsquery('english', ${terms.join(" | ")})`);
   return loose.map(hit);
@@ -379,7 +398,11 @@ function searchSqlite(
     args.push(options.symbol, `%${options.symbol.replace(/[\\%_]/g, "\\$&")}%`);
   }
   const extra = filters.join(" ");
-  const toHit = (row: SqliteRow, snippet: string, score: number): SearchHit => ({
+  const toHit = (
+    row: SqliteRow,
+    snippet: string,
+    score: number,
+  ): SearchHit => ({
     docId: String(row.doc_id),
     name: String(row.name),
     page: row.page == null ? null : Number(row.page),
@@ -409,7 +432,9 @@ function searchSqlite(
   }
 
   const rank = (joiner: "AND" | "OR") => {
-    const like = terms.map(() => "c.content LIKE ? ESCAPE '\\'").join(` ${joiner} `);
+    const like = terms
+      .map(() => "c.content LIKE ? ESCAPE '\\'")
+      .join(` ${joiner} `);
     return db
       .prepare(
         `SELECT c.doc_id, d.name, c.seq, c.page, c.content
@@ -424,7 +449,9 @@ function searchSqlite(
           (sum, term) => sum + lower.split(term).length - 1,
           0,
         );
-        const first = terms.map((term) => lower.indexOf(term)).filter((at) => at >= 0);
+        const first = terms
+          .map((term) => lower.indexOf(term))
+          .filter((at) => at >= 0);
         const at = Math.max(0, Math.min(...first) - 200);
         return toHit(row, content.slice(at, at + 480), score);
       })
@@ -462,7 +489,14 @@ export async function readDocument(
                AND (page IS NULL OR (page >= ? AND page <= ?))
              ORDER BY seq LIMIT ?`,
           )
-          .all(id, userId, start, firstPage, Math.min(lastPage, 2_000_000_000), fetchLimit + 1)
+          .all(
+            id,
+            userId,
+            start,
+            firstPage,
+            Math.min(lastPage, 2_000_000_000),
+            fetchLimit + 1,
+          )
           .map((row) => ({
             seq: Number(row.seq),
             page: row.page == null ? null : Number(row.page),
@@ -473,11 +507,18 @@ export async function readDocument(
   let nextOffset: number | null = null;
   for (const row of rows) {
     const size = row.content.length;
-    if (chunks.length && (used + size > options.maxChars || chunks.length >= fetchLimit)) {
+    if (
+      chunks.length &&
+      (used + size > options.maxChars || chunks.length >= fetchLimit)
+    ) {
       nextOffset = Number(row.seq);
       break;
     }
-    chunks.push({ seq: Number(row.seq), page: row.page == null ? null : Number(row.page), content: row.content });
+    chunks.push({
+      seq: Number(row.seq),
+      page: row.page == null ? null : Number(row.page),
+      content: row.content,
+    });
     used += size;
   }
   return { doc, chunks, nextOffset };

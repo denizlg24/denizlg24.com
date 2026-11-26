@@ -1,6 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
 import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { expect, type Page, test } from "@playwright/test";
 
 const origin = { Origin: "http://127.0.0.1:3290" };
 
@@ -641,7 +641,9 @@ test("reports can be shared publicly, revoked, and stay private to their owner",
     /noindex/,
   );
   expect(await visitor.title()).toContain("Quarterly book review");
-  expect(await visitor.locator("script:not([src])", { hasText: "alert(1)" }).count()).toBe(0);
+  expect(
+    await visitor.locator("script:not([src])", { hasText: "alert(1)" }).count(),
+  ).toBe(0);
   await expect(visitor.getByText("Source: Test fixture")).toBeVisible();
 
   const otherContext = await browser.newContext({
@@ -684,10 +686,9 @@ test("reports can be shared publicly, revoked, and stay private to their owner",
   });
   expect((await renamed.json()).title).toBe("Quarterly book review (final)");
 
-  const revoked = await page.request.delete(
-    `/api/reports/${report.id}/share`,
-    { headers: origin },
-  );
+  const revoked = await page.request.delete(`/api/reports/${report.id}/share`, {
+    headers: origin,
+  });
   expect((await revoked.json()).shareUrl).toBeNull();
   expect((await visitor.goto(path))?.status()).toBe(404);
   await anonymous.close();

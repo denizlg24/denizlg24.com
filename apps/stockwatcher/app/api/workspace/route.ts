@@ -3,11 +3,11 @@ import { currentUser, json, sameOrigin } from "@/lib/auth";
 import {
   clearSignalErrors,
   deleteSignalRuntime,
+  readSignalRuntime,
   readWorkspace,
   readWorkspaceView,
   saveWorkspace,
   withRuntimeState,
-  readSignalRuntime,
 } from "@/lib/db";
 import { workspaceSchema } from "@/lib/models";
 import { checkTrades } from "@/lib/portfolio";
@@ -128,7 +128,11 @@ export async function PUT(request: Request) {
     .filter((prior) => !data.signals.some((item) => item.id === prior.id))
     .map((prior) => prior.id);
   const rearmed = data.signals
-    .filter((item) => current.data.signals.some((prior) => prior.id === item.id && !prior.enabled && item.enabled))
+    .filter((item) =>
+      current.data.signals.some(
+        (prior) => prior.id === item.id && !prior.enabled && item.enabled,
+      ),
+    )
     .map((item) => item.id);
   if (!(await saveWorkspace(user.id, revision, data)))
     return json(
@@ -141,6 +145,9 @@ export async function PUT(request: Request) {
   await deleteSignalRuntime(user.id, removed);
   await clearSignalErrors(user.id, rearmed);
   return json(
-    withRuntimeState({ revision: revision + 1, data }, await readSignalRuntime(user.id)),
+    withRuntimeState(
+      { revision: revision + 1, data },
+      await readSignalRuntime(user.id),
+    ),
   );
 }

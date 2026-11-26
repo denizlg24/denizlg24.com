@@ -1,4 +1,4 @@
-import { rsi, sma, type Bar } from "./indicators";
+import { type Bar, rsi, sma } from "./indicators";
 import type { ChartPoint } from "./models";
 
 export const TRADING_DAYS = 252;
@@ -13,11 +13,16 @@ export function returns(closes: number[]) {
 }
 
 const mean = (values: number[]) =>
-  values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+  values.length
+    ? values.reduce((sum, value) => sum + value, 0) / values.length
+    : 0;
 const variance = (values: number[]) => {
   if (values.length < 2) return 0;
   const m = mean(values);
-  return values.reduce((sum, value) => sum + (value - m) ** 2, 0) / (values.length - 1);
+  return (
+    values.reduce((sum, value) => sum + (value - m) ** 2, 0) /
+    (values.length - 1)
+  );
 };
 export const stdev = (values: number[]) => Math.sqrt(variance(values));
 
@@ -58,7 +63,8 @@ export function align(a: ChartPoint[], b: ChartPoint[]) {
   const pairs: { time: number; a: number; b: number }[] = [];
   for (const point of a) {
     const other = right.get(dayKey(point.time));
-    if (other != null) pairs.push({ time: point.time, a: point.close, b: other });
+    if (other != null)
+      pairs.push({ time: point.time, a: point.close, b: other });
   }
   return pairs;
 }
@@ -131,7 +137,11 @@ export function rollingBeta(
   window: number,
 ) {
   const pairs = align(security, benchmark);
-  const out: { time: number; beta: number | null; correlation: number | null }[] = [];
+  const out: {
+    time: number;
+    beta: number | null;
+    correlation: number | null;
+  }[] = [];
   const xs: number[] = [];
   const ys: number[] = [];
   for (let i = 1; i < pairs.length; i++) {
@@ -163,9 +173,16 @@ export function rollingBeta(
 }
 
 /** Pearson correlation of daily returns for every pair. */
-export function correlationMatrix(series: { symbol: string; points: ChartPoint[] }[]) {
-  const keys = series.map((item) => new Map(item.points.map((point) => [dayKey(point.time), point.close])));
-  const days = [...keys[0]?.keys() ?? []].filter((day) => keys.every((map) => map.has(day))).sort((a, b) => a - b);
+export function correlationMatrix(
+  series: { symbol: string; points: ChartPoint[] }[],
+) {
+  const keys = series.map(
+    (item) =>
+      new Map(item.points.map((point) => [dayKey(point.time), point.close])),
+  );
+  const days = [...(keys[0]?.keys() ?? [])]
+    .filter((day) => keys.every((map) => map.has(day)))
+    .sort((a, b) => a - b);
   const r = keys.map((map) => returns(days.map((day) => map.get(day)!)));
   const matrix = r.map((a) =>
     r.map((b) => {
@@ -203,10 +220,15 @@ export function seasonality(points: ChartPoint[]): Seasonality {
   const lastClose = new Map<string, number>();
   for (const point of points) {
     const date = new Date(point.time * 1000);
-    lastClose.set(`${date.getUTCFullYear()}-${date.getUTCMonth()}`, point.close);
+    lastClose.set(
+      `${date.getUTCFullYear()}-${date.getUTCMonth()}`,
+      point.close,
+    );
   }
   const keys = [...lastClose.keys()];
-  const years = [...new Set(keys.map((key) => Number(key.split("-")[0])))].sort();
+  const years = [
+    ...new Set(keys.map((key) => Number(key.split("-")[0]))),
+  ].sort();
   const monthly = new Map<string, number>();
   for (const key of keys) {
     const [year, month] = key.split("-").map(Number);
@@ -215,10 +237,14 @@ export function seasonality(points: ChartPoint[]): Seasonality {
     if (before) monthly.set(key, (lastClose.get(key)! / before - 1) * 100);
   }
   const rows = years.map((year) => {
-    const months = Array.from({ length: 12 }, (_, month) => monthly.get(`${year}-${month}`) ?? null);
+    const months = Array.from(
+      { length: 12 },
+      (_, month) => monthly.get(`${year}-${month}`) ?? null,
+    );
     const valid = months.filter((value): value is number => value != null);
     const total = valid.length
-      ? (valid.reduce((product, value) => product * (1 + value / 100), 1) - 1) * 100
+      ? (valid.reduce((product, value) => product * (1 + value / 100), 1) - 1) *
+        100
       : null;
     return { year, months, total };
   });
@@ -230,7 +256,9 @@ export function seasonality(points: ChartPoint[]): Seasonality {
     if (!values.length) return null;
     const sorted = [...values].sort((a, b) => a - b);
     const mid = sorted.length >> 1;
-    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    return sorted.length % 2
+      ? sorted[mid]
+      : (sorted[mid - 1] + sorted[mid]) / 2;
   };
   return {
     years: rows.reverse(),
@@ -256,7 +284,13 @@ export function drawdowns(closes: number[]) {
   });
 }
 
-export const strategyKinds = ["smaCross", "rsi", "breakout", "momentum", "hold"] as const;
+export const strategyKinds = [
+  "smaCross",
+  "rsi",
+  "breakout",
+  "momentum",
+  "hold",
+] as const;
 export type StrategyKind = (typeof strategyKinds)[number];
 export type Strategy = {
   kind: StrategyKind;
@@ -360,7 +394,13 @@ function signals(bars: Bar[], strategy: Strategy): number[] {
  */
 export function backtest(bars: Bar[], strategy: Strategy) {
   const target = signals(bars, strategy);
-  const equity: { time: number; strategy: number; hold: number; position: number; drawdown: number }[] = [];
+  const equity: {
+    time: number;
+    strategy: number;
+    hold: number;
+    position: number;
+    drawdown: number;
+  }[] = [];
   const trades: Trade[] = [];
   const daily: number[] = [];
   let value = 1;
@@ -384,7 +424,9 @@ export function backtest(bars: Bar[], strategy: Strategy) {
         open.exit = bars[i].time;
         open.exitPrice = bars[i].close;
         open.pnl =
-          (open.side === "long" ? 1 : -1) * (bars[i].close / open.entryPrice - 1) * 100;
+          (open.side === "long" ? 1 : -1) *
+          (bars[i].close / open.entryPrice - 1) *
+          100;
         trades.push(open);
         open = null;
       }
@@ -410,15 +452,19 @@ export function backtest(bars: Bar[], strategy: Strategy) {
   }
   if (open) {
     const last = bars.at(-1)!;
-    open.pnl = (open.side === "long" ? 1 : -1) * (last.close / open.entryPrice - 1) * 100;
+    open.pnl =
+      (open.side === "long" ? 1 : -1) *
+      (last.close / open.entryPrice - 1) *
+      100;
     trades.push(open);
   }
-  const span = bars.length > 1 ? (bars.at(-1)!.time - bars[0].time) / (365.25 * 86400) : 0;
+  const span =
+    bars.length > 1 ? (bars.at(-1)!.time - bars[0].time) / (365.25 * 86400) : 0;
   const perYear = span > 0 ? (bars.length - 1) / span : TRADING_DAYS;
   const vol = stdev(daily) * Math.sqrt(perYear);
-  const downside = Math.sqrt(
-    mean(daily.map((value) => Math.min(0, value) ** 2)),
-  ) * Math.sqrt(perYear);
+  const downside =
+    Math.sqrt(mean(daily.map((value) => Math.min(0, value) ** 2))) *
+    Math.sqrt(perYear);
   const cagr = span > 0 ? (value ** (1 / span) - 1) * 100 : 0;
   const maxDrawdown = Math.min(0, ...equity.map((row) => row.drawdown));
   const closed = trades.filter((trade) => trade.pnl != null);
@@ -440,7 +486,9 @@ export function backtest(bars: Bar[], strategy: Strategy) {
     trades: trades.length,
     winRate: closed.length ? (wins.length / closed.length) * 100 : null,
     profitFactor: losses ? gains / losses : null,
-    averageTrade: closed.length ? mean(closed.map((trade) => trade.pnl ?? 0)) : null,
+    averageTrade: closed.length
+      ? mean(closed.map((trade) => trade.pnl ?? 0))
+      : null,
   };
   return { equity, trades, stats };
 }
@@ -461,7 +509,8 @@ export function rotation(
   const rs = pairs.map((pair) => pair.a / pair.b);
   const ratio: (number | null)[] = rs.map((value, i) => {
     if (i < window - 1) return null;
-    const mean = rs.slice(i - window + 1, i + 1).reduce((sum, x) => sum + x, 0) / window;
+    const mean =
+      rs.slice(i - window + 1, i + 1).reduce((sum, x) => sum + x, 0) / window;
     return 100 + (value / mean - 1) * 100;
   });
   const out: RotationPoint[] = [];
@@ -470,7 +519,11 @@ export function rotation(
     const now = ratio[i];
     const before = ratio[i - lag];
     if (now == null || before == null) continue;
-    out.push({ time: pairs[i].time, ratio: now, momentum: 100 + (now - before) });
+    out.push({
+      time: pairs[i].time,
+      ratio: now,
+      momentum: 100 + (now - before),
+    });
   }
   return out;
 }
@@ -484,7 +537,11 @@ export const quadrant = (point: { ratio: number; momentum: number }) =>
       ? "Improving"
       : "Lagging";
 
-export type RiskInput = { symbol: string; weight: number; points: ChartPoint[] };
+export type RiskInput = {
+  symbol: string;
+  weight: number;
+  points: ChartPoint[];
+};
 
 export type PortfolioRisk = {
   observations: number;
@@ -496,7 +553,13 @@ export type PortfolioRisk = {
   es95: number;
   maxDrawdown: number;
   annualReturn: number;
-  contributions: { symbol: string; weight: number; contribution: number; volatility: number; beta: number | null }[];
+  contributions: {
+    symbol: string;
+    weight: number;
+    contribution: number;
+    volatility: number;
+    beta: number | null;
+  }[];
   worstDays: { time: number; portfolio: number; benchmark: number }[];
   curve: { time: number; portfolio: number; benchmark: number }[];
 };
@@ -504,7 +567,10 @@ export type PortfolioRisk = {
 const percentile = (values: number[], p: number) => {
   if (!values.length) return 0;
   const sorted = [...values].sort((a, b) => a - b);
-  const index = Math.min(sorted.length - 1, Math.max(0, Math.floor(p * (sorted.length - 1))));
+  const index = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.floor(p * (sorted.length - 1))),
+  );
   return sorted[index];
 };
 
@@ -516,7 +582,9 @@ export function portfolioRisk(
   inputs: RiskInput[],
   benchmark: ChartPoint[],
 ): PortfolioRisk | null {
-  const usable = inputs.filter((item) => item.points.length > 20 && item.weight !== 0);
+  const usable = inputs.filter(
+    (item) => item.points.length > 20 && item.weight !== 0,
+  );
   if (!usable.length || benchmark.length < 20) return null;
   const maps = [...usable.map((item) => item.points), benchmark].map(
     (points) => new Map(points.map((point) => [dayKey(point.time), point])),
@@ -525,10 +593,13 @@ export function portfolioRisk(
     .filter((day) => maps.every((map) => map.has(day)))
     .sort((a, b) => a - b);
   if (days.length < 21) return null;
-  const series = maps.map((map) => returns(days.map((day) => map.get(day)!.close)));
+  const series = maps.map((map) =>
+    returns(days.map((day) => map.get(day)!.close)),
+  );
   const bench = series.at(-1)!;
   const assets = series.slice(0, -1);
-  const total = usable.reduce((sum, item) => sum + Math.abs(item.weight), 0) || 1;
+  const total =
+    usable.reduce((sum, item) => sum + Math.abs(item.weight), 0) || 1;
   const weights = usable.map((item) => item.weight / total);
   const portfolio = bench.map((_, t) =>
     assets.reduce((sum, r, i) => sum + weights[i] * r[t], 0),
@@ -536,7 +607,10 @@ export function portfolioRisk(
   const covariance = (a: number[], b: number[]) => {
     const ma = mean(a);
     const mb = mean(b);
-    return a.reduce((sum, value, i) => sum + (value - ma) * (b[i] - mb), 0) / Math.max(1, a.length - 1);
+    return (
+      a.reduce((sum, value, i) => sum + (value - ma) * (b[i] - mb), 0) /
+      Math.max(1, a.length - 1)
+    );
   };
   const varP = variance(portfolio);
   const varB = variance(bench);
@@ -553,10 +627,18 @@ export function portfolioRisk(
     bValue *= 1 + bench[t];
     peak = Math.max(peak, value);
     maxDrawdown = Math.min(maxDrawdown, value / peak - 1);
-    return { time: days[t + 1] * 86400, portfolio: (value - 1) * 100, benchmark: (bValue - 1) * 100 };
+    return {
+      time: days[t + 1] * 86400,
+      portfolio: (value - 1) * 100,
+      benchmark: (bValue - 1) * 100,
+    };
   });
   const worstDays = bench
-    .map((b, t) => ({ time: days[t + 1] * 86400, portfolio: portfolio[t] * 100, benchmark: b * 100 }))
+    .map((b, t) => ({
+      time: days[t + 1] * 86400,
+      portfolio: portfolio[t] * 100,
+      benchmark: b * 100,
+    }))
     .sort((a, b) => a.benchmark - b.benchmark)
     .slice(0, 10);
   return {
@@ -572,7 +654,9 @@ export function portfolioRisk(
     contributions: usable.map((item, i) => ({
       symbol: item.symbol,
       weight: weights[i] * 100,
-      contribution: varP ? ((weights[i] * covariance(assets[i], portfolio)) / varP) * 100 : 0,
+      contribution: varP
+        ? ((weights[i] * covariance(assets[i], portfolio)) / varP) * 100
+        : 0,
       volatility: Math.sqrt(variance(assets[i]) * TRADING_DAYS) * 100,
       beta: varB ? covariance(assets[i], bench) / varB : null,
     })),

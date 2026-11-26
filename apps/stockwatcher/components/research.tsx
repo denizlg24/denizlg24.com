@@ -1,7 +1,5 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import useSWR from "swr";
 import {
   ArrowDownToLine,
   ArrowRight,
@@ -14,10 +12,10 @@ import {
   Trash2,
 } from "lucide-react";
 import Papa from "papaparse";
+import { useMemo, useState } from "react";
+import useSWR from "swr";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -26,7 +24,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Field, FormDialog, RemoveDialog, value, type Save } from "./forms";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { symbolSchema, type Workspace } from "@/lib/models";
+import {
+  type CompanyResearch,
+  type HoldingsReport,
+  type Mention,
+  managers,
+} from "@/lib/research-types";
+import { amount, compact, marketTime, number, tone } from "@/lib/utils";
+import { Field, FormDialog, RemoveDialog, type Save, value } from "./forms";
+import { NewsPanel, useQuotes } from "./market-widgets";
 import {
   api,
   Change,
@@ -35,20 +44,11 @@ import {
   Loading,
   PanelHeading,
   SectionFoot,
-  signed,
   SourceLink,
   SymbolLink,
+  signed,
   Tick,
 } from "./shared";
-import { NewsPanel, useQuotes } from "./market-widgets";
-import { amount, compact, marketTime, number, tone } from "@/lib/utils";
-import { symbolSchema, type Workspace } from "@/lib/models";
-import {
-  managers,
-  type CompanyResearch,
-  type HoldingsReport,
-  type Mention,
-} from "@/lib/research-types";
 
 export type ResearchTab = "company" | "filings" | "social" | "journal";
 

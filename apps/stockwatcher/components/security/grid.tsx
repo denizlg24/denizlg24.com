@@ -1,14 +1,14 @@
 "use client";
 
-import { useState } from "react";
 import dynamic from "next/dynamic";
+import { useState } from "react";
 import useSWR from "swr";
-import { api, Change, Empty, Failure, Loading } from "@/components/shared";
-import { marketURL, useQuotes } from "@/components/market-widgets";
-import { StylePicker } from "@/components/chart-controls";
 import { ScalePicker } from "@/components/chart/studio-controls";
+import { StylePicker } from "@/components/chart-controls";
+import { marketURL, useQuotes } from "@/components/market-widgets";
+import { api, Change, Empty, Failure, Loading } from "@/components/shared";
 import type { ChartScale, ChartStyle, MarketSeries } from "@/lib/models";
-import { ranges, symbolPattern, type Range } from "@/lib/universes";
+import { type Range, ranges, symbolPattern } from "@/lib/universes";
 import { amount } from "@/lib/utils";
 
 const PriceChart = dynamic(() => import("@/components/price-chart"), {
@@ -22,7 +22,17 @@ const layouts = {
   "3×3": { columns: 3, cells: 9 },
 } as const;
 type Layout = keyof typeof layouts;
-const defaults = ["^GSPC", "^NDX", "^STOXX50E", "^N225", "GC=F", "CL=F", "^TNX", "EURUSD=X", "BTC-USD"];
+const defaults = [
+  "^GSPC",
+  "^NDX",
+  "^STOXX50E",
+  "^N225",
+  "GC=F",
+  "CL=F",
+  "^TNX",
+  "EURUSD=X",
+  "BTC-USD",
+];
 
 function Cell({
   symbol,
@@ -77,7 +87,12 @@ function Cell({
             />
           </form>
         ) : (
-          <button type="button" className="grid-symbol" title="Change symbol" onClick={() => setDraft(symbol)}>
+          <button
+            type="button"
+            className="grid-symbol"
+            title="Change symbol"
+            onClick={() => setDraft(symbol)}
+          >
             {symbol}
           </button>
         )}
@@ -123,11 +138,18 @@ export function ChartGrid({
   select: (symbol: string) => void;
 }) {
   const [layout, setLayout] = useState<Layout>(
-    initial && initial.length > 6 ? "3×3" : initial && initial.length > 4 ? "3×2" : "2×2",
+    initial && initial.length > 6
+      ? "3×3"
+      : initial && initial.length > 4
+        ? "3×2"
+        : "2×2",
   );
   const [symbols, setSymbols] = useState<string[]>(() => {
     const chosen = initial?.length ? initial : [];
-    return [...chosen, ...defaults.filter((item) => !chosen.includes(item))].slice(0, 9);
+    return [
+      ...chosen,
+      ...defaults.filter((item) => !chosen.includes(item)),
+    ].slice(0, 9);
   });
   const [range, setRange] = useState<Range>("3M");
   const [style, setStyle] = useState<ChartStyle>("line");
@@ -143,14 +165,24 @@ export function ChartGrid({
         <div className="row-actions">
           <div className="seg" role="group" aria-label="Layout">
             {(Object.keys(layouts) as Layout[]).map((key) => (
-              <button key={key} type="button" aria-pressed={layout === key} onClick={() => setLayout(key)}>
+              <button
+                key={key}
+                type="button"
+                aria-pressed={layout === key}
+                onClick={() => setLayout(key)}
+              >
                 {key}
               </button>
             ))}
           </div>
           <div className="seg" role="group" aria-label="Period for every chart">
             {(Object.keys(ranges) as Range[]).map((key) => (
-              <button key={key} type="button" aria-pressed={range === key} onClick={() => setRange(key)}>
+              <button
+                key={key}
+                type="button"
+                aria-pressed={range === key}
+                onClick={() => setRange(key)}
+              >
                 {key}
               </button>
             ))}
@@ -159,12 +191,20 @@ export function ChartGrid({
         <div className="row-actions">
           <StylePicker value={style} onChange={setStyle} />
           <ScalePicker value={scale} onChange={setScale} />
-          <button type="button" className="chip" aria-pressed={volume} onClick={() => setVolume(!volume)}>
+          <button
+            type="button"
+            className="chip"
+            aria-pressed={volume}
+            onClick={() => setVolume(!volume)}
+          >
             Volume
           </button>
         </div>
       </div>
-      <div className="chart-grid" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+      <div
+        className="chart-grid"
+        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+      >
         {shown.map((symbol, index) => (
           <Cell
             key={`${index}-${symbol}`}
@@ -175,12 +215,17 @@ export function ChartGrid({
             volume={volume}
             quotePrice={quotes.get(symbol)?.price}
             quotePercent={quotes.get(symbol)?.percent}
-            onChange={(next) => setSymbols(symbols.map((item, i) => (i === index ? next : item)))}
+            onChange={(next) =>
+              setSymbols(symbols.map((item, i) => (i === index ? next : item)))
+            }
             onOpen={() => select(symbol)}
           />
         ))}
       </div>
-      <p className="term-source">Click a symbol to replace it. Period, style and scale apply to every panel.</p>
+      <p className="term-source">
+        Click a symbol to replace it. Period, style and scale apply to every
+        panel.
+      </p>
     </div>
   );
 }

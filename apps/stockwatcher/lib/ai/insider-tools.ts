@@ -1,12 +1,12 @@
 import "server-only";
 import { tool } from "ai";
 import { z } from "zod";
-import { attempt, round, ticker } from "./shared";
-import { readWorkspace, type Identity } from "@/lib/db";
+import { type Identity, readWorkspace } from "@/lib/db";
 import { activistStakes, insiderBuying } from "@/lib/insiders";
 import { members } from "@/lib/market";
 import { positionsFor } from "@/lib/portfolio";
 import { universeKeys } from "@/lib/universes";
+import { attempt, round, ticker } from "./shared";
 
 const scopeInput = {
   scope: z
@@ -40,8 +40,11 @@ async function resolveScope(user: Identity, input: Scope) {
       return { label: "Given symbols", symbols: [...new Set(input.symbols)] };
     case "watchlists": {
       const { data } = await readWorkspace(user.id);
-      const symbols = [...new Set(data.watchlists.flatMap((list) => list.symbols))];
-      if (!symbols.length) throw new Error("The user has no watchlist symbols.");
+      const symbols = [
+        ...new Set(data.watchlists.flatMap((list) => list.symbols)),
+      ];
+      if (!symbols.length)
+        throw new Error("The user has no watchlist symbols.");
       return { label: "Watchlists", symbols };
     }
     case "holdings": {
@@ -72,7 +75,9 @@ export function insiderTools({ user }: { user: Identity }) {
           .min(1)
           .max(90)
           .default(30)
-          .describe("Cluster window: buyers must trade within this many days of each other."),
+          .describe(
+            "Cluster window: buyers must trade within this many days of each other.",
+          ),
         minInsiders: z.number().int().min(1).max(10).default(3),
         minValue: z
           .number()
@@ -131,7 +136,9 @@ export function insiderTools({ user }: { user: Identity }) {
         include13G: z
           .boolean()
           .default(false)
-          .describe("Also include passive Schedule 13G filings (many more rows)."),
+          .describe(
+            "Also include passive Schedule 13G filings (many more rows).",
+          ),
         minPercent: z.number().min(0).max(100).default(0),
         limit: z.number().int().min(1).max(100).default(40),
       }),

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSearch } from "@/components/market-widgets";
 import {
   Dialog,
   DialogContent,
@@ -8,26 +9,34 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useSearch } from "@/components/market-widgets";
 import {
+  type Command,
   functionKeys,
   monitorFunctions,
   parseCommand,
-  shortcuts,
   securityFunctions,
+  shortcuts,
   suggestFunctions,
   workspaceFunctions,
-  type Command,
 } from "@/lib/terminal";
 
-type Suggestion = { value: string; code: string; label: string; detail: string };
+type Suggestion = {
+  value: string;
+  code: string;
+  label: string;
+  detail: string;
+};
 const HISTORY_KEY = "stockwatcher.command-history";
 
 function readHistory(): string[] {
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]");
+    const parsed: unknown = JSON.parse(
+      localStorage.getItem(HISTORY_KEY) ?? "[]",
+    );
     return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === "string").slice(0, 50)
+      ? parsed
+          .filter((item): item is string => typeof item === "string")
+          .slice(0, 50)
       : [];
   } catch {
     return [];
@@ -103,7 +112,12 @@ export function CommandLine({
       const entry = value.trim().toUpperCase();
       localStorage.setItem(
         HISTORY_KEY,
-        JSON.stringify([entry, ...readHistory().filter((item) => item !== entry)].slice(0, 50)),
+        JSON.stringify(
+          [entry, ...readHistory().filter((item) => item !== entry)].slice(
+            0,
+            50,
+          ),
+        ),
       );
     } catch {}
     setRecall(-1);
@@ -153,7 +167,10 @@ export function CommandLine({
         onBlur={() => setTimeout(() => setOpen(false), 120)}
         onKeyDown={(event) => {
           const browsing = recall >= 0 || !text.trim();
-          if (browsing && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+          if (
+            browsing &&
+            (event.key === "ArrowUp" || event.key === "ArrowDown")
+          ) {
             event.preventDefault();
             const past = readHistory();
             const next =
@@ -183,7 +200,11 @@ export function CommandLine({
         GO
       </button>
       {open && text.trim() && suggestions.length ? (
-        <ul id="command-suggestions" className="command-suggestions" role="listbox">
+        <ul
+          id="command-suggestions"
+          className="command-suggestions"
+          role="listbox"
+        >
           {suggestions.map((item, index) => (
             <li
               key={`${item.value}-${index}`}
@@ -264,14 +285,14 @@ export function CommandHelp({
           <DialogDescription>
             Type a ticker, then a function, and press Enter: <kbd>NVDA ANR</kbd>
             . A function on its own applies to the security on screen. Monitors
-            take tickers too: <kbd>CORR AAPL MSFT NVDA</kbd>. Press{" "}
-            <kbd>/</kbd> anywhere to focus the command line; <kbd>↑</kbd> recalls
-            earlier commands, and a function&apos;s number (<kbd>12</kbd>) opens it for the
-            security on screen. On a chart, <kbd>⇧T</kbd> draws a trend line,{" "}
-            <kbd>⇧F</kbd> a Fibonacci, <kbd>⇧H</kbd> a level and <kbd>Esc</kbd>{" "}
-            returns to the cursor. Bloomberg-style
-            yellow keys such as <kbd>US EQUITY</kbd> and <kbd>&lt;GO&gt;</kbd>{" "}
-            are accepted and ignored.
+            take tickers too: <kbd>CORR AAPL MSFT NVDA</kbd>. Press <kbd>/</kbd>{" "}
+            anywhere to focus the command line; <kbd>↑</kbd> recalls earlier
+            commands, and a function&apos;s number (<kbd>12</kbd>) opens it for
+            the security on screen. On a chart, <kbd>⇧T</kbd> draws a trend
+            line, <kbd>⇧F</kbd> a Fibonacci, <kbd>⇧H</kbd> a level and{" "}
+            <kbd>Esc</kbd> returns to the cursor. Bloomberg-style yellow keys
+            such as <kbd>US EQUITY</kbd> and <kbd>&lt;GO&gt;</kbd> are accepted
+            and ignored.
           </DialogDescription>
           {onTour ? (
             <button type="button" className="chip help-tour" onClick={onTour}>

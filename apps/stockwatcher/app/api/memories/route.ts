@@ -30,7 +30,9 @@ export async function POST(request: Request) {
     return json(
       {
         error:
-          error instanceof Error ? error.message : "The memory could not be saved.",
+          error instanceof Error
+            ? error.message
+            : "The memory could not be saved.",
       },
       409,
     );

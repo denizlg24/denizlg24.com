@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { signalSchema, workspaceSchema, type Signal } from "./models";
+import { type Signal, signalSchema, workspaceSchema } from "./models";
 import {
   applyRun,
   blankRuntime,
@@ -7,8 +7,8 @@ import {
   isDue,
   maxConsecutiveErrors,
   runtimeOf,
-  withRuntime,
   type SignalRun,
+  withRuntime,
 } from "./signals";
 
 const make = (patch: Partial<Signal> = {}): Signal =>
@@ -28,7 +28,10 @@ const miss: SignalRun = {
   ok: true,
   reading: { trigger: false, value: 55, message: null },
 };
-const failed: SignalRun = { ok: false, error: "ReferenceError: x is not defined" };
+const failed: SignalRun = {
+  ok: false,
+  error: "ReferenceError: x is not defined",
+};
 const at = (iso: string) => new Date(iso);
 
 describe("interpret", () => {
@@ -37,7 +40,9 @@ describe("interpret", () => {
       ok: true,
       reading: { trigger: true, value: null, message: null },
     });
-    expect(interpret({ trigger: false, value: 42.5, message: " calm " })).toEqual({
+    expect(
+      interpret({ trigger: false, value: 42.5, message: " calm " }),
+    ).toEqual({
       ok: true,
       reading: { trigger: false, value: 42.5, message: "calm" },
     });
@@ -86,12 +91,21 @@ describe("applyRun", () => {
   test("errors accumulate, then disable once, and success resets the count", () => {
     const signal = make();
     for (let run = 1; run < maxConsecutiveErrors; run++)
-      expect(applyRun(signal, failed)).toEqual({ fired: false, disabled: false, owned: false });
+      expect(applyRun(signal, failed)).toEqual({
+        fired: false,
+        disabled: false,
+        owned: false,
+      });
     applyRun(signal, miss);
     expect(signal).toMatchObject({ errorCount: 0, lastError: null });
-    for (let run = 1; run < maxConsecutiveErrors; run++) applyRun(signal, failed);
+    for (let run = 1; run < maxConsecutiveErrors; run++)
+      applyRun(signal, failed);
     expect(signal.enabled).toBe(true);
-    expect(applyRun(signal, failed)).toEqual({ fired: false, disabled: true, owned: true });
+    expect(applyRun(signal, failed)).toEqual({
+      fired: false,
+      disabled: true,
+      owned: true,
+    });
     expect(signal).toMatchObject({
       enabled: false,
       lastError: failed.error,
@@ -123,7 +137,8 @@ describe("runtime state", () => {
   test("an error below the limit is not owned, the disabling one is", () => {
     const signal = make();
     expect(applyRun(signal, failed).owned).toBe(false);
-    for (let run = 2; run < maxConsecutiveErrors; run++) applyRun(signal, failed);
+    for (let run = 2; run < maxConsecutiveErrors; run++)
+      applyRun(signal, failed);
     expect(applyRun(signal, failed).owned).toBe(true);
   });
 
@@ -131,11 +146,25 @@ describe("runtime state", () => {
     const [a, b] = [make(), make()];
     const merged = withRuntime(
       [a, b],
-      new Map([[a.id, { ...blankRuntime, lastValue: 7, lastChecked: "2026-03-02T21:00:00.000Z" }]]),
+      new Map([
+        [
+          a.id,
+          {
+            ...blankRuntime,
+            lastValue: 7,
+            lastChecked: "2026-03-02T21:00:00.000Z",
+          },
+        ],
+      ]),
     );
-    expect(merged[0]).toMatchObject({ lastValue: 7, lastChecked: "2026-03-02T21:00:00.000Z" });
+    expect(merged[0]).toMatchObject({
+      lastValue: 7,
+      lastChecked: "2026-03-02T21:00:00.000Z",
+    });
     expect(merged[1]).toMatchObject({ lastValue: null, lastChecked: null });
-    expect(isDue({ ...merged[0], cadence: "hourly" }, at("2026-03-02T21:30:00Z"))).toBe(false);
+    expect(
+      isDue({ ...merged[0], cadence: "hourly" }, at("2026-03-02T21:30:00Z")),
+    ).toBe(false);
   });
 });
 
@@ -147,26 +176,61 @@ describe("isDue", () => {
 
   test("tick is always due, hourly waits an hour", () => {
     const now = at("2026-03-03T15:00:00Z");
-    expect(isDue(make({ cadence: "tick", lastChecked: "2026-03-03T14:59:30.000Z" }), now)).toBe(true);
-    expect(isDue(make({ cadence: "hourly", lastChecked: "2026-03-03T14:30:00.000Z" }), now)).toBe(false);
-    expect(isDue(make({ cadence: "hourly", lastChecked: "2026-03-03T13:59:00.000Z" }), now)).toBe(true);
+    expect(
+      isDue(
+        make({ cadence: "tick", lastChecked: "2026-03-03T14:59:30.000Z" }),
+        now,
+      ),
+    ).toBe(true);
+    expect(
+      isDue(
+        make({ cadence: "hourly", lastChecked: "2026-03-03T14:30:00.000Z" }),
+        now,
+      ),
+    ).toBe(false);
+    expect(
+      isDue(
+        make({ cadence: "hourly", lastChecked: "2026-03-03T13:59:00.000Z" }),
+        now,
+      ),
+    ).toBe(true);
   });
 
   test("daily runs once after the 16:30 New York close, across DST", () => {
     // 2026-03-03 is EST (close 21:30 UTC); 2026-06-03 is EDT (close 20:30 UTC).
     const winter = (now: string, last: string) =>
       isDue(make({ cadence: "daily", lastChecked: last }), at(now));
-    expect(winter("2026-03-03T20:00:00Z", "2026-03-02T22:00:00.000Z")).toBe(false);
-    expect(winter("2026-03-03T21:45:00Z", "2026-03-02T22:00:00.000Z")).toBe(true);
-    expect(winter("2026-03-03T23:00:00Z", "2026-03-03T21:45:00.000Z")).toBe(false);
-    expect(winter("2026-06-03T20:45:00Z", "2026-06-02T21:00:00.000Z")).toBe(true);
-    expect(winter("2026-06-03T20:15:00Z", "2026-06-02T21:00:00.000Z")).toBe(false);
+    expect(winter("2026-03-03T20:00:00Z", "2026-03-02T22:00:00.000Z")).toBe(
+      false,
+    );
+    expect(winter("2026-03-03T21:45:00Z", "2026-03-02T22:00:00.000Z")).toBe(
+      true,
+    );
+    expect(winter("2026-03-03T23:00:00Z", "2026-03-03T21:45:00.000Z")).toBe(
+      false,
+    );
+    expect(winter("2026-06-03T20:45:00Z", "2026-06-02T21:00:00.000Z")).toBe(
+      true,
+    );
+    expect(winter("2026-06-03T20:15:00Z", "2026-06-02T21:00:00.000Z")).toBe(
+      false,
+    );
   });
 
   test("daily stays quiet over the weekend after Friday's run", () => {
     const friday = "2026-03-06T21:45:00.000Z";
-    expect(isDue(make({ cadence: "daily", lastChecked: friday }), at("2026-03-08T18:00:00Z"))).toBe(false);
-    expect(isDue(make({ cadence: "daily", lastChecked: friday }), at("2026-03-09T21:45:00Z"))).toBe(true);
+    expect(
+      isDue(
+        make({ cadence: "daily", lastChecked: friday }),
+        at("2026-03-08T18:00:00Z"),
+      ),
+    ).toBe(false);
+    expect(
+      isDue(
+        make({ cadence: "daily", lastChecked: friday }),
+        at("2026-03-09T21:45:00Z"),
+      ),
+    ).toBe(true);
   });
 });
 

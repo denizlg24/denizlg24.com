@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { Streamdown, defaultRehypePlugins } from "streamdown";
+import { defaultRehypePlugins, Streamdown } from "streamdown";
 import { markdownComponents } from "@/components/assistant/markdown";
 
 const rehypePlugins = Object.entries(defaultRehypePlugins)

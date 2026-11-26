@@ -1,11 +1,11 @@
 import { createTextStreamResponse, streamText, toTextStream } from "ai";
 import { z } from "zod";
+import { briefDataPack } from "@/lib/ai/brief";
+import { aiEnabled, briefModel } from "@/lib/ai/config";
+import { briefInstructions } from "@/lib/ai/prompt";
 import { currentUser, json, sameOrigin } from "@/lib/auth";
 import { readWorkspace } from "@/lib/db";
 import { getBrief, listMemories, saveBrief } from "@/lib/memory";
-import { aiEnabled, briefModel } from "@/lib/ai/config";
-import { briefDataPack } from "@/lib/ai/brief";
-import { briefInstructions } from "@/lib/ai/prompt";
 
 export const maxDuration = 90;
 

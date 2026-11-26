@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import { Check, Copy, ExternalLink, Link2, Link2Off } from "lucide-react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { copyText, setShared } from "./actions";
 

@@ -1,5 +1,6 @@
 // Mirrors packages/markets/src/schemas/security.ts in the denizlg24.com relay.
 import { z } from "zod";
+
 const tickerSchema = z.string().min(1).max(24);
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const freshnessSchema = z.object({

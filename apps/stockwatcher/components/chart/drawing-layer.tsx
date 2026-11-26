@@ -1,11 +1,11 @@
 "use client";
 
 import {
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
   useEffect,
   useId,
   useState,
-  type PointerEvent as ReactPointerEvent,
-  type RefObject,
 } from "react";
 import {
   usePlotArea,
@@ -14,8 +14,8 @@ import {
   useYAxisInverseScale,
   useYAxisScale,
 } from "recharts";
-import type { Drawing, DrawingKind } from "@/lib/models";
 import { fibLevels, nearestIndex, toolPoints } from "@/lib/chart-studio";
+import type { Drawing, DrawingKind } from "@/lib/models";
 import { amount, percent } from "@/lib/utils";
 
 export type Tool = "cursor" | "measure" | "erase" | "alert" | DrawingKind;
@@ -85,7 +85,10 @@ export function DrawingLayer({
     return xScale(times[nearestIndex(times, t)], { position: "middle" }) ?? 0;
   };
   const toY = (p: number) => yScale(p) ?? 0;
-  const px = (anchor: Anchor): Pixel => ({ x: toX(anchor.t), y: toY(anchor.p) });
+  const px = (anchor: Anchor): Pixel => ({
+    x: toX(anchor.t),
+    y: toY(anchor.p),
+  });
   const right = plot.x + plot.width;
   const bottom = plot.y + plot.height;
 
@@ -97,7 +100,8 @@ export function DrawingLayer({
     const y = event.clientY - box.top;
     const snapped = Number(xInverse(x));
     let t = Number.isFinite(snapped) ? snapped : last;
-    if (x > lastX + stepX / 2) t = last + Math.round((x - lastX) / stepX) * stepTime;
+    if (x > lastX + stepX / 2)
+      t = last + Math.round((x - lastX) / stepX) * stepTime;
     const p = Number(yInverse(y));
     return Number.isFinite(p) ? { t: Math.round(t), p } : null;
   }
@@ -155,7 +159,13 @@ export function DrawingLayer({
         return (
           <g>
             <line x1={plot!.x} x2={right} y1={a.y} y2={a.y} {...common} />
-            <text x={right - 4} y={a.y - 4} className="drawing-label" fill={stroke} textAnchor="end">
+            <text
+              x={right - 4}
+              y={a.y - 4}
+              className="drawing-label"
+              fill={stroke}
+              textAnchor="end"
+            >
               {amount(drawing.points[0].p)}
             </text>
           </g>
@@ -182,7 +192,12 @@ export function DrawingLayer({
           <g>
             <line x1={a.x} y1={a.y} x2={end.x} y2={end.y} {...common} />
             {ghost ? (
-              <text x={b.x + 6} y={b.y - 6} className="drawing-label" fill={stroke}>
+              <text
+                x={b.x + 6}
+                y={b.y - 6}
+                className="drawing-label"
+                fill={stroke}
+              >
                 {percent(change)}
               </text>
             ) : null}
@@ -223,19 +238,33 @@ export function DrawingLayer({
                     strokeWidth={level === 0.5 || level === 0.618 ? 1.3 : 0.9}
                     strokeOpacity={0.85}
                   />
-                  <text x={x0 + 4} y={y - 3} className="drawing-label" fill={stroke}>
+                  <text
+                    x={x0 + 4}
+                    y={y - 3}
+                    className="drawing-label"
+                    fill={stroke}
+                  >
                     {(level * 100).toFixed(1)}% · {amount(price)}
                   </text>
                 </g>
               );
             })}
-            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} {...common} strokeDasharray="2 3" />
+            <line
+              x1={a.x}
+              y1={a.y}
+              x2={b.x}
+              y2={b.y}
+              {...common}
+              strokeDasharray="2 3"
+            />
           </g>
         );
       }
       case "channel": {
         if (!b) return null;
-        const offset = c ? c.y - (a.y + ((b.y - a.y) * (c.x - a.x)) / (b.x - a.x || 1)) : 0;
+        const offset = c
+          ? c.y - (a.y + ((b.y - a.y) * (c.x - a.x)) / (b.x - a.x || 1))
+          : 0;
         return (
           <g>
             <path
@@ -245,7 +274,13 @@ export function DrawingLayer({
               stroke="none"
             />
             <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} {...common} />
-            <line x1={a.x} y1={a.y + offset} x2={b.x} y2={b.y + offset} {...common} />
+            <line
+              x1={a.x}
+              y1={a.y + offset}
+              x2={b.x}
+              y2={b.y + offset}
+              {...common}
+            />
             <line
               x1={a.x}
               y1={a.y + offset / 2}
@@ -267,7 +302,6 @@ export function DrawingLayer({
 
   return (
     <g className="drawing-layer" data-tool={tool}>
-
       <defs>
         <clipPath id={clip}>
           <rect x={plot.x} y={plot.y} width={plot.width} height={plot.height} />
@@ -284,11 +318,26 @@ export function DrawingLayer({
             {shape(drawing)}
           </g>
         ))}
-        {preview ? <g className="drawing drawing-preview">{shape(preview, true)}</g> : null}
+        {preview ? (
+          <g className="drawing drawing-preview">{shape(preview, true)}</g>
+        ) : null}
         {tool === "alert" && cursor ? (
           <g className="drawing-alert-preview">
-            <line x1={plot.x} x2={right} y1={toY(cursor.p)} y2={toY(cursor.p)} stroke="var(--term-key)" strokeDasharray="6 3" />
-            <text x={right - 4} y={toY(cursor.p) - 4} className="drawing-label" fill="var(--term-key)" textAnchor="end">
+            <line
+              x1={plot.x}
+              x2={right}
+              y1={toY(cursor.p)}
+              y2={toY(cursor.p)}
+              stroke="var(--term-key)"
+              strokeDasharray="6 3"
+            />
+            <text
+              x={right - 4}
+              y={toY(cursor.p) - 4}
+              className="drawing-label"
+              fill="var(--term-key)"
+              textAnchor="end"
+            >
               Alert at {amount(cursor.p)}
             </text>
           </g>

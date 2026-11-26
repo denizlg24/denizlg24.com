@@ -1,12 +1,12 @@
 "use client";
 
-import useSWR from "swr";
-import { Streamdown } from "streamdown";
 import { X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Streamdown } from "streamdown";
+import useSWR from "swr";
 import { markdownComponents } from "@/components/assistant/markdown";
-import { api, Failure, SourceLink } from "@/components/shared";
 import { useQuotes } from "@/components/market-widgets";
+import { api, Failure, SourceLink } from "@/components/shared";
+import { Button } from "@/components/ui/button";
 import type { Instrument, News } from "@/lib/models";
 import { amount } from "@/lib/utils";
 import { firstWatchlist, useHoldings } from "./data";
@@ -15,8 +15,8 @@ import {
   SkeletonRows,
   Stamp,
   SymbolButton,
-  WidgetFrame,
   useNow,
+  WidgetFrame,
   type WidgetProps,
 } from "./frame";
 

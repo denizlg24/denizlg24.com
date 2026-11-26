@@ -4,19 +4,29 @@ import type { ChartPoint } from "./models";
 export const dayOf = (time: number) => Math.floor(time / 86_400);
 export const isoDay = (day: number) =>
   new Date(day * 86_400_000).toISOString().slice(0, 10);
-export const parseDay = (iso: string) => Math.floor(Date.parse(iso) / 86_400_000);
+export const parseDay = (iso: string) =>
+  Math.floor(Date.parse(iso) / 86_400_000);
 
 const mean = (values: number[]) =>
-  values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+  values.length
+    ? values.reduce((sum, value) => sum + value, 0) / values.length
+    : 0;
 const sampleVariance = (values: number[]) => {
   if (values.length < 2) return 0;
   const m = mean(values);
-  return values.reduce((sum, value) => sum + (value - m) ** 2, 0) / (values.length - 1);
+  return (
+    values.reduce((sum, value) => sum + (value - m) ** 2, 0) /
+    (values.length - 1)
+  );
 };
-export const sampleStdev = (values: number[]) => Math.sqrt(sampleVariance(values));
+export const sampleStdev = (values: number[]) =>
+  Math.sqrt(sampleVariance(values));
 
 /** Last close on or before each day, forward-filled; null before the first bar. */
-export function closesOn(points: ChartPoint[], days: number[]): (number | null)[] {
+export function closesOn(
+  points: ChartPoint[],
+  days: number[],
+): (number | null)[] {
   const out: (number | null)[] = [];
   let pointer = 0;
   let last: number | null = null;
@@ -147,19 +157,26 @@ export function ols(y: number[], x: number[][]): OlsFit | null {
   let sse = 0;
   let sst = 0;
   for (let t = 0; t < n; t++) {
-    const fitted = rows[t].reduce((sum, value, i) => sum + value * coefficients[i], 0);
+    const fitted = rows[t].reduce(
+      (sum, value, i) => sum + value * coefficients[i],
+      0,
+    );
     sse += (y[t] - fitted) ** 2;
     sst += (y[t] - my) ** 2;
   }
   if (!sst) return null;
   const sigma2 = sse / (n - k);
-  const standardErrors = inverse.map((row, i) => Math.sqrt(Math.max(0, row[i] * sigma2)));
+  const standardErrors = inverse.map((row, i) =>
+    Math.sqrt(Math.max(0, row[i] * sigma2)),
+  );
   return {
     coefficients,
     standardErrors,
-    tStats: coefficients.map((c, i) => (standardErrors[i] ? c / standardErrors[i] : 0)),
+    tStats: coefficients.map((c, i) =>
+      standardErrors[i] ? c / standardErrors[i] : 0,
+    ),
     r2: 1 - sse / sst,
-    adjustedR2: 1 - (sse / (n - k)) / (sst / (n - 1)),
+    adjustedR2: 1 - sse / (n - k) / (sst / (n - 1)),
     residualStdev: Math.sqrt(sigma2),
     observations: n,
   };
@@ -195,7 +212,11 @@ export function historicalTail(returns: number[], confidence: number) {
 }
 
 /** Normal-distribution VaR and ES with zero drift over the horizon. */
-export function parametricTail(dailyStdev: number, horizon: number, confidence: number) {
+export function parametricTail(
+  dailyStdev: number,
+  horizon: number,
+  confidence: number,
+) {
   const z = Z[confidence];
   const sigma = dailyStdev * Math.sqrt(horizon);
   const density = Math.exp(-(z * z) / 2) / Math.sqrt(2 * Math.PI);
@@ -204,13 +225,18 @@ export function parametricTail(dailyStdev: number, horizon: number, confidence: 
 
 export function moments(values: number[]) {
   const m = mean(values);
-  const v = values.reduce((sum, value) => sum + (value - m) ** 2, 0) / values.length;
+  const v =
+    values.reduce((sum, value) => sum + (value - m) ** 2, 0) / values.length;
   if (!v) return { skew: 0, excessKurtosis: 0 };
   const sd = Math.sqrt(v);
   return {
-    skew: values.reduce((sum, value) => sum + ((value - m) / sd) ** 3, 0) / values.length,
+    skew:
+      values.reduce((sum, value) => sum + ((value - m) / sd) ** 3, 0) /
+      values.length,
     excessKurtosis:
-      values.reduce((sum, value) => sum + ((value - m) / sd) ** 4, 0) / values.length - 3,
+      values.reduce((sum, value) => sum + ((value - m) / sd) ** 4, 0) /
+        values.length -
+      3,
   };
 }
 
@@ -219,24 +245,80 @@ export const annualise = (daily: number) => daily * TRADING_DAYS;
 export type Scenario = { key: string; label: string; from: string; to: string };
 
 export const namedScenarios: Scenario[] = [
-  { key: "gfc2008", label: "2008 global financial crisis", from: "2008-09-02", to: "2009-03-09" },
-  { key: "covid2020", label: "2020 Covid crash", from: "2020-02-19", to: "2020-03-23" },
-  { key: "rates2022", label: "2022 rate shock", from: "2022-01-03", to: "2022-10-12" },
-  { key: "q42018", label: "2018 Q4 selloff", from: "2018-09-20", to: "2018-12-24" },
+  {
+    key: "gfc2008",
+    label: "2008 global financial crisis",
+    from: "2008-09-02",
+    to: "2009-03-09",
+  },
+  {
+    key: "covid2020",
+    label: "2020 Covid crash",
+    from: "2020-02-19",
+    to: "2020-03-23",
+  },
+  {
+    key: "rates2022",
+    label: "2022 rate shock",
+    from: "2022-01-03",
+    to: "2022-10-12",
+  },
+  {
+    key: "q42018",
+    label: "2018 Q4 selloff",
+    from: "2018-09-20",
+    to: "2018-12-24",
+  },
 ];
 
 export const shockDrivers = {
-  rates: { symbol: "^TNX", label: "US 10-year yield", unit: "bp", mode: "level", scale: 0.01 },
-  oil: { symbol: "CL=F", label: "WTI crude oil", unit: "%", mode: "return", scale: 0.01 },
-  usd: { symbol: "DX-Y.NYB", label: "US dollar index", unit: "%", mode: "return", scale: 0.01 },
-  vix: { symbol: "^VIX", label: "VIX", unit: "points", mode: "level", scale: 1 },
-  equity: { symbol: "^GSPC", label: "S&P 500", unit: "%", mode: "return", scale: 0.01 },
+  rates: {
+    symbol: "^TNX",
+    label: "US 10-year yield",
+    unit: "bp",
+    mode: "level",
+    scale: 0.01,
+  },
+  oil: {
+    symbol: "CL=F",
+    label: "WTI crude oil",
+    unit: "%",
+    mode: "return",
+    scale: 0.01,
+  },
+  usd: {
+    symbol: "DX-Y.NYB",
+    label: "US dollar index",
+    unit: "%",
+    mode: "return",
+    scale: 0.01,
+  },
+  vix: {
+    symbol: "^VIX",
+    label: "VIX",
+    unit: "points",
+    mode: "level",
+    scale: 1,
+  },
+  equity: {
+    symbol: "^GSPC",
+    label: "S&P 500",
+    unit: "%",
+    mode: "return",
+    scale: 0.01,
+  },
 } as const;
 export type ShockDriver = keyof typeof shockDrivers;
-export const shockDriverKeys = Object.keys(shockDrivers) as [ShockDriver, ...ShockDriver[]];
+export const shockDriverKeys = Object.keys(shockDrivers) as [
+  ShockDriver,
+  ...ShockDriver[],
+];
 
 /** Per-day change of a driver series: absolute for levels (yields, VIX), relative for prices. */
-export function driverChanges(closes: (number | null)[], mode: "level" | "return") {
+export function driverChanges(
+  closes: (number | null)[],
+  mode: "level" | "return",
+) {
   const out: (number | null)[] = [];
   for (let i = 1; i < closes.length; i++) {
     const prev = closes[i - 1];
@@ -266,6 +348,11 @@ export function univariateBeta(y: (number | null)[], x: (number | null)[]) {
   }
   const fit = ols(ys, xs);
   return fit
-    ? { beta: fit.coefficients[1], r2: fit.r2, t: fit.tStats[1], observations: fit.observations }
+    ? {
+        beta: fit.coefficients[1],
+        r2: fit.r2,
+        t: fit.tStats[1],
+        observations: fit.observations,
+      }
     : null;
 }

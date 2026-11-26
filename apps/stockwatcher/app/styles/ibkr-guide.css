@@ -121,7 +121,7 @@
 .guide-title {
   margin: 0;
   padding-right: var(--sp-5);
-  font: 600 1.625rem/1.15 var(--display);
+  font: 600 1.625rem / 1.15 var(--display);
   letter-spacing: -0.01em;
 }
 .guide-body {

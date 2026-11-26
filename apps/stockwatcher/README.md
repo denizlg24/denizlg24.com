@@ -18,39 +18,37 @@ The [Stockwatcher plugin](https://github.com/ktoetotam/stockwatcher-plugin) and 
 
 ## Local development
 
-Use Node 24 or newer.
+Stockwatcher lives at `apps/stockwatcher` in the denizlg24.com monorepo. Put local settings in `apps/stockwatcher/.env.local` (see `.env.example`); Next reads it directly. From the repository root:
 
 ```sh
 bun install
-bun dev
+bun run dev:stockwatcher
 ```
 
-Open [localhost:3000](http://localhost:3000) and select **Open preview**. Preview creates a separate workspace in a local SQLite database. The app uses real upstream market data in preview mode.
+Open [localhost:3013](http://localhost:3013) and select **Open preview**. Preview creates a separate workspace in a local SQLite database. The app uses real upstream market data in preview mode.
 
 ```sh
-bun run lint
-bun run typecheck
-bun run build
-bunx playwright install chromium
-bun run test
+bunx turbo run typecheck build --filter=stockwatcher
+bun run format-and-lint
+cd apps/stockwatcher && bunx playwright install chromium && bun run test:e2e
 ```
 
-Use `PLAYWRIGHT_CHANNEL=chrome bun run test` to run against an installed Chrome. The tests start their own local OpenID Connect issuer and exercise a signed ID token, PKCE, account isolation, and workspace writes.
+Use `PLAYWRIGHT_CHANNEL=chrome bun run test:e2e` to run against an installed Chrome. The tests start their own local OpenID Connect issuer and exercise a signed ID token, PKCE, account isolation, and workspace writes. They are not part of `turbo test`, so CI does not run them.
 
-To run locally in Docker, use `DEMO_MODE=1 docker compose up --build`. The named volume preserves SQLite data across container replacements.
+To check the production image, build it from the repository root: `docker build -f apps/stockwatcher/Dockerfile .`.
 
 ## Deniz Cloud sign-in
 
 In [Deniz Cloud Auth → Apps](https://auth.denizlg24.com/apps), open a tenant and create a client named **Stockwatcher** with kind **Web app**. Tenant clients can admit ordinary Deniz Cloud accounts according to the tenant’s policies. The separate owner-level Clients screen creates credentials for superusers. The tenant requires one API on every client. Register **Stockwatcher identity** with identifier `https://stockwatcher.invalid/identity` and select it for the web client. This reserved URL is an OAuth identifier. Stockwatcher does not send requests to it. Deniz Cloud sets up authorization code with PKCE and `client_secret_basic` for the web client. Register the exact callback URI for each environment.
 
-- Local callback `http://localhost:3000/auth/callback`
+- Local callback `http://localhost:3013/auth/callback`
 - Forge callback `https://stockwatcher.denizlg24.com/auth/callback`
 
 Set `DENIZ_OIDC_CLIENT_ID` and `DENIZ_OIDC_CLIENT_SECRET` as runtime secrets. Set `APP_URL` to the canonical origin and leave `DENIZ_OIDC_ISSUER` at its default unless using a different Deniz Cloud installation. Stockwatcher requests `openid profile email`. It uses a host-only session cookie and keys workspaces by issuer and subject. To limit the app to specific accounts, set `WORKSPACE_ALLOWED_EMAILS` to a comma-separated list of their verified account addresses.
 
 ## Forge
 
-Use a Dockerfile deployment with the repository root as the build context, `Dockerfile` as the build file, container port `3000`, and `/api/health` as the health path. The image runs as a non-root user and listens on the port passed by Forge.
+Forge target `stockwatcher/web` builds `denizlg24/denizlg24.com` with root directory `apps/stockwatcher`: the repository root is the build context and `apps/stockwatcher/Dockerfile` the build file, container port `3000`, and `/api/health` as the health path. The image runs as a non-root user and listens on the port passed by Forge.
 
 Set these production runtime values in Forge.
 

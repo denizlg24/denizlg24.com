@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { News } from "./models";
-import { symbolPattern, universeKeys } from "./universes";
 import { overlayRanges, overlaySpecSchema } from "./overlay";
+import { symbolPattern, universeKeys } from "./universes";
 
 const ticker = z.string().regex(symbolPattern);
 const group = z.enum(universeKeys);

@@ -16,7 +16,8 @@ export async function takeSlot() {
   const now = Date.now();
   const slot = Math.max(now, gate.secNextSlot ?? 0);
   gate.secNextSlot = slot + MIN_GAP_MS;
-  if (slot > now) await new Promise((resolve) => setTimeout(resolve, slot - now));
+  if (slot > now)
+    await new Promise((resolve) => setTimeout(resolve, slot - now));
 }
 
 export async function secFetch(
@@ -79,10 +80,7 @@ export type FactEntry = {
 
 export type CompanyFacts = {
   entityName: string;
-  facts: Record<
-    string,
-    Record<string, { units: Record<string, FactEntry[]> }>
-  >;
+  facts: Record<string, Record<string, { units: Record<string, FactEntry[]> }>>;
 };
 
 export async function fetchCompanyFacts(cik: string): Promise<CompanyFacts> {

@@ -1,15 +1,15 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
 import { LogOut } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { type FormEvent, useState } from "react";
+import { Field, type Save, value } from "@/components/forms";
 import { Failure } from "@/components/shared";
-import { Field, value, type Save } from "@/components/forms";
+import { Button } from "@/components/ui/button";
+import { studies, studyKeys } from "@/lib/indicators";
 import type { Workspace } from "@/lib/models";
-import { homeOptions } from "./nav";
 import { chartStyleLabels, chartStyles } from "@/lib/models";
 import { rangeKeys } from "@/lib/universes";
-import { studies, studyKeys } from "@/lib/indicators";
+import { homeOptions } from "./nav";
 
 const studyGroups = [...new Set(studies.map((item) => item.group))];
 
@@ -49,8 +49,11 @@ export function Settings({
           baseCurrency: value(fields, "baseCurrency").toUpperCase(),
           chart: {
             ...current.settings.chart,
-            style: chartStyles.find((item) => item === value(fields, "style")) ?? "area",
-            range: rangeKeys.find((item) => item === value(fields, "range")) ?? "1M",
+            style:
+              chartStyles.find((item) => item === value(fields, "style")) ??
+              "area",
+            range:
+              rangeKeys.find((item) => item === value(fields, "range")) ?? "1M",
             studies: studyKeys
               .filter((key) => fields.has(`study-${key}`))
               .slice(0, 12),

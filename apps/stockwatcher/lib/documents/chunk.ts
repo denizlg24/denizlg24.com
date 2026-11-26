@@ -31,12 +31,17 @@ function splitOversized(text: string, target: number, max: number): string[] {
 function chunkOne(text: string, options: ChunkOptions): string[] {
   const target = options.target ?? 1500;
   const max = options.max ?? 2000;
-  const units = (options.repeatFirstLine ? text.split(/\n/) : text.split(/\n{2,}/))
+  const units = (
+    options.repeatFirstLine ? text.split(/\n/) : text.split(/\n{2,}/)
+  )
     .map((unit) => unit.trim())
     .filter(Boolean);
   const separator = options.repeatFirstLine ? "\n" : "\n\n";
   let header = options.repeatFirstLine ? units.shift() : undefined;
-  if (header !== undefined && header.length > Math.min(300, Math.floor(max / 4))) {
+  if (
+    header !== undefined &&
+    header.length > Math.min(300, Math.floor(max / 4))
+  ) {
     units.unshift(header);
     header = undefined;
   }
@@ -50,9 +55,12 @@ function chunkOne(text: string, options: ChunkOptions): string[] {
   const goal = header ? Math.max(200, target - header.length - 1) : target;
   for (const unit of units) {
     const pieces =
-      unit.length > budget ? splitOversized(unit, goal, Math.max(200, budget)) : [unit];
+      unit.length > budget
+        ? splitOversized(unit, goal, Math.max(200, budget))
+        : [unit];
     for (const piece of pieces) {
-      if (current && current.length + separator.length + piece.length > goal) flush();
+      if (current && current.length + separator.length + piece.length > goal)
+        flush();
       current = current ? `${current}${separator}${piece}` : piece;
       if (current.length >= goal) flush();
     }
@@ -63,7 +71,10 @@ function chunkOne(text: string, options: ChunkOptions): string[] {
 }
 
 /** Chunks never span pages, so a hit's page number is always exact. */
-export function chunkPages(pages: PageText[], options: ChunkOptions = {}): Chunk[] {
+export function chunkPages(
+  pages: PageText[],
+  options: ChunkOptions = {},
+): Chunk[] {
   const chunks: Chunk[] = [];
   for (const { page, text } of pages)
     for (const content of chunkOne(text.trim(), options))

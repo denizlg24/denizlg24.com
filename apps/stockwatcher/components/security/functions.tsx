@@ -1,6 +1,6 @@
 "use client";
 
-import { securityFunctions, type SecurityFunction } from "@/lib/terminal";
+import { type SecurityFunction, securityFunctions } from "@/lib/terminal";
 
 export type { SecurityFunction };
 

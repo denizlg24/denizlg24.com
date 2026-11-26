@@ -1,7 +1,5 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import { DropdownMenu, Popover } from "radix-ui";
 import {
   Activity,
   Baseline,
@@ -11,6 +9,7 @@ import {
   Eraser,
   GitCompareArrows,
   LayoutTemplate,
+  type LucideIcon,
   Maximize2,
   Minimize2,
   MousePointer2,
@@ -24,31 +23,37 @@ import {
   Type,
   Waves,
   X,
-  type LucideIcon,
 } from "lucide-react";
-import {
-  averageKinds,
-  chartScales,
-  oscillatorKinds,
-  type ChartAppearance,
-  type ChartScale,
-  type ChartTemplate,
-  type CustomAverage,
-  type CustomPane,
-  type OscillatorKind,
-} from "@/lib/models";
+import { DropdownMenu, Popover } from "radix-ui";
+import { type FormEvent, useState } from "react";
+import { ConfirmDialog, PromptDialog } from "@/components/ui/prompt-dialog";
 import {
   averageLabel,
   drawingPalette,
   paneLabel,
   toolLabels,
 } from "@/lib/chart-studio";
+import {
+  averageKinds,
+  type ChartAppearance,
+  type ChartScale,
+  type ChartTemplate,
+  type CustomAverage,
+  type CustomPane,
+  chartScales,
+  type OscillatorKind,
+  oscillatorKinds,
+} from "@/lib/models";
 import { symbolPattern } from "@/lib/universes";
 import type { Tool } from "./drawing-layer";
-import { ConfirmDialog, PromptDialog } from "@/components/ui/prompt-dialog";
 
 const tools: { tool: Tool; icon: LucideIcon; label: string; key: string }[] = [
-  { tool: "cursor", icon: MousePointer2, label: "Cursor: drag to pan, wheel to zoom", key: "Esc" },
+  {
+    tool: "cursor",
+    icon: MousePointer2,
+    label: "Cursor: drag to pan, wheel to zoom",
+    key: "Esc",
+  },
   { tool: "trend", icon: TrendingUp, label: toolLabels.trend, key: "T" },
   { tool: "ray", icon: Spline, label: toolLabels.ray, key: "R" },
   { tool: "hline", icon: MoveHorizontal, label: toolLabels.hline, key: "H" },
@@ -58,7 +63,12 @@ const tools: { tool: Tool; icon: LucideIcon; label: string; key: string }[] = [
   { tool: "channel", icon: Waves, label: toolLabels.channel, key: "C" },
   { tool: "text", icon: Type, label: toolLabels.text, key: "N" },
   { tool: "measure", icon: Ruler, label: "Measure", key: "M" },
-  { tool: "alert", icon: BellPlus, label: "Set a price alert at a level", key: "A" },
+  {
+    tool: "alert",
+    icon: BellPlus,
+    label: "Set a price alert at a level",
+    key: "A",
+  },
   { tool: "erase", icon: Eraser, label: "Erase: click a drawing", key: "E" },
 ];
 export const toolShortcuts = new Map(
@@ -186,7 +196,9 @@ export function CompareControl({
       .split(/[\s,]+/)
       .filter((item) => symbolPattern.test(item) && item !== ticker);
     if (symbols.length)
-      onChange([...new Set([...value, ...symbols])].slice(0, compareColors.length));
+      onChange(
+        [...new Set([...value, ...symbols])].slice(0, compareColors.length),
+      );
     setText("");
   }
   return (
@@ -224,7 +236,16 @@ export function CompareControl({
   );
 }
 
-const averageColors = ["#e0a030", "#3f8fd8", "#d0503c", "#a565c9", "#3aa776", "#c9a227", "#23798a", "#8a6a00"];
+const averageColors = [
+  "#e0a030",
+  "#3f8fd8",
+  "#d0503c",
+  "#a565c9",
+  "#3aa776",
+  "#c9a227",
+  "#23798a",
+  "#8a6a00",
+];
 
 export function AverageEditor({
   value,
@@ -241,14 +262,22 @@ export function AverageEditor({
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <button type="button" className="chip chip-menu" title="Custom moving averages">
+        <button
+          type="button"
+          className="chip chip-menu"
+          title="Custom moving averages"
+        >
           <TrendingUp size={14} aria-hidden />
           <span>MAs{value.length ? ` · ${value.length}` : ""}</span>
           <ChevronDown size={12} aria-hidden />
         </button>
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content className="menu-content studio-popover" align="end" sideOffset={4}>
+        <Popover.Content
+          className="menu-content studio-popover"
+          align="end"
+          sideOffset={4}
+        >
           <h4>Custom moving averages</h4>
           {value.length ? (
             <ul className="studio-list">
@@ -261,7 +290,9 @@ export function AverageEditor({
                     onChange={(event) =>
                       onChange(
                         value.map((item, i) =>
-                          i === index ? { ...item, color: event.target.value } : item,
+                          i === index
+                            ? { ...item, color: event.target.value }
+                            : item,
                         ),
                       )
                     }
@@ -270,7 +301,9 @@ export function AverageEditor({
                   <button
                     type="button"
                     aria-label={`Remove ${averageLabel(average)}`}
-                    onClick={() => onChange(value.filter((_, i) => i !== index))}
+                    onClick={() =>
+                      onChange(value.filter((_, i) => i !== index))
+                    }
                   >
                     <X size={12} />
                   </button>
@@ -278,7 +311,9 @@ export function AverageEditor({
               ))}
             </ul>
           ) : (
-            <p className="muted">Any period, any type. Saved with your chart defaults.</p>
+            <p className="muted">
+              Any period, any type. Saved with your chart defaults.
+            </p>
           )}
           <form
             className="studio-form"
@@ -302,7 +337,8 @@ export function AverageEditor({
               aria-label="Average type"
               onChange={(event) =>
                 setKind(
-                  averageKinds.find((item) => item === event.target.value) ?? "sma",
+                  averageKinds.find((item) => item === event.target.value) ??
+                    "sma",
                 )
               }
             >
@@ -365,21 +401,31 @@ export function AppearanceMenu({
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <button type="button" className="chip chip-menu" title="Chart appearance">
+        <button
+          type="button"
+          className="chip chip-menu"
+          title="Chart appearance"
+        >
           <Paintbrush size={14} aria-hidden />
           <span>Style</span>
           <ChevronDown size={12} aria-hidden />
         </button>
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content className="menu-content studio-popover" align="end" sideOffset={4}>
+        <Popover.Content
+          className="menu-content studio-popover"
+          align="end"
+          sideOffset={4}
+        >
           <h4>Appearance</h4>
           {toggles.map(([key, label]) => (
             <label key={key} className="studio-check">
               <input
                 type="checkbox"
                 checked={Boolean(value[key])}
-                onChange={(event) => onChange({ ...value, [key]: event.target.checked })}
+                onChange={(event) =>
+                  onChange({ ...value, [key]: event.target.checked })
+                }
               />
               {label}
             </label>
@@ -404,10 +450,16 @@ export function AppearanceMenu({
               <input
                 type="color"
                 value={value[key] ?? (key === "up" ? "#1b6e45" : "#b0342f")}
-                onChange={(event) => onChange({ ...value, [key]: event.target.value })}
+                onChange={(event) =>
+                  onChange({ ...value, [key]: event.target.value })
+                }
               />
               {value[key] ? (
-                <button type="button" className="chip" onClick={() => onChange({ ...value, [key]: null })}>
+                <button
+                  type="button"
+                  className="chip"
+                  onClick={() => onChange({ ...value, [key]: null })}
+                >
                   Theme
                 </button>
               ) : (
@@ -433,12 +485,21 @@ export function ExportMenu({
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button type="button" className="chip" aria-label="Export chart" title="Export chart">
+        <button
+          type="button"
+          className="chip"
+          aria-label="Export chart"
+          title="Export chart"
+        >
           <Download size={13} aria-hidden />
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content className="menu-content" align="end" sideOffset={4}>
+        <DropdownMenu.Content
+          className="menu-content"
+          align="end"
+          sideOffset={4}
+        >
           <DropdownMenu.Item className="menu-item" onSelect={onPng}>
             PNG image
           </DropdownMenu.Item>
@@ -476,7 +537,6 @@ export function FullscreenToggle({
   );
 }
 
-
 export function TemplateMenu({
   templates,
   current,
@@ -509,49 +569,62 @@ export function TemplateMenu({
           onClose={() => setNaming(false)}
         />
       ) : null}
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger asChild>
-        <button type="button" className="chip chip-menu" title="Chart templates">
-          <LayoutTemplate size={14} aria-hidden />
-          <span>Templates{templates.length ? ` · ${templates.length}` : ""}</span>
-          <ChevronDown size={12} aria-hidden />
-        </button>
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content className="menu-content" align="end" sideOffset={4}>
-          {templates.map((template) => (
-            <DropdownMenu.Item
-              key={template.id}
-              className="menu-item template-item"
-              onSelect={() => apply(template)}
-            >
-              <span>{template.name}</span>
-              <small>
-                {template.studies.length + template.averages.length} studies · {template.scale}
-              </small>
-              <button
-                type="button"
-                className="template-delete"
-                aria-label={`Delete template ${template.name}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  save(templates.filter((item) => item.id !== template.id));
-                }}
-              >
-                <X size={12} />
-              </button>
-            </DropdownMenu.Item>
-          ))}
-          {templates.length ? <DropdownMenu.Separator className="menu-separator" /> : null}
-          <DropdownMenu.Item
-            className="menu-item"
-            onSelect={() => setNaming(true)}
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
+          <button
+            type="button"
+            className="chip chip-menu"
+            title="Chart templates"
           >
-            Save current chart as template…
-          </DropdownMenu.Item>
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
+            <LayoutTemplate size={14} aria-hidden />
+            <span>
+              Templates{templates.length ? ` · ${templates.length}` : ""}
+            </span>
+            <ChevronDown size={12} aria-hidden />
+          </button>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            className="menu-content"
+            align="end"
+            sideOffset={4}
+          >
+            {templates.map((template) => (
+              <DropdownMenu.Item
+                key={template.id}
+                className="menu-item template-item"
+                onSelect={() => apply(template)}
+              >
+                <span>{template.name}</span>
+                <small>
+                  {template.studies.length + template.averages.length} studies ·{" "}
+                  {template.scale}
+                </small>
+                <button
+                  type="button"
+                  className="template-delete"
+                  aria-label={`Delete template ${template.name}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    save(templates.filter((item) => item.id !== template.id));
+                  }}
+                >
+                  <X size={12} />
+                </button>
+              </DropdownMenu.Item>
+            ))}
+            {templates.length ? (
+              <DropdownMenu.Separator className="menu-separator" />
+            ) : null}
+            <DropdownMenu.Item
+              className="menu-item"
+              onSelect={() => setNaming(true)}
+            >
+              Save current chart as template…
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
     </>
   );
 }
@@ -572,14 +645,22 @@ export function PaneEditor({
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <button type="button" className="chip chip-menu" title="Custom oscillator panes">
+        <button
+          type="button"
+          className="chip chip-menu"
+          title="Custom oscillator panes"
+        >
           <Activity size={14} aria-hidden />
           <span>Panes{value.length ? ` · ${value.length}` : ""}</span>
           <ChevronDown size={12} aria-hidden />
         </button>
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content className="menu-content studio-popover" align="end" sideOffset={4}>
+        <Popover.Content
+          className="menu-content studio-popover"
+          align="end"
+          sideOffset={4}
+        >
           <h4>Custom panes</h4>
           {value.length ? (
             <ul className="studio-list">
@@ -590,14 +671,22 @@ export function PaneEditor({
                     value={pane.color}
                     aria-label={`Colour of ${paneLabel(pane)}`}
                     onChange={(event) =>
-                      onChange(value.map((item, i) => (i === index ? { ...item, color: event.target.value } : item)))
+                      onChange(
+                        value.map((item, i) =>
+                          i === index
+                            ? { ...item, color: event.target.value }
+                            : item,
+                        ),
+                      )
                     }
                   />
                   <span>{paneLabel(pane)}</span>
                   <button
                     type="button"
                     aria-label={`Remove ${paneLabel(pane)}`}
-                    onClick={() => onChange(value.filter((_, i) => i !== index))}
+                    onClick={() =>
+                      onChange(value.filter((_, i) => i !== index))
+                    }
                   >
                     <X size={12} />
                   </button>
@@ -605,14 +694,23 @@ export function PaneEditor({
               ))}
             </ul>
           ) : (
-            <p className="muted">Any oscillator, any period, each in its own pane. Up to four.</p>
+            <p className="muted">
+              Any oscillator, any period, each in its own pane. Up to four.
+            </p>
           )}
           <form
             className="studio-form"
             onSubmit={(event) => {
               event.preventDefault();
               if (!valid) return;
-              onChange([...value, { kind, period: n, color: paneColors[value.length % paneColors.length] }]);
+              onChange([
+                ...value,
+                {
+                  kind,
+                  period: n,
+                  color: paneColors[value.length % paneColors.length],
+                },
+              ]);
             }}
           >
             <select
@@ -620,7 +718,9 @@ export function PaneEditor({
               value={kind}
               aria-label="Oscillator"
               onChange={(event) => {
-                const next = oscillatorKinds.find((item) => item === event.target.value);
+                const next = oscillatorKinds.find(
+                  (item) => item === event.target.value,
+                );
                 if (next) setKind(next);
               }}
             >

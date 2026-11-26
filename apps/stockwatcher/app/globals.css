@@ -10,7 +10,14 @@
 @import "./styles/alerts.css";
 @import "./styles/admin.css";
 @import "./styles/landing.css";
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, [data-theme="terminal"], [data-theme="terminal"] *));
+@custom-variant dark (
+  &:where(
+    [data-theme="dark"],
+    [data-theme="dark"] *,
+    [data-theme="terminal"],
+    [data-theme="terminal"] *
+  )
+);
 
 @theme inline {
   --font-sans: "Inter Variable", "Inter", sans-serif;
@@ -222,8 +229,8 @@
   --heat-missing: #0a0a0a;
   --shadow-pop: 0 0 0 1px #4a3a22, 0 12px 32px -12px #000000;
   --radius: 0px;
-  --display: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
-    monospace;
+  --display:
+    ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --term-header: #fb8b1e;
   --term-key: #f5e663;
   --term-blue: #4aa8ff;
@@ -231,8 +238,8 @@
   color-scheme: dark;
 }
 :root[data-theme="terminal"] body {
-  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
-    monospace;
+  font-family:
+    ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   letter-spacing: -0.01em;
 }
 :root[data-theme="terminal"] *,
@@ -361,7 +368,7 @@
   font-size: var(--fs-2xs);
 }
 .section-title {
-  font: 500 1.625rem/1.1 var(--display);
+  font: 500 1.625rem / 1.1 var(--display);
   letter-spacing: -0.02em;
   text-wrap: balance;
 }

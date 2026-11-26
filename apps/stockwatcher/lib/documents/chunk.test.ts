@@ -1,5 +1,5 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import { chunkPages } from "./chunk";
 
 const options = { target: 300, max: 400 };
@@ -32,10 +32,7 @@ test("paragraphs are packed up to the target and never exceed max", () => {
   const chunks = chunkPages([{ page: 1, text }], options);
   assert.ok(chunks.length > 1);
   for (const chunk of chunks) assert.ok(chunk.content.length <= options.max);
-  assert.equal(
-    chunks.map((chunk) => chunk.content).join("\n\n"),
-    text,
-  );
+  assert.equal(chunks.map((chunk) => chunk.content).join("\n\n"), text);
 });
 
 test("a single oversized paragraph is split on sentence boundaries", () => {
@@ -65,7 +62,10 @@ test("empty and whitespace-only pages produce no chunks", () => {
 test("csv chunks repeat the header row", () => {
   const rows = Array.from({ length: 60 }, (_, i) => `AAPL,${i},${i * 2.5}`);
   const text = ["symbol,qty,price", ...rows].join("\n");
-  const chunks = chunkPages([{ page: null, text }], { ...options, repeatFirstLine: true });
+  const chunks = chunkPages([{ page: null, text }], {
+    ...options,
+    repeatFirstLine: true,
+  });
   assert.ok(chunks.length > 1);
   for (const chunk of chunks) {
     assert.ok(chunk.content.startsWith("symbol,qty,price\n"));
@@ -76,14 +76,25 @@ test("csv chunks repeat the header row", () => {
 });
 
 test("header-only csv still yields a chunk", () => {
-  const chunks = chunkPages([{ page: null, text: "a,b,c" }], { ...options, repeatFirstLine: true });
-  assert.deepEqual(chunks.map((chunk) => chunk.content), ["a,b,c"]);
+  const chunks = chunkPages([{ page: null, text: "a,b,c" }], {
+    ...options,
+    repeatFirstLine: true,
+  });
+  assert.deepEqual(
+    chunks.map((chunk) => chunk.content),
+    ["a,b,c"],
+  );
 });
 
 test("an oversized first line is not repeated into every chunk", () => {
   const header = "h".repeat(5000);
-  const rows = Array.from({ length: 200 }, (_, i) => `row ${i},value`).join("\n");
-  const chunks = chunkPages([{ page: null, text: `${header}\n${rows}` }], { ...options, repeatFirstLine: true });
+  const rows = Array.from({ length: 200 }, (_, i) => `row ${i},value`).join(
+    "\n",
+  );
+  const chunks = chunkPages([{ page: null, text: `${header}\n${rows}` }], {
+    ...options,
+    repeatFirstLine: true,
+  });
   const stored = chunks.reduce((sum, chunk) => sum + chunk.content.length, 0);
   assert.ok(stored < 5000 + rows.length + 1000);
   assert.ok(chunks.every((chunk) => chunk.content.length <= options.max));

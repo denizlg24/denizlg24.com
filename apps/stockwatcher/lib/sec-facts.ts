@@ -1,9 +1,9 @@
 import "server-only";
 import {
-  fetchCompanyFacts,
-  lookupCik,
   type CompanyFacts,
   type FactEntry,
+  fetchCompanyFacts,
+  lookupCik,
 } from "@/lib/sec-data";
 
 export type FundamentalFrequency = "annual" | "quarterly" | "all";
@@ -39,7 +39,11 @@ const CONCEPT_ALIASES: Record<string, string[]> = {
   ],
   grossprofit: ["GrossProfit", "GrossProfitLoss"],
   operatingincome: ["OperatingIncomeLoss", "ProfitLossFromOperatingActivities"],
-  netincome: ["NetIncomeLoss", "ProfitLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"],
+  netincome: [
+    "NetIncomeLoss",
+    "ProfitLoss",
+    "NetIncomeLossAvailableToCommonStockholdersBasic",
+  ],
   eps: ["EarningsPerShareDiluted", "DilutedEarningsLossPerShare"],
   epsbasic: ["EarningsPerShareBasic", "BasicEarningsLossPerShare"],
   dilutedshares: [
@@ -66,10 +70,20 @@ const CONCEPT_ALIASES: Record<string, string[]> = {
     "DepreciationAndAmortization",
     "DepreciationAmortizationAndAccretionNet",
   ],
-  sharebasedcompensation: ["ShareBasedCompensation", "AllocatedShareBasedCompensationExpense"],
-  rnd: ["ResearchAndDevelopmentExpense", "ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost"],
+  sharebasedcompensation: [
+    "ShareBasedCompensation",
+    "AllocatedShareBasedCompensationExpense",
+  ],
+  rnd: [
+    "ResearchAndDevelopmentExpense",
+    "ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost",
+  ],
   sga: ["SellingGeneralAndAdministrativeExpense"],
-  interestexpense: ["InterestExpense", "InterestExpenseNonoperating", "InterestExpenseDebt"],
+  interestexpense: [
+    "InterestExpense",
+    "InterestExpenseNonoperating",
+    "InterestExpenseDebt",
+  ],
   incometax: ["IncomeTaxExpenseBenefit"],
   dividendspaid: ["PaymentsOfDividends", "PaymentsOfDividendsCommonStock"],
   buybacks: ["PaymentsForRepurchaseOfCommonStock"],
@@ -94,7 +108,10 @@ const CONCEPT_ALIASES: Record<string, string[]> = {
     "NoncurrentBorrowings",
   ],
   inventory: ["InventoryNet", "Inventories"],
-  receivables: ["AccountsReceivableNetCurrent", "TradeAndOtherCurrentReceivables"],
+  receivables: [
+    "AccountsReceivableNetCurrent",
+    "TradeAndOtherCurrentReceivables",
+  ],
 };
 
 export const conceptAliasNames = Object.keys(CONCEPT_ALIASES);
@@ -130,10 +147,7 @@ function seriesForTag(facts: CompanyFacts, tag: string): FundamentalPoint[] {
     if (!concept) continue;
     const unit = pickUnit(concept.units);
     if (!unit) continue;
-    const byPeriod = new Map<
-      string,
-      { first: FactEntry; latest: FactEntry }
-    >();
+    const byPeriod = new Map<string, { first: FactEntry; latest: FactEntry }>();
     for (const entry of concept.units[unit]) {
       if (!Number.isFinite(entry.val)) continue;
       const key = `${entry.start ?? ""}|${entry.end}`;
@@ -169,7 +183,9 @@ export function conceptSeries(facts: CompanyFacts, concept: string) {
       if (!merged.has(key)) merged.set(key, point);
     }
   return [...merged.values()].sort(
-    (a, b) => a.end.localeCompare(b.end) || (a.start ?? "").localeCompare(b.start ?? ""),
+    (a, b) =>
+      a.end.localeCompare(b.end) ||
+      (a.start ?? "").localeCompare(b.start ?? ""),
   );
 }
 
@@ -179,7 +195,9 @@ const keepFrequency = (
 ) => {
   if (frequency === "all") return true;
   if (frequency === "annual")
-    return point.period === "FY" || (point.period === "instant" && point.fp === "FY");
+    return (
+      point.period === "FY" || (point.period === "instant" && point.fp === "FY")
+    );
   return point.period === "Q" || point.period === "instant";
 };
 

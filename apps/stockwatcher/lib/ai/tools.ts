@@ -1,50 +1,50 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { tool, type InferUITools, type UIMessage } from "ai";
+import { type InferUITools, tool, type UIMessage } from "ai";
 import { z } from "zod";
-import { gateway } from "./config";
-import { attempt, ticker } from "./shared";
-import { workspaceTools } from "./workspace-tools";
-import { marketTools } from "./market-tools";
-import { computeTools } from "./compute-tools";
-import { riskTools } from "./risk-tools";
-import { insiderTools } from "./insider-tools";
-import { filingTools } from "./filing-tools";
-import { documentTools } from "./document-tools";
-import { signalTools } from "./signal-tools";
-import { optionsTools } from "./options-tools";
 import {
-  newsFor,
-  portfolioSnapshot,
-  priceHistory,
-  watchlistSnapshot,
-} from "./data";
+  askUserInputSchema,
+  askUserOutputSchema,
+  dashboardSchema,
+} from "@/lib/assistant-types";
+import { type Identity, readWorkspace } from "@/lib/db";
+import { type Desk, defaultDesk, type Widget, widgetSchema } from "@/lib/desk";
 import { quotes, search } from "@/lib/market";
+import { addMemory, deleteMemory, updateWorkspace } from "@/lib/memory";
+import { memoryInputSchema } from "@/lib/memory-types";
+import { alertMetrics } from "@/lib/models";
+import { relay } from "@/lib/relay-data";
+import { type Chart, chartSpecSchema } from "@/lib/reports/chart";
+import { resolveChart } from "@/lib/reports/resolve";
+import { links, publish } from "@/lib/reports/service";
+import { reportIdSchema, setSharing } from "@/lib/reports/store";
+import { deckInputSchema, reportInputSchema } from "@/lib/reports/types";
 import {
   companyResearch,
   holdingsReport,
   socialMentions,
 } from "@/lib/research";
 import { managers } from "@/lib/research-types";
-import { rangeKeys } from "@/lib/universes";
-import {
-  askUserInputSchema,
-  askUserOutputSchema,
-  dashboardSchema,
-} from "@/lib/assistant-types";
-import { relay } from "@/lib/relay-data";
 import { candidates, ownDisclosure } from "@/lib/supply-chain";
-import { defaultDesk, widgetSchema, type Desk, type Widget } from "@/lib/desk";
-import { alertMetrics } from "@/lib/models";
-import { memoryInputSchema } from "@/lib/memory-types";
-import { readWorkspace, type Identity } from "@/lib/db";
-import { addMemory, deleteMemory, updateWorkspace } from "@/lib/memory";
-import { chartSpecSchema, type Chart } from "@/lib/reports/chart";
-import { resolveChart } from "@/lib/reports/resolve";
-import { links, publish } from "@/lib/reports/service";
-import { reportIdSchema, setSharing } from "@/lib/reports/store";
-import { deckInputSchema, reportInputSchema } from "@/lib/reports/types";
+import { rangeKeys } from "@/lib/universes";
 import { today } from "@/lib/utils";
+import { computeTools } from "./compute-tools";
+import { gateway } from "./config";
+import {
+  newsFor,
+  portfolioSnapshot,
+  priceHistory,
+  watchlistSnapshot,
+} from "./data";
+import { documentTools } from "./document-tools";
+import { filingTools } from "./filing-tools";
+import { insiderTools } from "./insider-tools";
+import { marketTools } from "./market-tools";
+import { optionsTools } from "./options-tools";
+import { riskTools } from "./risk-tools";
+import { attempt, ticker } from "./shared";
+import { signalTools } from "./signal-tools";
+import { workspaceTools } from "./workspace-tools";
 
 const omitId = { id: true } as const;
 const [
@@ -101,10 +101,11 @@ function applyDeskChange(
   if (unknown.length)
     throw new Error(`Unknown widget id(s): ${unknown.join(", ")}.`);
   const now = new Date().toISOString();
-  const added = (change.add ?? []).map((input): Widget =>
-    input.kind === "insight"
-      ? { ...input, id: randomUUID(), createdAt: now }
-      : { ...input, id: randomUUID() },
+  const added = (change.add ?? []).map(
+    (input): Widget =>
+      input.kind === "insight"
+        ? { ...input, id: randomUUID(), createdAt: now }
+        : { ...input, id: randomUUID() },
   );
   let widgets = [
     ...desk.widgets.filter((widget) => !removed.has(widget.id)),
@@ -146,14 +147,18 @@ const reportToolInput = reportInputSchema.extend({
   share: z
     .boolean()
     .optional()
-    .describe("Create a public share link now. Only when the user asked to share or send it."),
+    .describe(
+      "Create a public share link now. Only when the user asked to share or send it.",
+    ),
 });
 const deckToolInput = deckInputSchema.extend({
   date: z.iso.date().optional().describe("YYYY-MM-DD; defaults to today"),
   share: z
     .boolean()
     .optional()
-    .describe("Create a public share link now. Only when the user asked to share or send it."),
+    .describe(
+      "Create a public share link now. Only when the user asked to share or send it.",
+    ),
 });
 
 export function createTools(ctx: { user: Identity; origin: string }) {

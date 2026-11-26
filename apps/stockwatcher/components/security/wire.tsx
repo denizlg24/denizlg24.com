@@ -1,8 +1,8 @@
 "use client";
 
+import { ExternalLink } from "lucide-react";
 import { useMemo, useState } from "react";
 import useSWR from "swr";
-import { ExternalLink } from "lucide-react";
 import { api, Empty, Failure, Loading } from "@/components/shared";
 import type { WireItem } from "@/lib/market";
 import type { Workspace } from "@/lib/models";
@@ -16,7 +16,10 @@ const sources: [Source, string][] = [
   ["custom", "Custom"],
 ];
 
-const clock = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
+const clock = new Intl.DateTimeFormat("en-GB", {
+  hour: "2-digit",
+  minute: "2-digit",
+});
 const dayLabel = (time: number) => {
   const date = new Date(time * 1000);
   const today = new Date();
@@ -24,7 +27,11 @@ const dayLabel = (time: number) => {
   yesterday.setDate(today.getDate() - 1);
   if (date.toDateString() === today.toDateString()) return "Today";
   if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(date);
+  return new Intl.DateTimeFormat("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  }).format(date);
 };
 const ago = (time: number) => {
   const minutes = Math.max(0, Math.round((Date.now() / 1000 - time) / 60));
@@ -44,18 +51,28 @@ export function NewsWire({
   initial?: string[];
   select: (symbol: string) => void;
 }) {
-  const [source, setSource] = useState<Source>(initial?.length ? "custom" : watchlists.length ? "watchlists" : "trending");
+  const [source, setSource] = useState<Source>(
+    initial?.length ? "custom" : watchlists.length ? "watchlists" : "trending",
+  );
   const [custom, setCustom] = useState<string[]>(initial ?? []);
   const [text, setText] = useState("");
   const [query, setQuery] = useState("");
   const [only, setOnly] = useState<string | null>(null);
-  const [snapshot, setSnapshot] = useState<{ previous: Set<string> | null; current: Set<string> | null }>({
+  const [snapshot, setSnapshot] = useState<{
+    previous: Set<string> | null;
+    current: Set<string> | null;
+  }>({
     previous: null,
     current: null,
   });
   const symbols = useMemo(() => {
-    if (source === "watchlists") return [...new Set(watchlists.flatMap((list) => list.symbols))].slice(0, 40);
-    if (source === "positions") return [...new Set(trades.map((trade) => trade.symbol))].slice(0, 40);
+    if (source === "watchlists")
+      return [...new Set(watchlists.flatMap((list) => list.symbols))].slice(
+        0,
+        40,
+      );
+    if (source === "positions")
+      return [...new Set(trades.map((trade) => trade.symbol))].slice(0, 40);
     if (source === "custom") return custom;
     return [];
   }, [source, watchlists, trades, custom]);
@@ -63,7 +80,11 @@ export function NewsWire({
     source === "trending" || symbols.length
       ? `/api/wire?${new URLSearchParams({ symbols: symbols.join(",") })}`
       : null;
-  const { data, error, isLoading, mutate } = useSWR<{ items: WireItem[]; trending: string[]; symbols: string[] }>(key, api, {
+  const { data, error, isLoading, mutate } = useSWR<{
+    items: WireItem[];
+    trending: string[];
+    symbols: string[];
+  }>(key, api, {
     refreshInterval: 120_000,
     revalidateOnFocus: false,
     keepPreviousData: true,
@@ -80,14 +101,18 @@ export function NewsWire({
   }, [snapshot]);
   const counts = useMemo(() => {
     const tally = new Map<string, number>();
-    for (const item of data?.items ?? []) for (const symbol of item.symbols) tally.set(symbol, (tally.get(symbol) ?? 0) + 1);
+    for (const item of data?.items ?? [])
+      for (const symbol of item.symbols)
+        tally.set(symbol, (tally.get(symbol) ?? 0) + 1);
     return [...tally.entries()].sort((a, b) => b[1] - a[1]);
   }, [data]);
   const needle = query.trim().toLowerCase();
   const items = (data?.items ?? []).filter(
     (item) =>
       (!only || item.symbols.includes(only)) &&
-      (!needle || item.title.toLowerCase().includes(needle) || item.publisher.toLowerCase().includes(needle)),
+      (!needle ||
+        item.title.toLowerCase().includes(needle) ||
+        item.publisher.toLowerCase().includes(needle)),
   );
 
   return (
@@ -96,7 +121,12 @@ export function NewsWire({
         <div className="row-actions">
           <div className="seg" role="group" aria-label="News source">
             {sources.map(([key, label]) => (
-              <button key={key} type="button" aria-pressed={source === key} onClick={() => setSource(key)}>
+              <button
+                key={key}
+                type="button"
+                aria-pressed={source === key}
+                onClick={() => setSource(key)}
+              >
                 {label}
               </button>
             ))}
@@ -105,7 +135,10 @@ export function NewsWire({
             <form
               onSubmit={(event) => {
                 event.preventDefault();
-                const added = text.toUpperCase().split(/[\s,]+/).filter((item) => symbolPattern.test(item));
+                const added = text
+                  .toUpperCase()
+                  .split(/[\s,]+/)
+                  .filter((item) => symbolPattern.test(item));
                 setCustom([...new Set([...custom, ...added])].slice(0, 40));
                 setText("");
               }}
@@ -133,9 +166,17 @@ export function NewsWire({
         </span>
       </div>
       {counts.length ? (
-        <div className="wire-symbols" role="group" aria-label="Filter by symbol">
+        <div
+          className="wire-symbols"
+          role="group"
+          aria-label="Filter by symbol"
+        >
           {only ? (
-            <button type="button" className="chip" onClick={() => setOnly(null)}>
+            <button
+              type="button"
+              className="chip"
+              onClick={() => setOnly(null)}
+            >
               All
             </button>
           ) : null}
@@ -155,7 +196,11 @@ export function NewsWire({
       {source === "custom" && !custom.length ? (
         <Empty title="Add tickers to follow" />
       ) : source !== "trending" && !symbols.length ? (
-        <Empty title={source === "watchlists" ? "No watchlist symbols" : "No positions"} />
+        <Empty
+          title={
+            source === "watchlists" ? "No watchlist symbols" : "No positions"
+          }
+        />
       ) : error ? (
         <Failure error={error} retry={() => void mutate()} />
       ) : isLoading && !data ? (
@@ -167,23 +212,38 @@ export function NewsWire({
           {items.map((item, index) => {
             const label = dayLabel(item.time);
             const header =
-              index === 0 || dayLabel(items[index - 1].time) !== label ? label : null;
+              index === 0 || dayLabel(items[index - 1].time) !== label
+                ? label
+                : null;
             return (
               <li key={item.id} data-fresh={fresh.has(item.id) || undefined}>
                 {header ? <h3 className="wire-day">{header}</h3> : null}
                 <div className="wire-row">
-                  <time dateTime={new Date(item.time * 1000).toISOString()} title={new Date(item.time * 1000).toLocaleString()}>
+                  <time
+                    dateTime={new Date(item.time * 1000).toISOString()}
+                    title={new Date(item.time * 1000).toLocaleString()}
+                  >
                     {clock.format(item.time * 1000)}
                     <small>{ago(item.time)}</small>
                   </time>
                   <span className="wire-tickers">
                     {item.symbols.slice(0, 4).map((symbol) => (
-                      <button key={symbol} type="button" className="security-link" onClick={() => select(symbol)}>
+                      <button
+                        key={symbol}
+                        type="button"
+                        className="security-link"
+                        onClick={() => select(symbol)}
+                      >
                         {symbol}
                       </button>
                     ))}
                   </span>
-                  <a href={item.url} target="_blank" rel="noreferrer" className="wire-title">
+                  <a
+                    href={item.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="wire-title"
+                  >
                     {item.title}
                     <ExternalLink size={11} aria-hidden />
                   </a>
@@ -195,9 +255,14 @@ export function NewsWire({
         </ol>
       )}
       {source === "trending" && data?.trending.length ? (
-        <p className="term-source">Trending on Yahoo Finance: {data.trending.join(", ")}</p>
+        <p className="term-source">
+          Trending on Yahoo Finance: {data.trending.join(", ")}
+        </p>
       ) : null}
-      <p className="term-source">Headlines from Yahoo Finance search, merged across symbols and de-duplicated by story.</p>
+      <p className="term-source">
+        Headlines from Yahoo Finance search, merged across symbols and
+        de-duplicated by story.
+      </p>
     </div>
   );
 }

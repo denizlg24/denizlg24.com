@@ -30,7 +30,10 @@ export type FreshnessState = "live" | "delayed" | "closed" | "unknown";
  * Describes how current a quote is from its own trade time and the live feed,
  * rather than from a fixed polling interval.
  */
-export function useFreshness(symbol: string | undefined, quoteMs?: number | null) {
+export function useFreshness(
+  symbol: string | undefined,
+  quoteMs?: number | null,
+) {
   const now = useSyncExternalStore(subscribe, nowKey, noNow);
   const tick = useLiveTick(symbol);
   const status = useLiveStatus();
@@ -69,7 +72,9 @@ export function Freshness({
       {state === "live" ? <i aria-hidden /> : null}
       {labels[state]}{" "}
       <time dateTime={date.toISOString()}>
-        {today ? clock.format(date) : `${day.format(date)} ${clock.format(date)}`}
+        {today
+          ? clock.format(date)
+          : `${day.format(date)} ${clock.format(date)}`}
       </time>
     </span>
   );

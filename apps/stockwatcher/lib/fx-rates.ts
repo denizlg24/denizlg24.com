@@ -25,7 +25,7 @@ const pairOf = (from: string, to: string) => `${from}${to}=X`;
 /** Yahoo FX symbols that could be needed to value `currencies` in `base`. */
 export function fxSymbols(currencies: string[], base: string) {
   const needed = new Set(
-    currencies.map((code) => (minorUnits[code]?.major ?? code)),
+    currencies.map((code) => minorUnits[code]?.major ?? code),
   );
   needed.delete(base);
   const wanted = new Set<string>();
@@ -49,9 +49,16 @@ export function fxSymbols(currencies: string[], base: string) {
  * price against the base (directly, inverted or via USD) are absent from the
  * result; callers must exclude them rather than assume parity.
  */
-export function resolveFxRates(live: Quote[], currencies: string[], base: string) {
+export function resolveFxRates(
+  live: Quote[],
+  currencies: string[],
+  base: string,
+) {
   const majors = new Map(
-    currencies.map((code) => [code, minorUnits[code] ?? { major: code, divisor: 1 }]),
+    currencies.map((code) => [
+      code,
+      minorUnits[code] ?? { major: code, divisor: 1 },
+    ]),
   );
   const bySymbol = new Map(live.map((quote) => [quote.symbol, quote]));
   const leg = (from: string, to: string): { leg: Leg; pair: string } | null => {
@@ -61,7 +68,8 @@ export function resolveFxRates(live: Quote[], currencies: string[], base: string
         pair: pairOf(from, to),
         leg: {
           rate: direct.price,
-          previous: direct.previous && direct.previous > 0 ? direct.previous : null,
+          previous:
+            direct.previous && direct.previous > 0 ? direct.previous : null,
           time: direct.time,
         },
       };
@@ -71,14 +79,18 @@ export function resolveFxRates(live: Quote[], currencies: string[], base: string
         pair: `1/${pairOf(to, from)}`,
         leg: {
           rate: 1 / inverse.price,
-          previous: inverse.previous && inverse.previous > 0 ? 1 / inverse.previous : null,
+          previous:
+            inverse.previous && inverse.previous > 0
+              ? 1 / inverse.previous
+              : null,
           time: inverse.time,
         },
       };
     return null;
   };
   const major = (code: string) => {
-    if (code === base) return { rate: 1, previous: 1, time: 0, pair: "identity" };
+    if (code === base)
+      return { rate: 1, previous: 1, time: 0, pair: "identity" };
     const direct = leg(code, base);
     if (direct) return { ...direct.leg, pair: direct.pair };
     const toUsd = leg(code, "USD");

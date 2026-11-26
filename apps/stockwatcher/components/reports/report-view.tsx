@@ -1,10 +1,10 @@
 import { Info, ShieldAlert, TrendingDown, TrendingUp } from "lucide-react";
-import type { Callout, Report } from "@/lib/reports/types";
 import { asOfLabel } from "@/lib/reports/format";
+import type { Callout, Report } from "@/lib/reports/types";
+import { disclaimer, Masthead } from "./brand";
 import { ChartView } from "./chart";
 import { DocTable } from "./doc-table";
 import { ReportMarkdown } from "./markdown";
-import { Masthead, disclaimer } from "./brand";
 import { chartSources, latestAsOf } from "./sources";
 
 const calloutMeta = {

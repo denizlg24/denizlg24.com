@@ -9,7 +9,12 @@ import {
   reportIdSchema,
   updateReport,
 } from "@/lib/reports/store";
-import { deckInputSchema, reportInputSchema } from "@/lib/reports/types";
+import {
+  type Deck,
+  deckInputSchema,
+  type Report,
+  reportInputSchema,
+} from "@/lib/reports/types";
 
 const patchSchema = z
   .object({
@@ -55,7 +60,7 @@ export async function PATCH(
   const current = await getReport(user.id, id.data);
   if (!current) return json({ error: "Report not found." }, 404);
   try {
-    let doc;
+    let doc: Report | Deck | undefined;
     if (parsed.data.doc !== undefined) {
       if (current.kind === "deck") {
         const input = deckInputSchema.safeParse(parsed.data.doc);

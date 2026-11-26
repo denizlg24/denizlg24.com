@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { dashboardSchema } from "./assistant-types";
-import { rangeKeys, symbolPattern } from "./universes";
+import { deskSchema } from "./desk";
 import { studyKeySchema } from "./indicators";
 import { overlayRanges, overlaySpecSchema } from "./overlay";
-import { deskSchema } from "./desk";
 import { screenSchema } from "./screens";
+import { rangeKeys, symbolPattern } from "./universes";
 
 export const symbolSchema = z
   .string()

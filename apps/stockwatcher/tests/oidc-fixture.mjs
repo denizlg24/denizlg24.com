@@ -1,5 +1,5 @@
-import { createServer } from "node:http";
 import { createHash, generateKeyPairSync, randomUUID, sign } from "node:crypto";
+import { createServer } from "node:http";
 
 const issuer = "http://127.0.0.1:3291/oidc";
 const app = "http://127.0.0.1:3290";

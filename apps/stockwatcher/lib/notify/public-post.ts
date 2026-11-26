@@ -62,9 +62,7 @@ export function restricted(address: string): boolean {
     const high = Number.parseInt(groups[6] ?? "", 16);
     const low = Number.parseInt(groups[7] ?? "", 16);
     if (Number.isNaN(high) || Number.isNaN(low)) return true;
-    return restricted(
-      [high >> 8, high & 255, low >> 8, low & 255].join("."),
-    );
+    return restricted([high >> 8, high & 255, low >> 8, low & 255].join("."));
   }
   return blocked.check(address, "ipv6");
 }
@@ -73,7 +71,8 @@ const guardedLookup: LookupFunction = (hostname, options, callback) => {
   dnsLookup(hostname, { ...options, all: true }, (error, found) => {
     if (error) return callback(error, "", 4);
     const addresses = found as LookupAddress[];
-    const bad = !addresses.length || addresses.some((item) => restricted(item.address));
+    const bad =
+      !addresses.length || addresses.some((item) => restricted(item.address));
     if (bad)
       return callback(
         new Error("That address points to a private network."),

@@ -1,6 +1,5 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -14,6 +13,7 @@ import {
   ExternalLink,
   Hash,
   Info,
+  type LucideIcon,
   Mail,
   MessageCircle,
   MessagesSquare,
@@ -25,20 +25,20 @@ import {
   ShieldCheck,
   Star,
   Webhook,
-  type LucideIcon,
 } from "lucide-react";
+import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { api, Failure } from "@/components/shared";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { api, Failure } from "@/components/shared";
-import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
 import type { ChannelKind } from "@/lib/models";
 import type { Channel } from "@/lib/notify/types";
+import { cn } from "@/lib/utils";
 
 export const channelMeta: Record<
   ChannelKind,

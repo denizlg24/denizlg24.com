@@ -1,6 +1,6 @@
 import "server-only";
-import { channelsFor, deliverTo, persist } from "./alert-delivery";
 import { runCompute } from "./ai/compute-tools";
+import { channelsFor, deliverTo, persist } from "./alert-delivery";
 import { readSignalRuntime, writeSignalRuntime } from "./db";
 import type { AlertEvent, Signal, SignalRuntime, Workspace } from "./models";
 import { appUrl } from "./notify/channel-api";
@@ -11,8 +11,8 @@ import {
   isDue,
   maxConsecutiveErrors,
   runtimeOf,
-  withRuntime,
   type SignalRun,
+  withRuntime,
 } from "./signals";
 
 const MAX_RUNS_PER_TICK = 5;
@@ -31,7 +31,11 @@ export type SignalDeps = {
   run: (signal: Signal) => Promise<SignalRun>;
   persist: typeof persist;
   runtime: (userId: string) => Promise<Map<string, SignalRuntime>>;
-  saveRuntime: (userId: string, signalId: string, runtime: SignalRuntime) => Promise<void>;
+  saveRuntime: (
+    userId: string,
+    signalId: string,
+    runtime: SignalRuntime,
+  ) => Promise<void>;
   send: (userId: string, notices: Notice[]) => Promise<void>;
   now: () => Date;
 };
@@ -157,18 +161,33 @@ export async function monitorSignals(
         .map(async ({ id, data }) => ({
           id,
           data: {
-            signals: withRuntime(data.signals, await deps.runtime(id).catch(() => new Map<string, SignalRuntime>())),
+            signals: withRuntime(
+              data.signals,
+              await deps
+                .runtime(id)
+                .catch(() => new Map<string, SignalRuntime>()),
+            ),
           },
         })),
     );
-    const results = new Map<string, Array<{ signal: Signal; run: SignalRun }>>();
+    const results = new Map<
+      string,
+      Array<{ signal: Signal; run: SignalRun }>
+    >();
     let sandboxMs = 0;
     for (const { userId, signal } of selectDue(merged, deps.now())) {
-      if (Date.now() - started > TICK_BUDGET_MS || sandboxMs > SANDBOX_BUDGET_MS) break;
+      if (
+        Date.now() - started > TICK_BUDGET_MS ||
+        sandboxMs > SANDBOX_BUDGET_MS
+      )
+        break;
       await yieldToEventLoop();
       const begun = Date.now();
       const run = await deps.run(signal).catch(
-        (): SignalRun => ({ ok: false, error: "The signal could not be run." }),
+        (): SignalRun => ({
+          ok: false,
+          error: "The signal could not be run.",
+        }),
       );
       sandboxMs += Date.now() - begun;
       results.set(userId, [...(results.get(userId) ?? []), { signal, run }]);
@@ -184,7 +203,7 @@ export async function monitorSignals(
           let changed = false;
           for (const { signal: ran, run } of runs) {
             const stored = workspace.signals.find((item) => item.id === ran.id);
-            if (!stored || !stored.enabled || !sameScript(stored, ran)) continue;
+            if (!stored?.enabled || !sameScript(stored, ran)) continue;
             const candidate: Signal = { ...stored, ...runtimeOf(ran) };
             const step = applyRun(candidate, run, deps.now());
             runtimes.push({ id: ran.id, runtime: runtimeOf(candidate) });
@@ -196,9 +215,15 @@ export async function monitorSignals(
               changed = true;
             }
             if (step.fired)
-              notices.push({ signal: structuredClone(candidate), kind: "fired" });
+              notices.push({
+                signal: structuredClone(candidate),
+                kind: "fired",
+              });
             if (step.disabled)
-              notices.push({ signal: structuredClone(candidate), kind: "disabled" });
+              notices.push({
+                signal: structuredClone(candidate),
+                kind: "disabled",
+              });
           }
           return changed;
         })

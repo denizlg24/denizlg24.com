@@ -29,7 +29,11 @@ export type OverlaySeries = {
   studies: OverlayStudy[];
 };
 
-const axisCodes: Record<string, OverlayAxis> = { l: "left", r: "right", p: "pane" };
+const axisCodes: Record<string, OverlayAxis> = {
+  l: "left",
+  r: "right",
+  p: "pane",
+};
 const modeCodes: Record<string, OverlayMode> = {
   p: "price",
   r: "rebased",

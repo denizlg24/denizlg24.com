@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { rangeKeys, symbolPattern, universeKeys } from "./universes";
 import { overlayWidgetSchema } from "./overlay";
+import { rangeKeys, symbolPattern, universeKeys } from "./universes";
 
 const ticker = z.string().regex(symbolPattern);
 const widgetId = z.uuid();

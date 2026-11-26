@@ -2,7 +2,14 @@
 
 import { Button } from "@/components/ui/button";
 import { monitorFunctions } from "@/lib/terminal";
-import { Correlation, CrossRates, QuoteBoard, YieldCurve, commodityBoard, cryptoBoard } from "../security/boards";
+import {
+  Correlation,
+  CrossRates,
+  commodityBoard,
+  cryptoBoard,
+  QuoteBoard,
+  YieldCurve,
+} from "../security/boards";
 import { EarningsCalendar } from "../security/calendar";
 import { ChartGrid } from "../security/grid";
 import { PortfolioRiskView } from "../security/risk";
@@ -40,15 +47,33 @@ export function FunctionWidget({ widget, ctx }: WidgetProps<"function">) {
           />
         );
       case "PRSK":
-        return <PortfolioRiskView books={workspace.books} trades={workspace.trades} select={onOpenSymbol} />;
+        return (
+          <PortfolioRiskView
+            books={workspace.books}
+            trades={workspace.trades}
+            select={onOpenSymbol}
+          />
+        );
       case "FXC":
         return <CrossRates select={onOpenSymbol} />;
       case "CMDTY":
         return (
-          <QuoteBoard groups={commodityBoard} refresh={refresh} select={onOpenSymbol} source="Front-month futures · Yahoo Finance" />
+          <QuoteBoard
+            groups={commodityBoard}
+            refresh={refresh}
+            select={onOpenSymbol}
+            source="Front-month futures · Yahoo Finance"
+          />
         );
       case "CRYP":
-        return <QuoteBoard groups={cryptoBoard} refresh={refresh} select={onOpenSymbol} source="Spot in USD · Yahoo Finance" />;
+        return (
+          <QuoteBoard
+            groups={cryptoBoard}
+            refresh={refresh}
+            select={onOpenSymbol}
+            source="Spot in USD · Yahoo Finance"
+          />
+        );
       case "GRID":
         return <ChartGrid initial={symbols} select={onOpenSymbol} />;
     }
@@ -62,7 +87,13 @@ export function FunctionWidget({ widget, ctx }: WidgetProps<"function">) {
         <Button
           variant="ghost"
           size="xs"
-          onClick={() => onOpenView({ view: "monitor", fn: widget.fn, ...(symbols?.length ? { symbols } : {}) })}
+          onClick={() =>
+            onOpenView({
+              view: "monitor",
+              fn: widget.fn,
+              ...(symbols?.length ? { symbols } : {}),
+            })
+          }
         >
           Open
         </Button>

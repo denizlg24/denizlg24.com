@@ -1,15 +1,15 @@
 import "server-only";
-import { DatabaseSync } from "node:sqlite";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { createHash, randomBytes } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 import postgres from "postgres";
 import {
   defaultChartPreferences,
-  signalRuntimeSchema,
-  workspaceSchema,
   type SignalRuntime,
+  signalRuntimeSchema,
   type Workspace,
+  workspaceSchema,
 } from "./models";
 import { withRuntime } from "./signals";
 
@@ -236,7 +236,8 @@ function pg(url: string) {
 }
 
 export type Store =
-  { kind: "pg"; sql: postgres.Sql } | { kind: "sqlite"; db: DatabaseSync };
+  | { kind: "pg"; sql: postgres.Sql }
+  | { kind: "sqlite"; db: DatabaseSync };
 
 export async function store(): Promise<Store> {
   const url = process.env.DATABASE_URL;
@@ -487,9 +488,11 @@ export async function readSignalRuntime(
           .all(userId)
           .map((row) => ({
             signal_id: String(row.signal_id),
-            last_checked: row.last_checked === null ? null : String(row.last_checked),
+            last_checked:
+              row.last_checked === null ? null : String(row.last_checked),
             last_value: row.last_value === null ? null : Number(row.last_value),
-            last_message: row.last_message === null ? null : String(row.last_message),
+            last_message:
+              row.last_message === null ? null : String(row.last_message),
             last_error: row.last_error === null ? null : String(row.last_error),
             error_count: Number(row.error_count),
           }));
@@ -498,7 +501,9 @@ export async function readSignalRuntime(
       row.signal_id,
       signalRuntimeSchema.parse({
         lastChecked:
-          row.last_checked === null ? null : new Date(row.last_checked).toISOString(),
+          row.last_checked === null
+            ? null
+            : new Date(row.last_checked).toISOString(),
         lastValue: row.last_value,
         lastMessage: row.last_message,
         lastError: row.last_error,
@@ -574,7 +579,9 @@ export async function clearSignalErrors(userId: string, signalIds: string[]) {
 }
 
 /** The workspace with each signal's runtime state merged in, for display. */
-export async function readWorkspaceView(userId: string): Promise<WorkspaceRecord> {
+export async function readWorkspaceView(
+  userId: string,
+): Promise<WorkspaceRecord> {
   const [record, runtime] = await Promise.all([
     readWorkspace(userId),
     readSignalRuntime(userId),

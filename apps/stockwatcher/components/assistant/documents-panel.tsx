@@ -1,14 +1,14 @@
 "use client";
 
-import { useRef, useState, type DragEvent } from "react";
-import useSWR from "swr";
 import { Trash2, Upload } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { type DragEvent, useRef, useState } from "react";
+import useSWR from "swr";
 import { api } from "@/components/shared";
+import { Button } from "@/components/ui/button";
 import {
+  type DocumentMeta,
   documentExtensions,
   formatBytes,
-  type DocumentMeta,
 } from "@/lib/documents/types";
 import { symbolPattern } from "@/lib/universes";
 import { ago, useNow } from "./format";
@@ -59,7 +59,8 @@ export function DocumentsPanel({ className }: { className?: string }) {
   function onDrop(event: DragEvent) {
     event.preventDefault();
     setDragging(false);
-    if (!demo && event.dataTransfer.files.length) start(event.dataTransfer.files);
+    if (!demo && event.dataTransfer.files.length)
+      start(event.dataTransfer.files);
   }
 
   async function remove(id: string) {
@@ -86,7 +87,9 @@ export function DocumentsPanel({ className }: { className?: string }) {
   const documents = data?.documents ?? [];
   return (
     <section
-      className={["section documents-panel", className].filter(Boolean).join(" ")}
+      className={["section documents-panel", className]
+        .filter(Boolean)
+        .join(" ")}
       aria-label="Documents"
       data-dragging={dragging || undefined}
       onDragOver={(event) => {
@@ -162,8 +165,8 @@ export function DocumentsPanel({ className }: { className?: string }) {
           <div className="empty">
             <strong>No documents yet</strong>
             <div>
-              Drop a broker note, a company deck or your own memo here, or attach
-              it in the assistant. Then ask about it by name.
+              Drop a broker note, a company deck or your own memo here, or
+              attach it in the assistant. Then ask about it by name.
             </div>
           </div>
         ) : (

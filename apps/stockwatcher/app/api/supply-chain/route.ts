@@ -1,5 +1,5 @@
-import { currentUser, json } from "@/lib/auth";
 import { aiEnabled } from "@/lib/ai/config";
+import { currentUser, json } from "@/lib/auth";
 import { candidates, ownDisclosure, verify } from "@/lib/supply-chain";
 import { symbolPattern } from "@/lib/universes";
 
@@ -27,10 +27,7 @@ export async function GET(request: Request) {
       const result = await ownDisclosure(ticker);
       return result
         ? json(result)
-        : json(
-            { error: `${ticker} has no SEC annual report on file.` },
-            404,
-          );
+        : json({ error: `${ticker} has no SEC annual report on file.` }, 404);
     }
     if (part === "verify") {
       const cik = args.get("cik") ?? "";

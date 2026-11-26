@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
 import type { InferUITools } from "ai";
+import { type ReactNode, useState } from "react";
 import type { StockwatcherTools } from "@/lib/ai/tools";
 import { amount, compact, number, percent, tone } from "@/lib/utils";
 
@@ -43,7 +43,9 @@ const Money = ({
   currency: string;
 }) => (
   <span className={tone(value)}>
-    {value == null ? "—" : `${value > 0 ? "+" : ""}${compact(value)} ${currency}`}
+    {value == null
+      ? "—"
+      : `${value > 0 ? "+" : ""}${compact(value)} ${currency}`}
   </span>
 );
 
@@ -78,7 +80,11 @@ export function PortfolioRiskView({ data }: { data: RiskOutput }) {
   return (
     <Block
       title={`${analysisTitle[data.analysis]} · ${data.scope}`}
-      meta={data.analysis === "attribution" ? `${data.from} → ${data.to}` : undefined}
+      meta={
+        data.analysis === "attribution"
+          ? `${data.from} → ${data.to}`
+          : undefined
+      }
     >
       <RiskBody data={data} />
       {data.unpricedPositions.length ? (
@@ -125,9 +131,12 @@ function RiskBody({ data }: { data: RiskOutput }) {
                   </tbody>
                 </table>
                 <Foot>
-                  α {percent(group.alphaAnnualPercent)}/yr (t {number(group.alphaTStat)}) · R²{" "}
-                  {number(group.r2)} · {group.window.observations} days to {group.window.to}
-                  {"caveat" in group && group.caveat ? " · US factors, indicative" : ""}
+                  α {percent(group.alphaAnnualPercent)}/yr (t{" "}
+                  {number(group.alphaTStat)}) · R² {number(group.r2)} ·{" "}
+                  {group.window.observations} days to {group.window.to}
+                  {"caveat" in group && group.caveat
+                    ? " · US factors, indicative"
+                    : ""}
                 </Foot>
               </div>
             ),
@@ -173,7 +182,8 @@ function RiskBody({ data }: { data: RiskOutput }) {
                   </tbody>
                 </table>
                 <Foot>
-                  Portfolio <Signed value={group.portfolioReturnPercent} /> vs {data.benchmark}{" "}
+                  Portfolio <Signed value={group.portfolioReturnPercent} /> vs{" "}
+                  {data.benchmark}{" "}
                   <Signed value={group.benchmarkReturnPercent} /> · active{" "}
                   <Signed value={group.activeReturnPercent} />
                 </Foot>
@@ -207,9 +217,12 @@ function RiskBody({ data }: { data: RiskOutput }) {
                           {row.horizonDays}d {row.confidence}%
                         </td>
                         <td className="num">
-                          {amount(row.historicalVarPercent)}% · {compact(row.historicalVar)}
+                          {amount(row.historicalVarPercent)}% ·{" "}
+                          {compact(row.historicalVar)}
                         </td>
-                        <td className="num">{amount(row.historicalEsPercent)}%</td>
+                        <td className="num">
+                          {amount(row.historicalEsPercent)}%
+                        </td>
                         <td className="num chat-col-wide muted">
                           {amount(row.parametricVarPercent)}%
                         </td>
@@ -222,8 +235,8 @@ function RiskBody({ data }: { data: RiskOutput }) {
                 </table>
                 <Foot>
                   Vol {amount(group.annualVolPercent)}% · excess kurtosis{" "}
-                  {number(group.excessKurtosis)} · {group.window.observations} days to{" "}
-                  {group.window.to}
+                  {number(group.excessKurtosis)} · {group.window.observations}{" "}
+                  days to {group.window.to}
                 </Foot>
               </div>
             ),
@@ -243,13 +256,18 @@ function RiskBody({ data }: { data: RiskOutput }) {
                     <th>{group.currency} scenario</th>
                     <th className="num">Portfolio</th>
                     <th className="num">P/L</th>
-                    <th className="num chat-col-wide">{data.historical?.benchmark}</th>
+                    <th className="num chat-col-wide">
+                      {data.historical?.benchmark}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {group.scenarios.map((scenario) => (
                     <tr key={scenario.key}>
-                      <td className="chat-truncate" title={`${scenario.from} → ${scenario.to}`}>
+                      <td
+                        className="chat-truncate"
+                        title={`${scenario.from} → ${scenario.to}`}
+                      >
                         {scenario.label}
                         {"proxiedPercentOfValue" in scenario &&
                         scenario.proxiedPercentOfValue ? (
@@ -268,7 +286,10 @@ function RiskBody({ data }: { data: RiskOutput }) {
                             <Signed value={scenario.portfolioReturnPercent} />
                           </td>
                           <td className="num">
-                            <Money value={scenario.pnl} currency={group.currency} />
+                            <Money
+                              value={scenario.pnl}
+                              currency={group.currency}
+                            />
                           </td>
                           <td className="num chat-col-wide">
                             <Signed value={scenario.benchmarkReturnPercent} />
@@ -308,7 +329,10 @@ function RiskBody({ data }: { data: RiskOutput }) {
                       ) : (
                         <>
                           <td className="num">
-                            <Money value={shock.pnl} currency={group.currency} />
+                            <Money
+                              value={shock.pnl}
+                              currency={group.currency}
+                            />
                           </td>
                           <td className="num">
                             <Signed value={shock.portfolioReturnPercent} />
@@ -356,13 +380,19 @@ export function InsiderBuyingView({ data }: { data: Insider }) {
                     .map((buyer) => `${buyer.name} (${buyer.role})`)
                     .join("; ")}
                 >
-                  <a href={cluster.url} target="_blank" rel="noopener noreferrer">
+                  <a
+                    href={cluster.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
                     {cluster.symbol ?? cluster.issuer}
                   </a>
                 </td>
                 <td className="num">{cluster.insiders}</td>
                 <td className="num">${compact(cluster.totalValue)}</td>
-                <td className="num chat-col-wide muted">{amount(cluster.averagePrice)}</td>
+                <td className="num chat-col-wide muted">
+                  {amount(cluster.averagePrice)}
+                </td>
                 <td className="num chat-col-wide muted">
                   {cluster.firstDate.slice(5)} – {cluster.lastDate.slice(5)}
                 </td>
@@ -372,7 +402,8 @@ export function InsiderBuyingView({ data }: { data: Insider }) {
         </table>
       ) : (
         <Foot>
-          No cluster of {data.minInsiders}+ insiders within {data.windowDays} days.
+          No cluster of {data.minInsiders}+ insiders within {data.windowDays}{" "}
+          days.
         </Foot>
       )}
       {rows ? (
@@ -401,12 +432,16 @@ export function InsiderBuyingView({ data }: { data: Insider }) {
       ) : null}
       <div className="chat-tool-foot">
         <span>
-          {data.purchaseCount} buys · ${compact(data.totalValue)} · {data.parsedFilings}/
-          {data.candidateFilings} filings read
+          {data.purchaseCount} buys · ${compact(data.totalValue)} ·{" "}
+          {data.parsedFilings}/{data.candidateFilings} filings read
           {data.partial ? " · partial" : ""}
         </span>
         {!rows && data.largestPurchases.length ? (
-          <button type="button" className="chat-more" onClick={() => setRows(true)}>
+          <button
+            type="button"
+            className="chat-more"
+            onClick={() => setRows(true)}
+          >
             Show largest buys
           </button>
         ) : null}
@@ -436,7 +471,10 @@ export function ActivistStakesView({ data }: { data: Activist }) {
           <tbody>
             {data.stakes.slice(0, 15).map((stake) => (
               <tr key={stake.url}>
-                <td className="chat-truncate" title={stake.subject ?? undefined}>
+                <td
+                  className="chat-truncate"
+                  title={stake.subject ?? undefined}
+                >
                   <a href={stake.url} target="_blank" rel="noopener noreferrer">
                     {stake.symbol ?? stake.subject ?? "—"}
                   </a>
@@ -444,12 +482,17 @@ export function ActivistStakesView({ data }: { data: Activist }) {
                     {stake.form.replace("SCHEDULE ", "").replace("SC ", "")}
                   </span>
                 </td>
-                <td className="chat-truncate chat-col-wide" title={stake.filer ?? undefined}>
+                <td
+                  className="chat-truncate chat-col-wide"
+                  title={stake.filer ?? undefined}
+                >
                   {stake.filer ?? "—"}
                   {stake.otherFilers ? ` +${stake.otherFilers}` : ""}
                 </td>
                 <td className="num">
-                  {stake.percentOfClass == null ? "—" : `${number(stake.percentOfClass)}%`}
+                  {stake.percentOfClass == null
+                    ? "—"
+                    : `${number(stake.percentOfClass)}%`}
                 </td>
                 <td className="num muted">{stake.filed.slice(5)}</td>
               </tr>

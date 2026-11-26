@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { RunTable } from "@/components/admin/parts";
 import {
   count,
   duration,
   percentOf,
   utcStamp,
 } from "@/components/admin/format";
+import { RunTable } from "@/components/admin/parts";
 import {
   listRuns,
   listUsers,

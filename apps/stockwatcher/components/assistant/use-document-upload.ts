@@ -3,10 +3,10 @@
 import { useCallback, useRef, useState } from "react";
 import { mutate } from "swr";
 import {
-  documentLimits,
-  formatBytes,
-  documentUploadResultSchema,
   type DocumentUploadResult,
+  documentLimits,
+  documentUploadResultSchema,
+  formatBytes,
 } from "@/lib/documents/types";
 
 export const documentsKey = "/api/documents";
@@ -34,7 +34,8 @@ function send(
       if (event.lengthComputable) onProgress(event.loaded / event.total, false);
     };
     request.upload.onload = () => onProgress(1, true);
-    request.onerror = () => reject(new Error("Upload failed. Check your connection."));
+    request.onerror = () =>
+      reject(new Error("Upload failed. Check your connection."));
     request.onload = () => {
       let data: unknown;
       try {
@@ -98,8 +99,7 @@ export function useDocumentUpload(
         } catch (reason) {
           patch(key, {
             status: "error",
-            error:
-              reason instanceof Error ? reason.message : "Upload failed.",
+            error: reason instanceof Error ? reason.message : "Upload failed.",
           });
         }
       }

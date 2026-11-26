@@ -1,5 +1,5 @@
 import { currentUser, json } from "@/lib/auth";
-import { history, historyIntervals, type HistoryInterval } from "@/lib/market";
+import { type HistoryInterval, history, historyIntervals } from "@/lib/market";
 import { symbolPattern } from "@/lib/universes";
 
 const MAX_SYMBOLS = 30;
@@ -10,10 +10,7 @@ export async function GET(request: Request) {
   const args = new URL(request.url).searchParams;
   const symbols = [
     ...new Set(
-      (args.get("symbols") ?? "")
-        .toUpperCase()
-        .split(",")
-        .filter(Boolean),
+      (args.get("symbols") ?? "").toUpperCase().split(",").filter(Boolean),
     ),
   ];
   const years = Number(args.get("years") ?? "5");

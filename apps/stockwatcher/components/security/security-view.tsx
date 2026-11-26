@@ -1,19 +1,19 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import useSWR from "swr";
 import { ExternalLink } from "lucide-react";
+import { type ReactNode, useState } from "react";
+import useSWR from "swr";
+import { Freshness } from "@/components/freshness";
+import { ChartPanel, useQuotes } from "@/components/market-widgets";
 import {
   api,
   Change,
   Empty,
   Failure,
   Loading,
-  Tick,
   signed,
+  Tick,
 } from "@/components/shared";
-import { Freshness } from "@/components/freshness";
-import { ChartPanel, useQuotes } from "@/components/market-widgets";
 import type {
   ChartPreferences,
   ChartTemplate,
@@ -30,16 +30,21 @@ import type {
   InstrumentProfile,
   MarketStats,
   People,
-  RelayNews,
   Relationships,
+  RelayNews,
 } from "@/lib/security-types";
-import { securityFunctions, type SecurityFunction } from "@/lib/terminal";
+import { type SecurityFunction, securityFunctions } from "@/lib/terminal";
 import { amount, compact, number, percent, tone } from "@/lib/utils";
 import { FunctionBar } from "./functions";
-import { SupplyChain } from "./supply-chain";
 import { Backtest, BetaView, SeasonalityView, Volatility } from "./quant";
+import { SupplyChain } from "./supply-chain";
 
-type Fetch<T> = { data?: T; error?: Error; isLoading: boolean; retry: () => void };
+type Fetch<T> = {
+  data?: T;
+  error?: Error;
+  isLoading: boolean;
+  retry: () => void;
+};
 
 function useSecurity<T>(
   ticker: string,
@@ -345,7 +350,9 @@ function FinancialAnalysis({ ticker }: { ticker: string }) {
               <table className="data-table term-table">
                 <thead>
                   <tr>
-                    <th>{statements.find(([key]) => key === statement)?.[1]}</th>
+                    <th>
+                      {statements.find(([key]) => key === statement)?.[1]}
+                    </th>
                     {periods.map((period) => (
                       <th key={period.date} className="num">
                         {period.date}
@@ -428,7 +435,11 @@ function Analysts({ ticker }: { ticker: string }) {
             <section className="term-block">
               <h3>Consensus</h3>
               <div className="term-figure">
-                <strong className={recommendation.key ? gradeTone(recommendation.key) : ""}>
+                <strong
+                  className={
+                    recommendation.key ? gradeTone(recommendation.key) : ""
+                  }
+                >
                   {recommendation.key?.replace("_", " ").toUpperCase() ?? "—"}
                 </strong>
                 <span>
@@ -495,7 +506,9 @@ function Analysts({ ticker }: { ticker: string }) {
                     return (
                       <li key={row.period}>
                         <span>
-                          {row.period === "0m" ? "Now" : row.period.replace("m", " mo")}
+                          {row.period === "0m"
+                            ? "Now"
+                            : row.period.replace("m", " mo")}
                         </span>
                         <div className="trend-bar">
                           {(
@@ -711,7 +724,10 @@ function HoldersView({ ticker }: { ticker: string }) {
                 "Institutions % float",
                 fraction(data.breakdown.institutionsFloatPercent),
               ],
-              ["Institutional holders", number(data.breakdown.institutionsCount)],
+              [
+                "Institutional holders",
+                number(data.breakdown.institutionsCount),
+              ],
             ]}
           />
           <HolderTable title="Top institutions" rows={data.institutions} />
@@ -856,7 +872,10 @@ function DividendsView({ ticker }: { ticker: string }) {
               title="Summary"
               rows={[
                 ["Trailing 12m", amount(trailing)],
-                ["Last paid", dividends[0] ? amount(dividends[0].divCash) : "—"],
+                [
+                  "Last paid",
+                  dividends[0] ? amount(dividends[0].divCash) : "—",
+                ],
                 ["Last ex-date", dateLabel(dividends[0]?.date)],
                 ["Payments on record", number(dividends.length)],
                 [
@@ -983,7 +1002,9 @@ function RelationshipMap({
   const state = useSecurity<Relationships>(ticker, "rels");
   const peerSymbols = state.data?.peers.map((peer) => peer.ticker) ?? [];
   const { data: quotes } = useQuotes([ticker, ...peerSymbols], true);
-  const bySymbol = new Map(quotes?.quotes.map((quote) => [quote.symbol, quote]));
+  const bySymbol = new Map(
+    quotes?.quotes.map((quote) => [quote.symbol, quote]),
+  );
   return (
     <Gate state={state}>
       {(data) => {
@@ -1075,7 +1096,9 @@ function RelationshipMap({
                   {ticker}
                 </text>
                 <text x={cx} y={cy + 9}>
-                  {data.name.length > 28 ? `${data.name.slice(0, 27)}…` : data.name}
+                  {data.name.length > 28
+                    ? `${data.name.slice(0, 27)}…`
+                    : data.name}
                 </text>
                 <text x={cx} y={cy + 24} className={tone(self?.percent)}>
                   {self ? `${amount(self.price)} ${percent(self.percent)}` : ""}
@@ -1083,7 +1106,11 @@ function RelationshipMap({
               </g>
               {nodes.map((node) => {
                 const width =
-                  node.kind === "peer" ? 96 : node.kind === "holder" ? 196 : 150;
+                  node.kind === "peer"
+                    ? 96
+                    : node.kind === "holder"
+                      ? 196
+                      : 150;
                 const clickable = Boolean(node.symbol);
                 return (
                   <g
@@ -1096,7 +1123,10 @@ function RelationshipMap({
                     tabIndex={clickable ? 0 : undefined}
                     onClick={() => node.symbol && select(node.symbol)}
                     onKeyDown={(event) => {
-                      if (node.symbol && (event.key === "Enter" || event.key === " "))
+                      if (
+                        node.symbol &&
+                        (event.key === "Enter" || event.key === " ")
+                      )
                         select(node.symbol);
                     }}
                   >
@@ -1187,7 +1217,11 @@ export function SecurityView({
   drawings?: Drawing[];
   saveDrawings?: (symbol: string, next: Drawing[]) => Promise<void>;
   alerts?: Workspace["alerts"];
-  createAlert?: (symbol: string, target: number, direction: "above" | "below") => void;
+  createAlert?: (
+    symbol: string,
+    target: number,
+    direction: "above" | "below",
+  ) => void;
   relations?: RelationNote[];
   saveRelations?: (next: RelationNote[]) => void;
   templates?: ChartTemplate[];
@@ -1229,18 +1263,22 @@ export function SecurityView({
       {fn === "MGMT" ? <Management ticker={ticker} /> : null}
       {fn === "DVD" ? <DividendsView ticker={ticker} /> : null}
       {fn === "CN" ? <CompanyNews ticker={ticker} /> : null}
-      {fn === "RELS" ? <RelationshipMap ticker={ticker} select={select} /> : null}
+      {fn === "RELS" ? (
+        <RelationshipMap ticker={ticker} select={select} />
+      ) : null}
       {fn === "HVT" ? <Volatility ticker={ticker} /> : null}
       {fn === "BETA" ? <BetaView ticker={ticker} /> : null}
       {fn === "SEAS" ? <SeasonalityView ticker={ticker} /> : null}
       {fn === "BTST" ? <Backtest ticker={ticker} /> : null}
-      {fn === "SPLC" ? <SupplyChain
+      {fn === "SPLC" ? (
+        <SupplyChain
           ticker={ticker}
           select={select}
           openFunction={openFunction}
           notes={relations}
           saveNotes={saveRelations}
-        /> : null}
+        />
+      ) : null}
     </section>
   );
 }

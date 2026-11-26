@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { ArrowRight, ArrowUpRight, Search } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useSearch } from "@/components/market-widgets";
+import { Empty, Failure, Loading } from "@/components/shared";
 import {
   Dialog,
   DialogContent,
@@ -10,8 +12,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Empty, Failure, Loading } from "@/components/shared";
-import { useSearch } from "@/components/market-widgets";
 import { symbolPattern } from "@/lib/universes";
 
 export function SearchDialog({

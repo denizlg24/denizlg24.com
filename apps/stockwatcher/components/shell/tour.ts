@@ -1,6 +1,6 @@
 "use client";
 
-import { driver, type DriveStep } from "driver.js";
+import { type DriveStep, driver } from "driver.js";
 import "driver.js/dist/driver.css";
 
 type Step = {
@@ -35,13 +35,15 @@ const steps: Step[] = [
   {
     element: ".topbar-tape",
     title: "Market tape",
-    description: "Benchmarks streaming across the top, with live quotes when the feed is on.",
+    description:
+      "Benchmarks streaming across the top, with live quotes when the feed is on.",
     side: "bottom",
   },
   {
     element: ".global-search",
     title: "Search",
-    description: "Find any stock, ETF, index, future, currency or crypto by name or ticker. <kbd>⌘/Ctrl K</kbd>.",
+    description:
+      "Find any stock, ETF, index, future, currency or crypto by name or ticker. <kbd>⌘/Ctrl K</kbd>.",
     side: "bottom",
   },
   {
@@ -84,7 +86,8 @@ const steps: Step[] = [
   {
     element: ".studio-compare",
     title: "Compare",
-    description: "Overlay up to four other tickers, rebased to the first visible bar, e.g. <kbd>SPY</kbd> or <kbd>QQQ</kbd>.",
+    description:
+      "Overlay up to four other tickers, rebased to the first visible bar, e.g. <kbd>SPY</kbd> or <kbd>QQQ</kbd>.",
     side: "left",
   },
   {
@@ -144,7 +147,8 @@ const steps: Step[] = [
     hash: "monitor?fn=RRG",
     element: ".rrg",
     title: "Relative rotation",
-    description: "Which sectors, regions, factors or asset classes are leading, weakening, lagging or improving against a benchmark.",
+    description:
+      "Which sectors, regions, factors or asset classes are leading, weakening, lagging or improving against a benchmark.",
     side: "top",
   },
   {
@@ -167,19 +171,22 @@ const steps: Step[] = [
     hash: "markets",
     element: '.sidebar a[href="#markets"]',
     title: "Markets",
-    description: "Heat maps for market groups and a relative-performance comparison of up to six symbols.",
+    description:
+      "Heat maps for market groups and a relative-performance comparison of up to six symbols.",
     side: "right",
   },
   {
     element: '.sidebar a[href="#portfolio"]',
     title: "Portfolio",
-    description: "Books of trades with average cost, realised and unrealised P&L per currency.",
+    description:
+      "Books of trades with average cost, realised and unrealised P&L per currency.",
     side: "right",
   },
   {
     element: '.sidebar a[href="#research"]',
     title: "Research",
-    description: "Company profiles, SEC filings, social sentiment and your research journal.",
+    description:
+      "Company profiles, SEC filings, social sentiment and your research journal.",
     side: "right",
   },
   {
@@ -191,25 +198,29 @@ const steps: Step[] = [
   {
     element: '.sidebar a[href="#reports"]',
     title: "Reports",
-    description: "Reports and slide decks the assistant writes, shareable by link.",
+    description:
+      "Reports and slide decks the assistant writes, shareable by link.",
     side: "right",
   },
   {
     element: '.sidebar a[href="#alerts"]',
     title: "Alerts",
-    description: "Price alerts checked in the background, including those set from charts.",
+    description:
+      "Price alerts checked in the background, including those set from charts.",
     side: "right",
   },
   {
     element: '.sidebar a[href="#memory"]',
     title: "Memory",
-    description: "What the assistant has learned about you, which you can edit or delete.",
+    description:
+      "What the assistant has learned about you, which you can edit or delete.",
     side: "right",
   },
   {
     element: '.sidebar a[href="#settings"]',
     title: "Settings",
-    description: "Theme (including a terminal theme), home view, live refresh and chart defaults.",
+    description:
+      "Theme (including a terminal theme), home view, live refresh and chart defaults.",
     side: "right",
   },
   {
@@ -220,12 +231,14 @@ const steps: Step[] = [
   {
     hash: "desk",
     title: "You're set",
-    description: "Type <kbd>TOUR</kbd> or use HELP to see this again. Start with a ticker in the command line.",
+    description:
+      "Type <kbd>TOUR</kbd> or use HELP to see this again. Start with a ticker in the command line.",
   },
 ];
 
 function navigate(hash: string | undefined) {
-  if (hash && window.location.hash.slice(1) !== hash) window.location.hash = hash;
+  if (hash && window.location.hash.slice(1) !== hash)
+    window.location.hash = hash;
 }
 
 export function startTour(onFinish: () => void) {

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import useSWR from "swr";
 import {
   CartesianGrid,
   Line,
@@ -12,8 +11,11 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import useSWR from "swr";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { symbolPattern } from "@/lib/universes";
+import { percent, tone } from "@/lib/utils";
 import {
   api,
   Change,
@@ -23,8 +25,6 @@ import {
   PanelHeading,
   SectionFoot,
 } from "./shared";
-import { percent, tone } from "@/lib/utils";
-import { symbolPattern } from "@/lib/universes";
 
 const periods = ["1M", "3M", "6M", "YTD", "1Y"] as const;
 type Period = (typeof periods)[number];

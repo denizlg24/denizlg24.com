@@ -1,4 +1,5 @@
 import {
+  type Bar,
   cci,
   ema,
   rsi,
@@ -6,7 +7,6 @@ import {
   stdev,
   trueRange,
   williams,
-  type Bar,
 } from "./indicators";
 import type {
   ChartPoint,
@@ -55,8 +55,7 @@ const sources: Record<CustomAverage["source"], (bar: Bar) => number> = {
   ohlc4: (bar) => (bar.open + bar.high + bar.low + bar.close) / 4,
 };
 
-export const averageKey = (index: number) =>
-  `avg${index}`;
+export const averageKey = (index: number) => `avg${index}`;
 export const averageLabel = (average: CustomAverage) =>
   `${average.kind.toUpperCase()} ${average.period}${average.source === "close" ? "" : ` ${average.source}`}`;
 
@@ -98,7 +97,9 @@ export function rebaseOnto(
   }
   const anchor = aligned.find((value) => value != null);
   if (anchor == null || anchor === 0) return aligned;
-  return aligned.map((value) => (value == null ? null : (value / anchor) * base));
+  return aligned.map((value) =>
+    value == null ? null : (value / anchor) * base,
+  );
 }
 
 export const fibLevels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1, 1.618];
@@ -158,7 +159,8 @@ const paneLabels: Record<OscillatorKind, string> = {
   williams: "%R",
   cci: "CCI",
 };
-export const paneLabel = (pane: CustomPane) => `${paneLabels[pane.kind]} ${pane.period}`;
+export const paneLabel = (pane: CustomPane) =>
+  `${paneLabels[pane.kind]} ${pane.period}`;
 export const paneKey = (index: number) => `osc${index}`;
 
 /** Reference levels and fixed domains that make each oscillator readable. */

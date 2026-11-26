@@ -1,9 +1,9 @@
 import "server-only";
 import { readWorkspace, saveWorkspace } from "./db";
 import type { Workspace } from "./models";
-import { listChannels, markChannel } from "./notify/store";
-import { deliver, type Message } from "./notify/send";
 import { reason } from "./notify/channel-api";
+import { deliver, type Message } from "./notify/send";
+import { listChannels, markChannel } from "./notify/store";
 
 /** Re-reads and re-applies `update` until the workspace saves without a revision conflict. */
 export async function persist(

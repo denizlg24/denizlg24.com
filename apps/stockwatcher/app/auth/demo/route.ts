@@ -1,6 +1,6 @@
-import { dashboardReturn } from "@/lib/assistant-types";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
+import { dashboardReturn } from "@/lib/assistant-types";
 import {
   appOrigin,
   cookieOptions,

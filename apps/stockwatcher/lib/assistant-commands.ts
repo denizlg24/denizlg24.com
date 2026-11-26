@@ -1,10 +1,10 @@
 import "server-only";
-import { members, search } from "./market";
 import {
-  supportedStartDate,
   type AssistantResult,
   type DashboardState,
+  supportedStartDate,
 } from "./assistant-types";
+import { members, search } from "./market";
 import { benchmarks, symbolPattern, universes } from "./universes";
 
 const monthNames = [

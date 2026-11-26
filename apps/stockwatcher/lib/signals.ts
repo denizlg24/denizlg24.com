@@ -66,7 +66,10 @@ export function interpret(
   result: unknown,
 ): { ok: true; reading: SignalReading } | { ok: false; error: string } {
   if (typeof result === "boolean")
-    return { ok: true, reading: { trigger: result, value: null, message: null } };
+    return {
+      ok: true,
+      reading: { trigger: result, value: null, message: null },
+    };
   if (typeof result === "object" && result !== null && "trigger" in result) {
     const { trigger } = result;
     if (typeof trigger !== "boolean")
@@ -85,7 +88,8 @@ export function interpret(
   }
   return {
     ok: false,
-    error: "Return true/false or { trigger: boolean, value?: number, message?: string }.",
+    error:
+      "Return true/false or { trigger: boolean, value?: number, message?: string }.",
   };
 }
 
@@ -125,7 +129,11 @@ export const withRuntime = (
  * Records one run on a signal carrying its runtime state: bookkeeping,
  * priming, repeat mode and error disabling.
  */
-export function applyRun(signal: Signal, run: SignalRun, now = new Date()): SignalStep {
+export function applyRun(
+  signal: Signal,
+  run: SignalRun,
+  now = new Date(),
+): SignalStep {
   const before = [signal.enabled, signal.primed, signal.triggerCount];
   const step = record(signal, run, now);
   const owned =

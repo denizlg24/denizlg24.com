@@ -1,7 +1,5 @@
 "use client";
 
-import { useState } from "react";
-import useSWR from "swr";
 import {
   Check,
   Copy,
@@ -11,7 +9,8 @@ import {
   Presentation,
   Trash2,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useState } from "react";
+import useSWR from "swr";
 import {
   api,
   Empty,
@@ -19,10 +18,11 @@ import {
   Loading,
   PanelHeading,
 } from "@/components/shared";
+import { Button } from "@/components/ui/button";
 import {
   previewPath,
-  sharePath,
   type ReportSummary,
+  sharePath,
 } from "@/lib/reports/types";
 import { copyText, removeReport, reportsKey, setShared } from "./actions";
 

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { BrandGlyph } from "@/components/brand-glyph";
 import { ThemeSync } from "@/components/admin/theme-sync";
+import { BrandGlyph } from "@/components/brand-glyph";
 import { requireAdmin } from "@/lib/admin";
 import { readWorkspace } from "@/lib/db";
 

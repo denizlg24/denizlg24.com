@@ -9,7 +9,7 @@ type Block = { columns: string[]; data: (string | number | null)[][] };
 const number = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) ? value : null;
 const localTime = (value: string) =>
-  Date.parse(value.replace(" ", "T") + "+03:00") / 1000;
+  Date.parse(`${value.replace(" ", "T")}+03:00`) / 1000;
 const rows = (block: Block | undefined) =>
   (block?.data ?? []).map((row) =>
     Object.fromEntries(block!.columns.map((name, index) => [name, row[index]])),
@@ -138,7 +138,7 @@ export async function moexSeries(
   const quote = moexQuotes([symbol])
     .then((items) => items[0] ?? null)
     .catch(() => null);
-  for (let offset = 0; offset < 3000;) {
+  for (let offset = 0; offset < 3000; ) {
     const result = await iss(path, {
       from: start,
       interval,
@@ -153,7 +153,7 @@ export async function moexSeries(
       const time =
         typeof row.begin === "string"
           ? interval === "24" || interval === "7"
-            ? Date.parse(row.begin.slice(0, 10) + "T12:00:00Z") / 1000
+            ? Date.parse(`${row.begin.slice(0, 10)}T12:00:00Z`) / 1000
             : localTime(row.begin)
           : NaN;
       if (

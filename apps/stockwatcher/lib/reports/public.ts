@@ -1,7 +1,7 @@
 import "server-only";
-import { cache } from "react";
 import type { Metadata } from "next";
 import { connection } from "next/server";
+import { cache } from "react";
 import { getByShareToken } from "./store";
 import type { ReportRecord } from "./types";
 

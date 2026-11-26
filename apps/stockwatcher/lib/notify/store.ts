@@ -1,7 +1,7 @@
 import "server-only";
 import { store } from "../db";
-import { sealer } from "../seal";
 import type { ChannelKind } from "../models";
+import { sealer } from "../seal";
 import type { ChannelConfig } from "./config";
 import type { Channel } from "./types";
 

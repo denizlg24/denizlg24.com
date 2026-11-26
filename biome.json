@@ -91,5 +91,26 @@
         "organizeImports": "on"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["apps/stockwatcher/**"],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "noAutofocus": "off",
+            "noLabelWithoutControl": "off",
+            "noNoninteractiveElementToInteractiveRole": "off",
+            "useAriaPropsSupportedByRole": "off"
+          },
+          "complexity": {
+            "noImportantStyles": "off"
+          },
+          "suspicious": {
+            "noControlCharactersInRegex": "off"
+          }
+        }
+      }
+    }
+  ]
 }

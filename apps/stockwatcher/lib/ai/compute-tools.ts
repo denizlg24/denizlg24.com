@@ -1,21 +1,21 @@
 import "server-only";
 import { tool } from "ai";
 import { z } from "zod";
-import { attempt, isoTime, ticker } from "./shared";
-import { extraShape, loadExtra } from "./compute-extra";
-import { runSandbox, sandboxLimits } from "./sandbox";
-import { marketSource } from "./data";
 import type { Bar } from "@/lib/indicators";
 import {
+  type HistoryInterval,
   history,
   historyIntervals,
   members,
   quotes,
   series,
-  type HistoryInterval,
 } from "@/lib/market";
 import type { ChartPoint, Quote } from "@/lib/models";
-import { rangeKeys, universeKeys, type Range } from "@/lib/universes";
+import { type Range, rangeKeys, universeKeys } from "@/lib/universes";
+import { extraShape, loadExtra } from "./compute-extra";
+import { marketSource } from "./data";
+import { runSandbox, sandboxLimits } from "./sandbox";
+import { attempt, isoTime, ticker } from "./shared";
 
 const MAX_SYMBOLS = 600;
 const MAX_BARS = 200_000;

@@ -1,10 +1,5 @@
 "use client";
 
-import { tidyPrice } from "@/lib/alerts";
-
-import { useEffect, useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
-import useSWR from "swr";
 import {
   ArrowDown,
   ArrowRight,
@@ -15,6 +10,9 @@ import {
   RefreshCw,
   Star,
 } from "lucide-react";
+import dynamic from "next/dynamic";
+import { useEffect, useMemo, useRef, useState } from "react";
+import useSWR from "swr";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -32,28 +30,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  api,
-  Change,
-  Empty,
-  Failure,
-  Loading,
-  PanelHeading,
-  signed,
-  SortHead,
-  SourceLink,
-  SymbolLink,
-  useSort,
-  Tick,
-} from "./shared";
-import {
-  benchmarks,
-  ranges,
-  universes,
-  type Range,
-  type Universe,
-} from "@/lib/universes";
+import { tidyPrice } from "@/lib/alerts";
+import { downloadCsv, downloadPng, downloadSvg } from "@/lib/export";
+import type { StudyKey } from "@/lib/indicators";
 import type {
+  AlertRule,
   ChartPreferences,
   ChartStyle,
   Instrument,
@@ -61,43 +42,61 @@ import type {
   News,
   Quote,
   Workspace,
-  AlertRule,
 } from "@/lib/models";
-import { amount, compact, marketTime, percent, tone } from "@/lib/utils";
-import { useLiveTick, useLiveTicks, type LiveTick } from "./live-quotes";
-import { Freshness } from "./freshness";
 import {
-  samePreferences,
-  StudyChips,
-  StudyPicker,
-  StylePicker,
-} from "./chart-controls";
-import { FunctionBar, type SecurityFunction } from "./security/functions";
-import {
-  AppearanceMenu,
-  AverageEditor,
-  CompareControl,
-  DrawingTools,
-  ExportMenu,
-  FullscreenToggle,
-  PaneEditor,
-  ScalePicker,
-  TemplateMenu,
-  compareColors,
-  toolShortcuts,
-} from "./chart/studio-controls";
-import type { Tool } from "./chart/drawing-layer";
-import { downloadCsv, downloadPng, downloadSvg } from "@/lib/export";
-import {
-  defaultAppearance,
   type ChartAppearance,
   type ChartScale,
   type ChartTemplate,
   type CustomAverage,
   type CustomPane,
   type Drawing,
+  defaultAppearance,
 } from "@/lib/models";
-import type { StudyKey } from "@/lib/indicators";
+import {
+  benchmarks,
+  type Range,
+  ranges,
+  type Universe,
+  universes,
+} from "@/lib/universes";
+import { amount, compact, marketTime, percent, tone } from "@/lib/utils";
+import type { Tool } from "./chart/drawing-layer";
+import {
+  AppearanceMenu,
+  AverageEditor,
+  CompareControl,
+  compareColors,
+  DrawingTools,
+  ExportMenu,
+  FullscreenToggle,
+  PaneEditor,
+  ScalePicker,
+  TemplateMenu,
+  toolShortcuts,
+} from "./chart/studio-controls";
+import {
+  StudyChips,
+  StudyPicker,
+  StylePicker,
+  samePreferences,
+} from "./chart-controls";
+import { Freshness } from "./freshness";
+import { type LiveTick, useLiveTick, useLiveTicks } from "./live-quotes";
+import { FunctionBar, type SecurityFunction } from "./security/functions";
+import {
+  api,
+  Change,
+  Empty,
+  Failure,
+  Loading,
+  PanelHeading,
+  SortHead,
+  SourceLink,
+  SymbolLink,
+  signed,
+  Tick,
+  useSort,
+} from "./shared";
 
 const PriceChart = dynamic(() => import("./price-chart"), {
   ssr: false,
@@ -245,8 +244,15 @@ export function ChartPanel({
   clearSince?: () => void;
   drawings?: Drawing[];
   saveDrawings?: (symbol: string, next: Drawing[]) => Promise<void>;
-  alerts?: Pick<AlertRule, "symbol" | "metric" | "target" | "direction" | "enabled">[];
-  createAlert?: (symbol: string, target: number, direction: "above" | "below") => void;
+  alerts?: Pick<
+    AlertRule,
+    "symbol" | "metric" | "target" | "direction" | "enabled"
+  >[];
+  createAlert?: (
+    symbol: string,
+    target: number,
+    direction: "above" | "below",
+  ) => void;
   templates?: ChartTemplate[];
   saveTemplates?: (next: ChartTemplate[]) => void;
 }) {
@@ -363,7 +369,10 @@ export function ChartPanel({
   const turnover =
     snapshot?.volume != null ? snapshot.volume * snapshot.price : null;
   return (
-    <section className="panel chart-panel" data-fullscreen={fullscreen || undefined}>
+    <section
+      className="panel chart-panel"
+      data-fullscreen={fullscreen || undefined}
+    >
       <div className="chart-heading">
         <div className="ticker-identity">
           <div>
@@ -607,13 +616,20 @@ export function ChartPanel({
             events={data.events}
             alertLevels={alerts.filter(
               (alert) =>
-                alert.symbol === ticker && alert.enabled && alert.metric === "price",
+                alert.symbol === ticker &&
+                alert.enabled &&
+                alert.metric === "price",
             )}
             onAlert={
               createAlert
                 ? (price) => {
-                    const last = snapshot?.price ?? data.points.at(-1)?.close ?? price;
-                    createAlert(ticker, tidyPrice(price), price >= last ? "above" : "below");
+                    const last =
+                      snapshot?.price ?? data.points.at(-1)?.close ?? price;
+                    createAlert(
+                      ticker,
+                      tidyPrice(price),
+                      price >= last ? "above" : "below",
+                    );
                     setTool("cursor");
                   }
                 : undefined

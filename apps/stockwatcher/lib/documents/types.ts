@@ -1,7 +1,14 @@
 import { z } from "zod";
 import { symbolPattern } from "@/lib/universes";
 
-export const documentKinds = ["pdf", "text", "markdown", "csv", "html", "docx"] as const;
+export const documentKinds = [
+  "pdf",
+  "text",
+  "markdown",
+  "csv",
+  "html",
+  "docx",
+] as const;
 export type DocumentKind = (typeof documentKinds)[number];
 
 export const documentLimits = {

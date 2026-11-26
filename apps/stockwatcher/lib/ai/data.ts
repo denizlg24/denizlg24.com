@@ -1,11 +1,11 @@
 import "server-only";
-import { describeRule } from "../alerts";
-import { quotes, search, series } from "@/lib/market";
 import { fxRates } from "@/lib/fx";
 import { baseValuation } from "@/lib/fx-rates";
-import { positionsFor, valuePosition, type Position } from "@/lib/portfolio";
+import { quotes, search, series } from "@/lib/market";
 import type { News, Quote, Workspace } from "@/lib/models";
+import { type Position, positionsFor, valuePosition } from "@/lib/portfolio";
 import type { Range } from "@/lib/universes";
+import { describeRule } from "../alerts";
 
 export const marketSource = (symbols: string[]) =>
   symbols.length && symbols.every((symbol) => symbol.endsWith(".ME"))
@@ -215,7 +215,10 @@ export async function portfolioSnapshot(workspace: Workspace, bookId?: string) {
     positions: positions
       .map((position) => ({
         ...position,
-        weightInBasePercent: baseWeight(position.currency, position.marketValue),
+        weightInBasePercent: baseWeight(
+          position.currency,
+          position.marketValue,
+        ),
       }))
       .slice(0, 60),
     omittedPositions: Math.max(0, positions.length - 60),

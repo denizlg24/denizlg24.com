@@ -1,17 +1,17 @@
 import "server-only";
 import { cookies } from "next/headers";
-import { cache } from "react";
 import { NextResponse } from "next/server";
 import * as oidc from "openid-client";
-import { sessionIdentity, type Identity } from "./db";
+import { cache } from "react";
+import { type Identity, sessionIdentity } from "./db";
 
 export const issuer = () =>
   process.env.DENIZ_OIDC_ISSUER ?? "https://api.denizlg24.com/api/auth";
 export const authReady = () =>
   Boolean(
     process.env.DENIZ_OIDC_CLIENT_ID &&
-    process.env.DENIZ_OIDC_CLIENT_SECRET &&
-    process.env.APP_URL,
+      process.env.DENIZ_OIDC_CLIENT_SECRET &&
+      process.env.APP_URL,
   );
 export const demoEnabled = () =>
   process.env.DEMO_MODE === "1" ||

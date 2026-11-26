@@ -1,14 +1,13 @@
 {
-  "name": "stock-watcher",
+  "name": "stockwatcher",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3013",
     "build": "next build",
-    "start": "next start",
-    "lint": "eslint",
-    "typecheck": "tsc --noEmit",
-    "test": "playwright test"
+    "start": "next start -p 3013",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@ai-sdk/react": "4.0.181",
@@ -45,13 +44,7 @@
     "@types/papaparse": "^5.5.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.4.6",
-    "prettier": "^3.10.1",
     "tailwindcss": "4.3.3",
     "typescript": "^5"
-  },
-  "engines": {
-    "node": ">=24"
   }
 }

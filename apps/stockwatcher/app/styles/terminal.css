@@ -2,7 +2,6 @@
    monitors, multi-pane charts. Theme-agnostic; the terminal theme only
    swaps tokens. */
 
-
 /* Command line */
 .command-line {
   position: relative;
@@ -613,14 +612,22 @@
   background: var(--heat-gain-strong);
 }
 .trend-bar [data-kind="buy"] {
-  background: color-mix(in oklab, var(--heat-gain-strong) 65%, var(--heat-flat));
+  background: color-mix(
+    in oklab,
+    var(--heat-gain-strong) 65%,
+    var(--heat-flat)
+  );
 }
 .trend-bar [data-kind="hold"] {
   background: var(--strong-border);
   color: var(--foreground);
 }
 .trend-bar [data-kind="sell"] {
-  background: color-mix(in oklab, var(--heat-loss-strong) 65%, var(--heat-flat));
+  background: color-mix(
+    in oklab,
+    var(--heat-loss-strong) 65%,
+    var(--heat-flat)
+  );
 }
 .trend-bar [data-kind="strongSell"] {
   background: var(--heat-loss-strong);
@@ -976,7 +983,11 @@
   border-radius: 3px;
   background: var(--card);
   color: var(--foreground);
-  font: 600 var(--fs-sm) / 1 ui-monospace, "SF Mono", Menlo, monospace;
+  font:
+    600 var(--fs-sm) / 1 ui-monospace,
+    "SF Mono",
+    Menlo,
+    monospace;
 }
 .overlay-save input {
   font-family: var(--font-sans);

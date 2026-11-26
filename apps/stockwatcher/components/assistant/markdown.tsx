@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, type ComponentProps } from "react";
+import { type ComponentProps, memo } from "react";
 import { Streamdown } from "streamdown";
 
 function Link({ href, title, children }: ComponentProps<"a">) {

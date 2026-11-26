@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -9,6 +8,7 @@ import {
   Trash2,
 } from "lucide-react";
 import Papa from "papaparse";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -20,25 +20,25 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { amount, number, percent, today, tone } from "@/lib/utils";
-import { workspaceSchema, type Trade, type Workspace } from "@/lib/models";
-import { positionsFor, valuePosition, type Position } from "@/lib/portfolio";
 import { baseValuation, fxSymbols, resolveFxRates } from "@/lib/fx-rates";
+import { type Trade, type Workspace, workspaceSchema } from "@/lib/models";
+import { type Position, positionsFor, valuePosition } from "@/lib/portfolio";
+import { amount, number, percent, today, tone } from "@/lib/utils";
+import { BrokerBookNote, BrokerConnect } from "./broker-link";
+import { Field, FormDialog, RemoveDialog, type Save, value } from "./forms";
+import { useQuotes } from "./market-widgets";
 import {
   Empty,
   Failure,
   PanelHeading,
   quoteTime,
   SectionFoot,
-  signed,
   SortHead,
   SymbolLink,
-  useSort,
+  signed,
   Tick,
+  useSort,
 } from "./shared";
-import { useQuotes } from "./market-widgets";
-import { Field, FormDialog, RemoveDialog, value, type Save } from "./forms";
-import { BrokerBookNote, BrokerConnect } from "./broker-link";
 
 const tradeSchema = workspaceSchema.shape.trades.element;
 const columns = [
@@ -206,38 +206,44 @@ export function Portfolio({
   const baseCurrency = workspace.settings.baseCurrency;
   const fxNeeded = totals.length > 1 || totals[0]?.currency !== baseCurrency;
   const { data: fxData } = useQuotes(
-    fxNeeded ? fxSymbols(totals.map((item) => item.currency), baseCurrency) : [],
-    refresh,
-  );
-  const nav = fxNeeded && fxData
-    ? (() => {
-        const rates = resolveFxRates(
-          fxData.quotes,
+    fxNeeded
+      ? fxSymbols(
           totals.map((item) => item.currency),
           baseCurrency,
-        );
-        const valuation = baseValuation(
-          totals.map((item) => ({
-            currency: item.currency,
-            positions: item.count,
-            unpriced: item.missing,
-            marketValue: item.value,
-            cost: item.value - item.unrealized,
-            unrealized: item.unrealized,
-            dayChange: item.day,
-          })),
-          rates,
-          baseCurrency,
-        );
-        const stamps = [...rates.values()]
-          .map((fx) => fx.time)
-          .filter((time) => time > 0);
-        return {
-          ...valuation.block,
-          asOf: stamps.length ? Math.min(...stamps) : null,
-        };
-      })()
-    : null;
+        )
+      : [],
+    refresh,
+  );
+  const nav =
+    fxNeeded && fxData
+      ? (() => {
+          const rates = resolveFxRates(
+            fxData.quotes,
+            totals.map((item) => item.currency),
+            baseCurrency,
+          );
+          const valuation = baseValuation(
+            totals.map((item) => ({
+              currency: item.currency,
+              positions: item.count,
+              unpriced: item.missing,
+              marketValue: item.value,
+              cost: item.value - item.unrealized,
+              unrealized: item.unrealized,
+              dayChange: item.day,
+            })),
+            rates,
+            baseCurrency,
+          );
+          const stamps = [...rates.values()]
+            .map((fx) => fx.time)
+            .filter((time) => time > 0);
+          return {
+            ...valuation.block,
+            asOf: stamps.length ? Math.min(...stamps) : null,
+          };
+        })()
+      : null;
   const rows: PositionRow[] = open.map((item) => {
     const quote = quoteBySymbol.get(item.symbol);
     const valued = valuePosition(item, quote);

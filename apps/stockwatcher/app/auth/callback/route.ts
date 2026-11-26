@@ -1,6 +1,6 @@
-import { dashboardReturn } from "@/lib/assistant-types";
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import * as oidc from "openid-client";
+import { dashboardReturn } from "@/lib/assistant-types";
 import {
   accountAllowed,
   appOrigin,

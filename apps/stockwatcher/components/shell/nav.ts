@@ -1,17 +1,17 @@
 import {
   Activity,
-  ChartCandlestick,
-  MonitorDot,
-  ChartSpline,
   Bell,
   Brain,
+  ChartCandlestick,
+  ChartSpline,
   FileText,
   LayoutGrid,
+  type LucideIcon,
+  MonitorDot,
   Newspaper,
   Settings2,
   Star,
   Wallet,
-  type LucideIcon,
 } from "lucide-react";
 import type { Workspace } from "@/lib/models";
 

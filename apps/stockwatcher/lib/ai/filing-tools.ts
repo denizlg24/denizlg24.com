@@ -1,14 +1,14 @@
 import "server-only";
 import { tool } from "ai";
 import { z } from "zod";
-import { attempt, ticker } from "./shared";
 import { readFiling } from "@/lib/filing-reader";
 import {
+  type ComparisonKey,
   comparisonOffsets,
   curveTenors,
   yieldCurve,
-  type ComparisonKey,
 } from "@/lib/treasury";
+import { attempt, ticker } from "./shared";
 
 const comparisonKeys = Object.keys(comparisonOffsets) as ComparisonKey[];
 

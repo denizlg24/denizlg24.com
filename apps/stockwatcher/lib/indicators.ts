@@ -562,7 +562,11 @@ export function vwap(bars: Bar[]): Series {
 }
 
 function midpoint(bars: Bar[], period: number): Series {
-  return rolling(bars, period, (window) => (highest(window) + lowest(window)) / 2);
+  return rolling(
+    bars,
+    period,
+    (window) => (highest(window) + lowest(window)) / 2,
+  );
 }
 
 export function ichimoku(bars: Bar[]) {
@@ -615,10 +619,14 @@ export function computeStudies(bars: Bar[], keys: StudyKey[]): StudyRow[] {
         const mid = sma(closes, 20);
         const deviation = stdev(closes, 20, mid);
         const upper = mid.map((value, i) =>
-          value == null || deviation[i] == null ? null : value + 2 * deviation[i],
+          value == null || deviation[i] == null
+            ? null
+            : value + 2 * deviation[i],
         );
         const lower = mid.map((value, i) =>
-          value == null || deviation[i] == null ? null : value - 2 * deviation[i],
+          value == null || deviation[i] == null
+            ? null
+            : value - 2 * deviation[i],
         );
         set("bbMid", mid);
         set("bbUpper", upper);
@@ -676,7 +684,13 @@ export function computeStudies(bars: Bar[], keys: StudyKey[]): StudyRow[] {
         set("psar", psar(bars));
         break;
       case "volume":
-        set("volumeAvg", sma(bars.map((bar) => bar.volume), 20));
+        set(
+          "volumeAvg",
+          sma(
+            bars.map((bar) => bar.volume),
+            20,
+          ),
+        );
         break;
       case "rsi":
         set("rsi", rsi(closes));

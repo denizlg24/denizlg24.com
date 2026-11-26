@@ -36,7 +36,11 @@ function standalone(svg: SVGSVGElement) {
   copy.setAttribute("height", String(Math.round(box.height)));
   const background = getComputedStyle(document.body).backgroundColor;
   copy.style.setProperty("background", background);
-  return { markup: new XMLSerializer().serializeToString(copy), box, background };
+  return {
+    markup: new XMLSerializer().serializeToString(copy),
+    box,
+    background,
+  };
 }
 
 function save(blob: Blob, filename: string) {
@@ -101,10 +105,7 @@ const cell = (value: unknown) => {
   return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 };
 
-export function downloadCsv(
-  rows: Record<string, unknown>[],
-  filename: string,
-) {
+export function downloadCsv(rows: Record<string, unknown>[], filename: string) {
   if (!rows.length) return;
   const columns = Object.keys(rows[0]);
   const body = [

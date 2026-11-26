@@ -1,7 +1,7 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
-import { channelInputSchema, describeTarget, defaultLabels } from "./config";
 import type { ChannelConfig } from "./config";
+import { channelInputSchema, defaultLabels, describeTarget } from "./config";
 import { deliver, type Message } from "./send";
 
 export const appUrl = (hash = "") =>
@@ -31,7 +31,8 @@ export function parseChannel(input: unknown) {
   const parsed = channelInputSchema.safeParse(input);
   if (!parsed.success)
     return {
-      error: parsed.error.issues[0]?.message ?? "Check the details and try again.",
+      error:
+        parsed.error.issues[0]?.message ?? "Check the details and try again.",
     } as const;
   const config: ChannelConfig =
     parsed.data.kind === "webhook"

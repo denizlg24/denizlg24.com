@@ -255,7 +255,8 @@ export function parseFlexStatement(xml: string): BrokerStatement {
       flexDate(head.whenGenerated) ??
       new Date().toISOString().slice(0, 10);
     const section = statement.OpenPositions as
-      { OpenPosition?: Attributes[] } | undefined;
+      | { OpenPosition?: Attributes[] }
+      | undefined;
     const rows = section?.OpenPosition ?? [];
     const lotKeys = new Set(
       rows
@@ -314,7 +315,8 @@ export function parseFlexStatement(xml: string): BrokerStatement {
       });
     }
     const cashSection = statement.CashReport as
-      { CashReportCurrency?: Attributes[] } | undefined;
+      | { CashReportCurrency?: Attributes[] }
+      | undefined;
     const cash = (cashSection?.CashReportCurrency ?? [])
       .filter((row) => row.currency && row.currency !== "BASE_SUMMARY")
       .map((row) => ({

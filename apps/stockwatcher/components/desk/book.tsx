@@ -1,18 +1,18 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
-import { Change, Failure, Tick } from "@/components/shared";
+import { ListFreshness } from "@/components/freshness";
 import { useQuotes } from "@/components/market-widgets";
+import { Change, Failure, Tick } from "@/components/shared";
+import { Button } from "@/components/ui/button";
 import type { Quote } from "@/lib/models";
 import { amount, compact, number, tone } from "@/lib/utils";
 import { firstWatchlist, useHoldings } from "./data";
-import { ListFreshness } from "@/components/freshness";
 import {
   DeskEmpty,
+  latestTime,
   SkeletonRows,
   SymbolButton,
   WidgetFrame,
-  latestTime,
   type WidgetProps,
 } from "./frame";
 

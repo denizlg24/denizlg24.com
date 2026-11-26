@@ -26,7 +26,11 @@ const dayOf = (stamp: string) =>
 /** Reads the single file inside a zip using the central directory, which stays correct when local headers carry no sizes. */
 export function unzipFirst(buffer: Buffer): string {
   let eocd = -1;
-  for (let i = buffer.length - 22; i >= Math.max(0, buffer.length - 65_557); i--)
+  for (
+    let i = buffer.length - 22;
+    i >= Math.max(0, buffer.length - 65_557);
+    i--
+  )
     if (buffer.readUInt32LE(i) === 0x06054b50) {
       eocd = i;
       break;
@@ -41,10 +45,14 @@ export function unzipFirst(buffer: Buffer): string {
   if (buffer.readUInt32LE(local) !== 0x04034b50)
     throw new Error("The factor archive is malformed.");
   const start =
-    local + 30 + buffer.readUInt16LE(local + 26) + buffer.readUInt16LE(local + 28);
+    local +
+    30 +
+    buffer.readUInt16LE(local + 26) +
+    buffer.readUInt16LE(local + 28);
   const data = buffer.subarray(start, start + compressed);
   if (method === 0) return data.toString("utf8");
-  if (method !== 8) throw new Error("The factor archive uses an unsupported compression.");
+  if (method !== 8)
+    throw new Error("The factor archive uses an unsupported compression.");
   return inflateRawSync(data).toString("utf8");
 }
 
@@ -54,7 +62,8 @@ function parseCsv(text: string) {
     const cells = line.split(",").map((cell) => cell.trim());
     if (!/^\d{8}$/.test(cells[0])) continue;
     const values = cells.slice(1).map(Number);
-    if (values.some((value) => !Number.isFinite(value) || value <= -99)) continue;
+    if (values.some((value) => !Number.isFinite(value) || value <= -99))
+      continue;
     out.set(dayOf(cells[0]), values);
   }
   return out;
@@ -67,7 +76,9 @@ async function download(file: string) {
     signal: AbortSignal.timeout(20_000),
   });
   if (!response.ok)
-    throw new Error(`Ken French data library returned HTTP ${response.status}.`);
+    throw new Error(
+      `Ken French data library returned HTTP ${response.status}.`,
+    );
   return unzipFirst(Buffer.from(await response.arrayBuffer()));
 }
 

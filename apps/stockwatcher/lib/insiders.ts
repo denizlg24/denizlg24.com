@@ -50,7 +50,11 @@ const isNode = (value: Node | Node[] | string | undefined): value is Node =>
   typeof value === "object" && !Array.isArray(value);
 
 /** Every text value stored under a tag name, wherever it sits in the document. */
-function collect(node: Node | Node[] | string | undefined, tag: string, out: string[] = []) {
+function collect(
+  node: Node | Node[] | string | undefined,
+  tag: string,
+  out: string[] = [],
+) {
   if (node == null || typeof node === "string") return out;
   if (Array.isArray(node)) {
     for (const item of node) collect(item, tag, out);
@@ -238,7 +242,8 @@ const form4Cache = new Map<string, ParsedForm4 | null>();
 function roleOf(owner: Node | undefined) {
   const relation = owner?.reportingOwnerRelationship;
   if (!isNode(relation)) return "Insider";
-  const flag = (key: string) => text(relation, key) === "1" || text(relation, key) === "true";
+  const flag = (key: string) =>
+    text(relation, key) === "1" || text(relation, key) === "true";
   const title = text(relation, "officerTitle");
   const parts = [
     flag("isOfficer") ? (title ? decode(title) : "Officer") : null,
@@ -255,20 +260,30 @@ function parseForm4(xml: string): ParsedForm4 | null {
   const issuer = isNode(root.issuer) ? root.issuer : undefined;
   const owners = Array.isArray(root.reportingOwner) ? root.reportingOwner : [];
   const first = owners[0];
-  const id = isNode(first?.reportingOwnerId) ? first.reportingOwnerId : undefined;
-  const table = isNode(root.nonDerivativeTable) ? root.nonDerivativeTable : undefined;
+  const id = isNode(first?.reportingOwnerId)
+    ? first.reportingOwnerId
+    : undefined;
+  const table = isNode(root.nonDerivativeTable)
+    ? root.nonDerivativeTable
+    : undefined;
   const rows = Array.isArray(table?.nonDerivativeTransaction)
     ? table.nonDerivativeTransaction
     : [];
   const purchases = rows.flatMap((row): Purchase[] => {
-    const coding = isNode(row.transactionCoding) ? row.transactionCoding : undefined;
+    const coding = isNode(row.transactionCoding)
+      ? row.transactionCoding
+      : undefined;
     if (text(coding, "transactionCode") !== "P") return [];
-    const amounts = isNode(row.transactionAmounts) ? row.transactionAmounts : undefined;
+    const amounts = isNode(row.transactionAmounts)
+      ? row.transactionAmounts
+      : undefined;
     const shares = toNumber(text(amounts, "transactionShares"));
     const date = text(row, "transactionDate");
     if (!shares || shares <= 0 || !date) return [];
     const price = toNumber(text(amounts, "transactionPricePerShare"));
-    const ownership = isNode(row.ownershipNature) ? row.ownershipNature : undefined;
+    const ownership = isNode(row.ownershipNature)
+      ? row.ownershipNature
+      : undefined;
     return [
       {
         date,
@@ -295,7 +310,8 @@ function parseForm4(xml: string): ParsedForm4 | null {
 }
 
 async function fetchForm4(hit: Hit) {
-  if (form4Cache.has(hit.accession)) return form4Cache.get(hit.accession) ?? null;
+  if (form4Cache.has(hit.accession))
+    return form4Cache.get(hit.accession) ?? null;
   const cik = hit.ciks.at(-1) ?? hit.ciks[0];
   const xml = await edgar<string>(
     "www.sec.gov",
@@ -353,11 +369,15 @@ function bestCluster(rows: PurchaseRow[], keys: string[], windowDays: number) {
   let bestScore: [number, number] = [0, 0];
   for (let i = 0; i < ordered.length; i++) {
     const window = ordered.filter(
-      (item) => item.day >= ordered[i].day && item.day <= ordered[i].day + windowDays,
+      (item) =>
+        item.day >= ordered[i].day && item.day <= ordered[i].day + windowDays,
     );
     const insiders = new Set(window.map((item) => item.key)).size;
     const value = window.reduce((sum, item) => sum + item.row.value, 0);
-    if (insiders > bestScore[0] || (insiders === bestScore[0] && value > bestScore[1])) {
+    if (
+      insiders > bestScore[0] ||
+      (insiders === bestScore[0] && value > bestScore[1])
+    ) {
       best = window;
       bestScore = [insiders, value];
     }
@@ -392,7 +412,9 @@ export async function insiderBuying(options: {
   const deadline = { at: Date.now() + (options.budgetMs ?? DEFAULT_BUDGET_MS) };
   const from = dateDaysAgo(options.days);
   const to = dateDaysAgo(0);
-  const universe = options.symbols ? await resolveUniverse(options.symbols) : null;
+  const universe = options.symbols
+    ? await resolveUniverse(options.symbols)
+    : null;
   if (universe && !universe.ciks.size)
     throw new Error(
       "None of those symbols map to SEC registrants (US-listed issuers only).",
@@ -434,7 +456,9 @@ export async function insiderBuying(options: {
   const keys: string[] = [];
   const byIssuer = new Map<string, PurchaseRow[]>();
   const all: PurchaseRow[] = [];
-  const universeCiks = universe ? new Set([...universe.ciks.keys()].map(cikKey)) : null;
+  const universeCiks = universe
+    ? new Set([...universe.ciks.keys()].map(cikKey))
+    : null;
   for (const item of parsed) {
     if (!item) continue;
     const { hit, result } = item;
@@ -472,7 +496,10 @@ export async function insiderBuying(options: {
     );
     const insiderKeys = new Set(window.map((item) => item.key));
     if (insiderKeys.size < options.minInsiders) continue;
-    const buyers = new Map<string, BuyerSummary & { cost: number; priced: number }>();
+    const buyers = new Map<
+      string,
+      BuyerSummary & { cost: number; priced: number }
+    >();
     for (const { row, key } of window) {
       const entry = buyers.get(key) ?? {
         name: row.insider,
@@ -517,7 +544,9 @@ export async function insiderBuying(options: {
       url: window[0].row.url,
     });
   }
-  clusters.sort((a, b) => b.insiders - a.insiders || b.totalValue - a.totalValue);
+  clusters.sort(
+    (a, b) => b.insiders - a.insiders || b.totalValue - a.totalValue,
+  );
   return {
     from,
     to,
@@ -641,12 +670,16 @@ export async function activistStakes(options: {
   const deadline = { at: Date.now() + (options.budgetMs ?? DEFAULT_BUDGET_MS) };
   const from = dateDaysAgo(options.days);
   const to = dateDaysAgo(0);
-  const universe = options.symbols ? await resolveUniverse(options.symbols) : null;
+  const universe = options.symbols
+    ? await resolveUniverse(options.symbols)
+    : null;
   if (universe && !universe.ciks.size)
     throw new Error(
       "None of those symbols map to SEC registrants (US-listed issuers only).",
     );
-  const forms = [...FORMS_13D, ...(options.include13G ? FORMS_13G : [])].join(",");
+  const forms = [...FORMS_13D, ...(options.include13G ? FORMS_13G : [])].join(
+    ",",
+  );
   const found = await search(
     forms,
     null,
@@ -658,7 +691,9 @@ export async function activistStakes(options: {
   );
   const reasons: string[] = [];
   if (found.truncated)
-    reasons.push("The filing search was cut short, so older filings may be missing.");
+    reasons.push(
+      "The filing search was cut short, so older filings may be missing.",
+    );
   let parsedCount = 0;
   let failed = 0;
   const stakes = await mapLimit(found.hits, PARSE_CONCURRENCY, async (hit) => {
@@ -690,11 +725,14 @@ export async function activistStakes(options: {
       `Time budget reached: read ${parsedCount} of ${found.hits.length} filings in full; the rest list names only (no % of class).`,
     );
   if (failed > 0)
-    reasons.push(`${failed} filings could not be read from EDGAR and list names only.`);
+    reasons.push(
+      `${failed} filings could not be read from EDGAR and list names only.`,
+    );
   const keep = stakes
     .filter(
       (stake) =>
-        stake.percentOfClass == null || stake.percentOfClass >= options.minPercent,
+        stake.percentOfClass == null ||
+        stake.percentOfClass >= options.minPercent,
     )
     .sort(
       (a, b) =>

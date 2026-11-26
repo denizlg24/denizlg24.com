@@ -1,8 +1,8 @@
 import constituents from "@/data/sp500.json";
 import { currentUser, json } from "@/lib/auth";
-import { relay, RelayUnavailable } from "@/lib/relay-data";
-import { benchmarks, symbolPattern, universes } from "@/lib/universes";
+import { RelayUnavailable, relay } from "@/lib/relay-data";
 import type { Relationships } from "@/lib/security-types";
+import { benchmarks, symbolPattern, universes } from "@/lib/universes";
 
 const functions = [
   "des",

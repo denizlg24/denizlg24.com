@@ -1,8 +1,5 @@
 import "server-only";
-import { alertWorkspaces } from "./db";
 import { channelsFor, deliverTo, persist } from "./alert-delivery";
-import { monitorSignals } from "./signal-monitor";
-import { quotes } from "./market";
 import {
   conditionMet,
   describeRule,
@@ -10,9 +7,12 @@ import {
   formatTarget,
   reading,
 } from "./alerts";
+import { alertWorkspaces } from "./db";
+import { quotes } from "./market";
 import type { AlertEvent, AlertRule, Quote, Workspace } from "./models";
-import type { Message } from "./notify/send";
 import { appUrl } from "./notify/channel-api";
+import type { Message } from "./notify/send";
+import { monitorSignals } from "./signal-monitor";
 import { amount, percent } from "./utils";
 
 let running = false;
@@ -144,9 +144,7 @@ export async function monitorAlerts() {
       });
       if (saved && fired.length)
         sending.push(
-          notify(id, fired).catch(() =>
-            console.error("Alert delivery failed"),
-          ),
+          notify(id, fired).catch(() => console.error("Alert delivery failed")),
         );
     }
     await Promise.all(sending);

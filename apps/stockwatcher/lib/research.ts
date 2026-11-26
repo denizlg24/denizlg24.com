@@ -8,7 +8,11 @@ import type {
 } from "./research-types";
 import { secHeaders, takeSlot } from "./sec-data";
 
-export async function sec<T>(host: string, path: string, ttl = 3600): Promise<T> {
+export async function sec<T>(
+  host: string,
+  path: string,
+  ttl = 3600,
+): Promise<T> {
   await takeSlot();
   const response = await fetch(`https://${host}${path}`, {
     headers: secHeaders(),

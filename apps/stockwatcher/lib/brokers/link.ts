@@ -1,6 +1,6 @@
 import "server-only";
-import { sealer } from "../seal";
 import { store } from "../db";
+import { sealer } from "../seal";
 
 export type LinkStatus = "active" | "error" | "relink";
 

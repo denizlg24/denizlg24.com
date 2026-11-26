@@ -128,7 +128,8 @@ export type Slide = Deck["slides"][number];
 
 export type DocKind = "report" | "deck";
 export type StoredDoc =
-  { kind: "report"; doc: Report } | { kind: "deck"; doc: Deck };
+  | { kind: "report"; doc: Report }
+  | { kind: "deck"; doc: Deck };
 
 export type ReportSummary = {
   id: string;

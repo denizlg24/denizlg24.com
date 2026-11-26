@@ -1,55 +1,55 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import dynamic from "next/dynamic";
-import useSWR from "swr";
 import { X } from "lucide-react";
-import { api, Loading } from "./shared";
-import { ChartPanel, MarketMap } from "./market-widgets";
-import { AddSymbolDialog, ListEditor } from "./watchlists";
-import type { Save } from "./forms";
-import type { ResearchTab } from "./research";
-import {
-  AssistantPanel,
-  type AlertProposal,
-  type AssistantContext,
-  type AssistantHandle,
-} from "./assistant/assistant-panel";
-import { Desk } from "./desk/desk";
-import { useAlertAnnouncer } from "./alerts/browser-alerts";
-import { useChannels } from "./alerts/use-channels";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useRef, useState } from "react";
+import useSWR from "swr";
 import { describeRule } from "@/lib/alerts";
-import type { AlertDraft } from "./alerts/alert-editor";
-import { CommandHelp } from "./shell/command-line";
-import { useLiveStatus } from "./live-quotes";
-import type { ChartPreferences, ChartTemplate, Drawing } from "@/lib/models";
-import { encodeOverlay } from "@/lib/overlay";
 import {
-  functionKeys,
-  monitorFunctions,
-  parseCommand,
-  securityFunctions,
-  type Command,
-  type MonitorFunction,
-  type SecurityFunction,
-} from "@/lib/terminal";
-import { LegacyAssistant } from "./shell/legacy-assistant";
-import { SearchDialog } from "./shell/search-dialog";
-import { Settings, type Account } from "./shell/settings";
-import { Sidebar } from "./shell/sidebar";
-import { Topbar } from "./shell/topbar";
-import { PanelTabs } from "./shell/panel-tabs";
-import { useHash, useMediaQuery, useStoredFlag } from "./shell/hooks";
-import { homeView, viewFromHash, viewLabel, type View } from "./shell/nav";
-import type { WorkspaceRecord } from "@/lib/db";
-import type { Universe } from "@/lib/universes";
-import {
+  type AssistantResult,
+  type DashboardState,
   dashboardFromHash,
   dashboardFromResult,
   dashboardLink,
-  type AssistantResult,
-  type DashboardState,
 } from "@/lib/assistant-types";
+import type { WorkspaceRecord } from "@/lib/db";
+import type { ChartPreferences, ChartTemplate, Drawing } from "@/lib/models";
+import { encodeOverlay } from "@/lib/overlay";
+import {
+  type Command,
+  functionKeys,
+  type MonitorFunction,
+  monitorFunctions,
+  parseCommand,
+  type SecurityFunction,
+  securityFunctions,
+} from "@/lib/terminal";
+import type { Universe } from "@/lib/universes";
+import type { AlertDraft } from "./alerts/alert-editor";
+import { useAlertAnnouncer } from "./alerts/browser-alerts";
+import { useChannels } from "./alerts/use-channels";
+import {
+  type AlertProposal,
+  type AssistantContext,
+  type AssistantHandle,
+  AssistantPanel,
+} from "./assistant/assistant-panel";
+import { Desk } from "./desk/desk";
+import type { Save } from "./forms";
+import { useLiveStatus } from "./live-quotes";
+import { ChartPanel, MarketMap } from "./market-widgets";
+import type { ResearchTab } from "./research";
+import { api, Loading } from "./shared";
+import { CommandHelp } from "./shell/command-line";
+import { useHash, useMediaQuery, useStoredFlag } from "./shell/hooks";
+import { LegacyAssistant } from "./shell/legacy-assistant";
+import { homeView, type View, viewFromHash, viewLabel } from "./shell/nav";
+import { PanelTabs } from "./shell/panel-tabs";
+import { SearchDialog } from "./shell/search-dialog";
+import { type Account, Settings } from "./shell/settings";
+import { Sidebar } from "./shell/sidebar";
+import { Topbar } from "./shell/topbar";
+import { AddSymbolDialog, ListEditor } from "./watchlists";
 
 const ComparePanel = dynamic(() => import("./comparison"), {
   ssr: false,
@@ -478,13 +478,17 @@ export function Dashboard({
       : view === "security"
         ? { view: "security" as const, ticker, fn: securityFn(viewState?.fn) }
         : view === "overlay"
-          ? { view: "overlay" as const, spec: viewState?.spec, period: viewState?.period }
-        : view === "desk" ||
-          view === "memory" ||
-          view === "settings" ||
-          view === "reports"
-        ? undefined
-        : (viewState ?? { view, ticker });
+          ? {
+              view: "overlay" as const,
+              spec: viewState?.spec,
+              period: viewState?.period,
+            }
+          : view === "desk" ||
+              view === "memory" ||
+              view === "settings" ||
+              view === "reports"
+            ? undefined
+            : (viewState ?? { view, ticker });
   const context: AssistantContext = {
     view,
     dashboard: currentDashboard,
@@ -856,7 +860,9 @@ export function Dashboard({
           save={save}
           close={() => setAlertDraft(null)}
           saved={(rule) =>
-            notify(`Alert set: ${rule.symbol} ${describeRule(rule).toLowerCase()}.`)
+            notify(
+              `Alert set: ${rule.symbol} ${describeRule(rule).toLowerCase()}.`,
+            )
           }
           setupChannel={
             account.demo

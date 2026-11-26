@@ -73,14 +73,17 @@ const finite = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
 const positive = (value: unknown): value is number =>
   finite(value) && value > 0;
-const dateOf = (seconds: number) => new Date(seconds * 1000).toISOString().slice(0, 10);
+const dateOf = (seconds: number) =>
+  new Date(seconds * 1000).toISOString().slice(0, 10);
 
 function cdf(x: number) {
   const t = 1 / (1 + 0.2316419 * Math.abs(x));
   const poly =
     t *
     (0.31938153 +
-      t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+      t *
+        (-0.356563782 +
+          t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
   const tail = (Math.exp((-x * x) / 2) / Math.sqrt(2 * Math.PI)) * poly;
   return x >= 0 ? 1 - tail : tail;
 }
@@ -149,7 +152,8 @@ function contractFrom(
 ): Contract | null {
   if (!positive(raw.strike)) return null;
   const bid = positive(raw.bid) ? raw.bid : null;
-  const ask = positive(raw.ask) && (bid == null || raw.ask >= bid) ? raw.ask : null;
+  const ask =
+    positive(raw.ask) && (bid == null || raw.ask >= bid) ? raw.ask : null;
   const last = positive(raw.lastPrice) ? raw.lastPrice : null;
   const mid = bid != null && ask != null ? (bid + ask) / 2 : null;
   const reference = mid ?? last;
@@ -221,11 +225,13 @@ function maxPain(calls: Contract[], puts: Contract[]) {
   for (const candidate of strikes) {
     const pain =
       calls.reduce(
-        (sum, item) => sum + item.openInterest * Math.max(0, candidate - item.strike),
+        (sum, item) =>
+          sum + item.openInterest * Math.max(0, candidate - item.strike),
         0,
       ) +
       puts.reduce(
-        (sum, item) => sum + item.openInterest * Math.max(0, item.strike - candidate),
+        (sum, item) =>
+          sum + item.openInterest * Math.max(0, item.strike - candidate),
         0,
       );
     if (!best || pain < best.pain) best = { strike: candidate, pain };
@@ -250,15 +256,21 @@ function analyze(
     (expiration + SETTLEMENT_OFFSET - Date.now() / 1000) / YEAR_SECONDS,
     1 / 365 / 24,
   );
-  const calls = (set.calls ?? []).flatMap((raw) => contractFrom("call", raw, spot, T) ?? []);
-  const puts = (set.puts ?? []).flatMap((raw) => contractFrom("put", raw, spot, T) ?? []);
+  const calls = (set.calls ?? []).flatMap(
+    (raw) => contractFrom("call", raw, spot, T) ?? [],
+  );
+  const puts = (set.puts ?? []).flatMap(
+    (raw) => contractFrom("put", raw, spot, T) ?? [],
+  );
   if (!calls.length && !puts.length) return null;
 
   const smile: SmilePoint[] = [
     ...puts.filter((item) => item.strike < spot),
     ...calls.filter((item) => item.strike >= spot),
   ]
-    .flatMap((item) => (item.iv == null ? [] : [{ strike: item.strike, iv: item.iv }]))
+    .flatMap((item) =>
+      item.iv == null ? [] : [{ strike: item.strike, iv: item.iv }],
+    )
     .sort((a, b) => a.strike - b.strike);
   const otmPuts = puts.filter((item) => item.strike < spot);
   const otmCalls = calls.filter((item) => item.strike > spot);
@@ -266,12 +278,14 @@ function analyze(
   const put25 = ivAtDelta(otmPuts, -0.25);
   const call25 = ivAtDelta(otmCalls, 0.25);
 
-  const strikes = [...new Set([...calls, ...puts].map((item) => item.strike))].sort(
-    (a, b) => a - b,
-  );
+  const strikes = [
+    ...new Set([...calls, ...puts].map((item) => item.strike)),
+  ].sort((a, b) => a - b);
   const nearest = strikes.reduce<number | null>(
     (best, strike) =>
-      best == null || Math.abs(strike - spot) < Math.abs(best - spot) ? strike : best,
+      best == null || Math.abs(strike - spot) < Math.abs(best - spot)
+        ? strike
+        : best,
     null,
   );
   const callAt = calls.find((item) => item.strike === nearest);
@@ -289,12 +303,21 @@ function analyze(
     .sort((a, b) => a - b);
   const callVolume = calls.reduce((sum, item) => sum + item.volume, 0);
   const putVolume = puts.reduce((sum, item) => sum + item.volume, 0);
-  const callOpenInterest = calls.reduce((sum, item) => sum + item.openInterest, 0);
-  const putOpenInterest = puts.reduce((sum, item) => sum + item.openInterest, 0);
+  const callOpenInterest = calls.reduce(
+    (sum, item) => sum + item.openInterest,
+    0,
+  );
+  const putOpenInterest = puts.reduce(
+    (sum, item) => sum + item.openInterest,
+    0,
+  );
   return {
     T,
     expiry: dateOf(expiration),
-    daysToExpiry: Math.max(0, Math.round((expiration + SETTLEMENT_OFFSET - Date.now() / 1000) / 86400)),
+    daysToExpiry: Math.max(
+      0,
+      Math.round((expiration + SETTLEMENT_OFFSET - Date.now() / 1000) / 86400),
+    ),
     atmIv,
     put10Iv: interpolate(smile, spot * 0.9),
     call10Iv: interpolate(smile, spot * 1.1),
@@ -360,10 +383,14 @@ export type OptionsRequest = {
   earningsDate?: string | null;
 };
 
-export async function optionsReport(request: OptionsRequest): Promise<OptionsReport> {
+export async function optionsReport(
+  request: OptionsRequest,
+): Promise<OptionsReport> {
   const first = await fetchChain(request.symbol);
   const spot = first.quote?.regularMarketPrice;
-  const available = (first.expirationDates ?? []).filter(finite).sort((a, b) => a - b);
+  const available = (first.expirationDates ?? [])
+    .filter(finite)
+    .sort((a, b) => a - b);
   if (!positive(spot) || !available.length)
     throw new Error(`No listed options were found for ${request.symbol}.`);
 
@@ -375,7 +402,10 @@ export async function optionsReport(request: OptionsRequest): Promise<OptionsRep
         upcoming.findIndex((item) => dateOf(item) >= request.expiry!),
       )
     : 0;
-  if (request.expiry && !upcoming.some((item) => dateOf(item) >= request.expiry!))
+  if (
+    request.expiry &&
+    !upcoming.some((item) => dateOf(item) >= request.expiry!)
+  )
     throw new Error(`No expiry on or after ${request.expiry} is listed.`);
   const chosen = upcoming.slice(startAt, startAt + request.count);
 
@@ -397,7 +427,9 @@ export async function optionsReport(request: OptionsRequest): Promise<OptionsRep
     ? (upcoming.findLast((item) => dateOf(item) < earningsDate) ?? null)
     : null;
 
-  const wanted = [...new Set([...chosen, ...(post ? [post] : []), ...(pre ? [pre] : [])])];
+  const wanted = [
+    ...new Set([...chosen, ...(post ? [post] : []), ...(pre ? [pre] : [])]),
+  ];
   const chains = new Map<number, Awaited<ReturnType<typeof fetchChain>>>();
   const loaded = await Promise.all(
     wanted.map((expiration) =>
@@ -430,9 +462,11 @@ export async function optionsReport(request: OptionsRequest): Promise<OptionsRep
     if (after) {
       let eventMovePercent: number | null = null;
       if (before?.atmIv != null && after.atmIv != null && before.T > 0) {
-        const variance = after.atmIv ** 2 * after.T - before.atmIv ** 2 * before.T;
+        const variance =
+          after.atmIv ** 2 * after.T - before.atmIv ** 2 * before.T;
         // E|move| = sigma * sqrt(2/pi) for a normal move.
-        if (variance > 0) eventMovePercent = Math.sqrt(variance) * Math.sqrt(2 / Math.PI) * 100;
+        if (variance > 0)
+          eventMovePercent = Math.sqrt(variance) * Math.sqrt(2 / Math.PI) * 100;
       }
       earnings = {
         date: earningsDate,

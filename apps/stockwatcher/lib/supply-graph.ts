@@ -186,7 +186,10 @@ function tiered(graph: Graph): Map<string, Point> {
   const positions = new Map<string, Point>();
   for (const [tier, members] of columns) {
     members.sort(
-      (a, b) => a.depth - b.depth || weight(b.id) - weight(a.id) || a.name.localeCompare(b.name),
+      (a, b) =>
+        a.depth - b.depth ||
+        weight(b.id) - weight(a.id) ||
+        a.name.localeCompare(b.name),
     );
     const ordered: GraphNode[] = [];
     members.forEach((node, index) =>
@@ -209,9 +212,7 @@ function radial(graph: Graph, rootId: string): Map<string, Point> {
     if (node.id !== rootId)
       rings.set(node.depth, [...(rings.get(node.depth) ?? []), node]);
   for (const [depth, members] of rings) {
-    members.sort(
-      (a, b) => a.tier - b.tier || a.name.localeCompare(b.name),
-    );
+    members.sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name));
     const radius = 190 * depth + Math.max(0, members.length - 12) * 6;
     members.forEach((node, index) => {
       const angle =
@@ -294,14 +295,30 @@ export function sectorLayout(
     groups.set(sector, [...(groups.get(sector) ?? []), node]);
   }
   const names = [...groups.keys()].sort((a, b) =>
-    a === "★" ? -1 : b === "★" ? 1 : a === "Other" ? 1 : b === "Other" ? -1 : a.localeCompare(b),
+    a === "★"
+      ? -1
+      : b === "★"
+        ? 1
+        : a === "Other"
+          ? 1
+          : b === "Other"
+            ? -1
+            : a.localeCompare(b),
   );
   const positions = new Map<string, Point>();
-  const bands: { name: string; x: number; y: number; width: number; height: number }[] = [];
+  const bands: {
+    name: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }[] = [];
   let y = 0;
   const perRow = 5;
   for (const name of names) {
-    const members = groups.get(name)!.sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name));
+    const members = groups
+      .get(name)!
+      .sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name));
     const rows = Math.ceil(members.length / perRow);
     members.forEach((node, index) => {
       const row = Math.floor(index / perRow);
@@ -401,7 +418,8 @@ export function propagateShock(
         if (Math.abs(passed) < 0.0001) continue;
         next.set(edge.from, (next.get(edge.from) ?? 0) + passed);
       }
-    for (const [id, value] of next) impact.set(id, (impact.get(id) ?? 0) + value);
+    for (const [id, value] of next)
+      impact.set(id, (impact.get(id) ?? 0) + value);
     frontier = next;
   }
   return impact;
@@ -483,7 +501,13 @@ export function mergeGraphs(a: Graph, b: Graph): Graph {
         ? {
             ...prior,
             share: Math.max(prior.share ?? 0, edge.share ?? 0) || prior.share,
-            links: [...prior.links, ...edge.links.filter((link) => !prior.links.some((item) => item.quote === link.quote))],
+            links: [
+              ...prior.links,
+              ...edge.links.filter(
+                (link) =>
+                  !prior.links.some((item) => item.quote === link.quote),
+              ),
+            ],
           }
         : edge,
     );
@@ -502,5 +526,9 @@ export function sharedNeighbours(graph: Graph, roots: string[]) {
     return set;
   });
   if (!sets.length) return new Set<string>();
-  return new Set([...sets[0]].filter((id) => sets.every((set) => set.has(id)) && !roots.includes(id)));
+  return new Set(
+    [...sets[0]].filter(
+      (id) => sets.every((set) => set.has(id)) && !roots.includes(id),
+    ),
+  );
 }

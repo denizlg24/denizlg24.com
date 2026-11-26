@@ -2,8 +2,8 @@ import "server-only";
 import { z } from "zod";
 import { fredSeries, type MacroObservation } from "@/lib/fred";
 import {
-  loadFundamentals,
   type FundamentalPoint,
+  loadFundamentals,
   type SymbolFundamentals,
 } from "@/lib/sec-facts";
 
@@ -35,7 +35,10 @@ export const extraShape = {
     .optional(),
   macro: z
     .object({
-      series: z.array(z.string().trim().min(1).max(40)).min(1).max(MAX_MACRO_SERIES),
+      series: z
+        .array(z.string().trim().min(1).max(40))
+        .min(1)
+        .max(MAX_MACRO_SERIES),
       from: z.iso.date().optional(),
     })
     .optional(),
@@ -94,7 +97,10 @@ async function loadAllFundamentals(
           );
         result[symbol] = loaded.concepts;
       } catch (error) {
-        if (error instanceof Error && error.message.startsWith("Fundamentals exceed"))
+        if (
+          error instanceof Error &&
+          error.message.startsWith("Fundamentals exceed")
+        )
           throw error;
         missing.push(symbol);
       }
@@ -134,7 +140,10 @@ export async function loadExtra(
       : { result: {}, missing: [] },
     request.macro ? loadAllMacro(request.macro) : { result: {}, missing: [] },
   ]);
-  const macroPoints = Object.values(macro.result).reduce((sum, list) => sum + list.length, 0);
+  const macroPoints = Object.values(macro.result).reduce(
+    (sum, list) => sum + list.length,
+    0,
+  );
   if (macroPoints > MAX_POINTS)
     throw new Error(
       `Macro series exceed ${MAX_POINTS.toLocaleString("en-US")} observations. Pass macro.from to shorten the window or request fewer series.`,

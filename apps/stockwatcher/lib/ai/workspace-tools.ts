@@ -2,7 +2,6 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { tool } from "ai";
 import { z } from "zod";
-import { attempt, round, ticker } from "./shared";
 import {
   conditionMet,
   describeRule,
@@ -11,33 +10,38 @@ import {
   reading,
 } from "@/lib/alerts";
 import { toolLabels, toolPoints } from "@/lib/chart-studio";
+import { type Identity, readWorkspace } from "@/lib/db";
 import { defaultDesk } from "@/lib/desk";
-import { readWorkspace, type Identity } from "@/lib/db";
-import { updateWorkspace } from "@/lib/memory";
+import { studyKeySchema } from "@/lib/indicators";
 import { quotes } from "@/lib/market";
+import { updateWorkspace } from "@/lib/memory";
 import {
+  type AlertRule,
   alertMetrics,
   averageKinds,
   chartAppearanceSchema,
   chartColorSchema,
+  chartPreferencesSchema,
   chartScales,
   chartStyles,
   customAverageSchema,
   customPaneSchema,
-  chartPreferencesSchema,
   drawingKinds,
   relationNoteSchema,
-  type AlertRule,
   type Workspace,
 } from "@/lib/models";
 import { listChannels, publicChannel } from "@/lib/notify/store";
 import { decodeOverlay, overlayRanges } from "@/lib/overlay";
 import { checkTrades } from "@/lib/portfolio";
 import { lookbackKeys, screenSchema } from "@/lib/screens";
-import { studyKeySchema } from "@/lib/indicators";
 import { rangeKeys } from "@/lib/universes";
+import { attempt, round, ticker } from "./shared";
 
-type Outcome = { workspaceChanged: true; summary: string; [key: string]: unknown };
+type Outcome = {
+  workspaceChanged: true;
+  summary: string;
+  [key: string]: unknown;
+};
 
 const changed = (summary: string, details: object): Outcome => ({
   workspaceChanged: true,
@@ -74,8 +78,13 @@ function pickById<T extends { id: string }>(
   id: string | undefined,
   label: string,
 ): T {
-  const found = items.find((item) => item.id === need(id, `Provide the ${label} id.`));
-  if (!found) throw new Error(`No ${label} with id ${id}. Call getWorkspace for the ids.`);
+  const found = items.find(
+    (item) => item.id === need(id, `Provide the ${label} id.`),
+  );
+  if (!found)
+    throw new Error(
+      `No ${label} with id ${id}. Call getWorkspace for the ids.`,
+    );
   return found;
 }
 
@@ -120,7 +129,10 @@ const uuid = z.uuid();
 const currencyCode = z.string().regex(/^[A-Z]{3}$|^GBp$|^ZAc$|^ILA$/);
 const today = () => new Date().toISOString().slice(0, 10);
 
-async function resolveChannels(userId: string, requested: string[] | undefined) {
+async function resolveChannels(
+  userId: string,
+  requested: string[] | undefined,
+) {
   const all = (await listChannels(userId)).map(publicChannel);
   if (!requested)
     return all
@@ -169,11 +181,17 @@ const tradeInput = z.object({
   symbol: ticker,
   side: z.enum(["buy", "sell"]),
   quantity: z.number().positive().max(1e12),
-  price: z.number().positive().max(1e12).describe("Per-unit price in the trade currency"),
+  price: z
+    .number()
+    .positive()
+    .max(1e12)
+    .describe("Per-unit price in the trade currency"),
   fees: z.number().min(0).max(1e12).default(0),
   currency: currencyCode
     .optional()
-    .describe("ISO code (GBp/ZAc/ILA for pence-style listings). Defaults to the symbol's live quote currency"),
+    .describe(
+      "ISO code (GBp/ZAc/ILA for pence-style listings). Defaults to the symbol's live quote currency",
+    ),
   date: z.iso.date().describe("Trade date YYYY-MM-DD"),
 });
 
@@ -225,11 +243,25 @@ export function workspaceTools({ user }: { user: Identity }) {
       description: `Read the user's saved workspace. Choose sections (default: ${defaultSections.join(", ")}). Heavy sections (trades, alertActivity, drawings, relations, requests) are only returned when asked. Every record includes the id needed for writes; counts of every section are always included. Alerts carry live reading, distance to target and status; notificationChannels are masked and never expose secrets. Notes list titles only; use getNote for a body.`,
       inputSchema: z.object({
         sections: z.array(z.enum(sections)).max(sections.length).optional(),
-        book: z.string().max(120).optional().describe("Filter trades by portfolio id or name"),
-        symbol: ticker.optional().describe("Filter trades, alerts, notes, drawings and relations by symbol"),
+        book: z
+          .string()
+          .max(120)
+          .optional()
+          .describe("Filter trades by portfolio id or name"),
+        symbol: ticker
+          .optional()
+          .describe(
+            "Filter trades, alerts, notes, drawings and relations by symbol",
+          ),
         from: z.iso.date().optional().describe("Trades on or after this date"),
         to: z.iso.date().optional().describe("Trades on or before this date"),
-        limit: z.number().int().min(1).max(200).default(50).describe("Cap for trades, alert activity and relations"),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(200)
+          .default(50)
+          .describe("Cap for trades, alert activity and relations"),
       }),
       execute: ({ sections: requested, book, symbol, from, to, limit }) =>
         attempt(async () => {
@@ -261,7 +293,8 @@ export function workspaceTools({ user }: { user: Identity }) {
             out.books = data.books.map((item) => ({
               id: item.id,
               name: item.name,
-              trades: data.trades.filter((trade) => trade.bookId === item.id).length,
+              trades: data.trades.filter((trade) => trade.bookId === item.id)
+                .length,
               brokerSynced: item.broker != null,
               broker: item.broker && {
                 provider: item.broker.provider,
@@ -272,8 +305,12 @@ export function workspaceTools({ user }: { user: Identity }) {
               },
             }));
           if (wanted.has("trades")) {
-            const bookId = book ? pick(data.books, book, "portfolio").id : undefined;
-            const names = new Map(data.books.map((item) => [item.id, item.name]));
+            const bookId = book
+              ? pick(data.books, book, "portfolio").id
+              : undefined;
+            const names = new Map(
+              data.books.map((item) => [item.id, item.name]),
+            );
             const matches = data.trades
               .filter(
                 (trade) =>
@@ -306,12 +343,20 @@ export function workspaceTools({ user }: { user: Identity }) {
           if (wanted.has("notificationChannels"))
             out.notificationChannels = channels;
           if (wanted.has("alerts")) {
-            const rules = data.alerts.filter((rule) => !symbol || rule.symbol === symbol);
+            const rules = data.alerts.filter(
+              (rule) => !symbol || rule.symbol === symbol,
+            );
             const live = rules.length
-              ? await quotes([...new Set(rules.map((rule) => rule.symbol))]).catch(() => [])
+              ? await quotes([
+                  ...new Set(rules.map((rule) => rule.symbol)),
+                ]).catch(() => [])
               : [];
-            const bySymbol = new Map(live.map((quote) => [quote.symbol, quote]));
-            const labels = new Map(channels.map((channel) => [channel.id, channel.label]));
+            const bySymbol = new Map(
+              live.map((quote) => [quote.symbol, quote]),
+            );
+            const labels = new Map(
+              channels.map((channel) => [channel.id, channel.label]),
+            );
             out.alerts = rules.map((rule) => {
               const quote = bySymbol.get(rule.symbol);
               const value = reading(rule, quote);
@@ -332,7 +377,9 @@ export function workspaceTools({ user }: { user: Identity }) {
                 currency: quote?.currency ?? null,
                 distanceToTarget: round(gap(rule, quote)),
                 distanceUnit:
-                  rule.metric === "change" || rule.metric === "move" ? "percentage points" : "percent of reading",
+                  rule.metric === "change" || rule.metric === "move"
+                    ? "percentage points"
+                    : "percent of reading",
               };
             });
           }
@@ -361,7 +408,9 @@ export function workspaceTools({ user }: { user: Identity }) {
               ? [symbol]
               : [...new Set(data.drawings.map((drawing) => drawing.symbol))];
             out.drawings = subjects.map((subject) => {
-              const items = data.drawings.filter((drawing) => drawing.symbol === subject);
+              const items = data.drawings.filter(
+                (drawing) => drawing.symbol === subject,
+              );
               return {
                 symbol: subject,
                 count: items.length,
@@ -377,12 +426,14 @@ export function workspaceTools({ user }: { user: Identity }) {
               };
             });
           }
-          if (wanted.has("overlays"))
-            out.overlays = data.overlays;
+          if (wanted.has("overlays")) out.overlays = data.overlays;
           if (wanted.has("screens")) out.screens = data.screens;
           if (wanted.has("relations"))
             out.relations = data.relations
-              .filter((item) => !symbol || item.owner === symbol || item.ticker === symbol)
+              .filter(
+                (item) =>
+                  !symbol || item.owner === symbol || item.ticker === symbol,
+              )
               .slice(0, limit);
           if (wanted.has("chartTemplates"))
             out.chartTemplates = data.chartTemplates;
@@ -400,11 +451,14 @@ export function workspaceTools({ user }: { user: Identity }) {
         }, "The workspace could not be read."),
     }),
     getNote: tool({
-      description: "Read one research note in full (title, symbol, body, last update) by id from getWorkspace.",
+      description:
+        "Read one research note in full (title, symbol, body, last update) by id from getWorkspace.",
       inputSchema: z.object({ id: uuid }),
       execute: ({ id }) =>
         attempt(async () => {
-          const note = (await readWorkspaceData(userId)).notes.find((item) => item.id === id);
+          const note = (await readWorkspaceData(userId)).notes.find(
+            (item) => item.id === id,
+          );
           if (!note) throw new Error(`No note with id ${id}.`);
           return note;
         }, "The note could not be read."),
@@ -413,8 +467,19 @@ export function workspaceTools({ user }: { user: Identity }) {
       description:
         "Create, rename, delete or edit watchlists (max 30 lists of 120 symbols). create: name (+ optional symbols). rename: list + name. delete: list. addSymbols / removeSymbols: list + symbols. reorder: list + symbols (the full list in the new order). `list` is an id or exact name from getWorkspace.",
       inputSchema: z.object({
-        action: z.enum(["create", "rename", "delete", "addSymbols", "removeSymbols", "reorder"]),
-        list: z.string().max(120).optional().describe("Watchlist id or exact name"),
+        action: z.enum([
+          "create",
+          "rename",
+          "delete",
+          "addSymbols",
+          "removeSymbols",
+          "reorder",
+        ]),
+        list: z
+          .string()
+          .max(120)
+          .optional()
+          .describe("Watchlist id or exact name"),
         name: z.string().trim().min(1).max(120).optional(),
         symbols: z.array(ticker).max(120).optional(),
       }),
@@ -430,36 +495,68 @@ export function workspaceTools({ user }: { user: Identity }) {
                     name: need(name, "Provide a name for the watchlist."),
                     symbols: [...new Set(symbols ?? [])],
                   };
-                  if (lists.length >= 30) throw new Error("At most 30 watchlists are allowed.");
+                  if (lists.length >= 30)
+                    throw new Error("At most 30 watchlists are allowed.");
                   return [
                     { ...workspace, watchlists: [...lists, created] },
-                    changed(`Created watchlist ${created.name}${created.symbols.length ? ` with ${created.symbols.join(", ")}` : ""}`, { watchlist: created }),
+                    changed(
+                      `Created watchlist ${created.name}${created.symbols.length ? ` with ${created.symbols.join(", ")}` : ""}`,
+                      { watchlist: created },
+                    ),
                   ];
                 }
                 case "rename": {
                   const target = pick(lists, list, "watchlist");
-                  const next = { ...target, name: need(name, "Provide the new name.") };
+                  const next = {
+                    ...target,
+                    name: need(name, "Provide the new name."),
+                  };
                   return [
-                    { ...workspace, watchlists: lists.map((item) => (item.id === target.id ? next : item)) },
-                    changed(`Renamed ${target.name} to ${next.name}`, { watchlist: next }),
+                    {
+                      ...workspace,
+                      watchlists: lists.map((item) =>
+                        item.id === target.id ? next : item,
+                      ),
+                    },
+                    changed(`Renamed ${target.name} to ${next.name}`, {
+                      watchlist: next,
+                    }),
                   ];
                 }
                 case "delete": {
                   const target = pick(lists, list, "watchlist");
                   return [
-                    { ...workspace, watchlists: lists.filter((item) => item.id !== target.id) },
-                    changed(`Deleted watchlist ${target.name} (${target.symbols.length} symbols)`, { deleted: { id: target.id, name: target.name } }),
+                    {
+                      ...workspace,
+                      watchlists: lists.filter((item) => item.id !== target.id),
+                    },
+                    changed(
+                      `Deleted watchlist ${target.name} (${target.symbols.length} symbols)`,
+                      { deleted: { id: target.id, name: target.name } },
+                    ),
                   ];
                 }
                 case "addSymbols": {
                   const target = pick(lists, list, "watchlist");
                   const requested = need(symbols, "Provide symbols to add.");
-                  const fresh = [...new Set(requested)].filter((symbol) => !target.symbols.includes(symbol));
+                  const fresh = [...new Set(requested)].filter(
+                    (symbol) => !target.symbols.includes(symbol),
+                  );
                   if (target.symbols.length + fresh.length > 120)
-                    throw new Error(`A watchlist holds at most 120 symbols; ${target.name} has ${target.symbols.length}.`);
-                  const next = { ...target, symbols: [...target.symbols, ...fresh] };
+                    throw new Error(
+                      `A watchlist holds at most 120 symbols; ${target.name} has ${target.symbols.length}.`,
+                    );
+                  const next = {
+                    ...target,
+                    symbols: [...target.symbols, ...fresh],
+                  };
                   return [
-                    { ...workspace, watchlists: lists.map((item) => (item.id === target.id ? next : item)) },
+                    {
+                      ...workspace,
+                      watchlists: lists.map((item) =>
+                        item.id === target.id ? next : item,
+                      ),
+                    },
                     changed(
                       fresh.length
                         ? `Added ${fresh.join(", ")} to ${target.name}`
@@ -470,11 +567,25 @@ export function workspaceTools({ user }: { user: Identity }) {
                 }
                 case "removeSymbols": {
                   const target = pick(lists, list, "watchlist");
-                  const drop = new Set(need(symbols, "Provide symbols to remove."));
-                  const removed = target.symbols.filter((symbol) => drop.has(symbol));
-                  const next = { ...target, symbols: target.symbols.filter((symbol) => !drop.has(symbol)) };
+                  const drop = new Set(
+                    need(symbols, "Provide symbols to remove."),
+                  );
+                  const removed = target.symbols.filter((symbol) =>
+                    drop.has(symbol),
+                  );
+                  const next = {
+                    ...target,
+                    symbols: target.symbols.filter(
+                      (symbol) => !drop.has(symbol),
+                    ),
+                  };
                   return [
-                    { ...workspace, watchlists: lists.map((item) => (item.id === target.id ? next : item)) },
+                    {
+                      ...workspace,
+                      watchlists: lists.map((item) =>
+                        item.id === target.id ? next : item,
+                      ),
+                    },
                     changed(
                       removed.length
                         ? `Removed ${removed.join(", ")} from ${target.name}`
@@ -485,15 +596,24 @@ export function workspaceTools({ user }: { user: Identity }) {
                 }
                 case "reorder": {
                   const target = pick(lists, list, "watchlist");
-                  const order = [...new Set(need(symbols, "Provide the full symbol order."))];
+                  const order = [
+                    ...new Set(need(symbols, "Provide the full symbol order.")),
+                  ];
                   const same =
                     order.length === target.symbols.length &&
                     order.every((symbol) => target.symbols.includes(symbol));
                   if (!same)
-                    throw new Error("reorder needs exactly the symbols already in the list, in the new order.");
+                    throw new Error(
+                      "reorder needs exactly the symbols already in the list, in the new order.",
+                    );
                   const next = { ...target, symbols: order };
                   return [
-                    { ...workspace, watchlists: lists.map((item) => (item.id === target.id ? next : item)) },
+                    {
+                      ...workspace,
+                      watchlists: lists.map((item) =>
+                        item.id === target.id ? next : item,
+                      ),
+                    },
                     changed(`Reordered ${target.name}`, { watchlist: next }),
                   ];
                 }
@@ -506,9 +626,20 @@ export function workspaceTools({ user }: { user: Identity }) {
       description:
         "Create and manage alert rules directly (use proposeAlert instead when the user is only exploring). Metrics: price (absolute, quote currency), change (day % vs previous close), move (% move from the price when created; the live price is captured automatically), volume (shares today). create: symbol, direction, target (+ metric, repeat once|rearm, note, channels, expires). update: id + any rule fields (changing the symbol, metric, direction or target resets trigger history). pause / arm / delete: ids (arm re-enables and re-primes). clearActivity: wipes the fired-alert log, or only these ids' events. Channels default to all active notification channels; pass ids or labels from getWorkspace, or [] for in-app only. Trigger history is server-owned and cannot be set.",
       inputSchema: z.object({
-        action: z.enum(["create", "update", "delete", "pause", "arm", "clearActivity"]),
+        action: z.enum([
+          "create",
+          "update",
+          "delete",
+          "pause",
+          "arm",
+          "clearActivity",
+        ]),
         id: uuid.optional().describe("Alert id for update"),
-        ids: z.array(uuid).max(60).optional().describe("Alert ids for delete, pause, arm, clearActivity"),
+        ids: z
+          .array(uuid)
+          .max(60)
+          .optional()
+          .describe("Alert ids for delete, pause, arm, clearActivity"),
         symbol: ticker.optional(),
         metric: z.enum(alertMetrics).optional().describe("Default price"),
         direction: z.enum(["above", "below"]).optional(),
@@ -518,28 +649,46 @@ export function workspaceTools({ user }: { user: Identity }) {
           .min(-1e12)
           .max(1e12)
           .optional()
-          .describe("Absolute for price and volume; percent for change and move (-5 means -5%)"),
-        repeat: z.enum(["once", "rearm"]).optional().describe("Default once; rearm fires again after the condition clears"),
+          .describe(
+            "Absolute for price and volume; percent for change and move (-5 means -5%)",
+          ),
+        repeat: z
+          .enum(["once", "rearm"])
+          .optional()
+          .describe(
+            "Default once; rearm fires again after the condition clears",
+          ),
         note: z.string().trim().max(280).optional(),
         channels: z.array(z.string().min(1).max(80)).max(10).optional(),
-        expires: z.iso.date().nullable().optional().describe("YYYY-MM-DD, or null for no expiry"),
+        expires: z.iso
+          .date()
+          .nullable()
+          .optional()
+          .describe("YYYY-MM-DD, or null for no expiry"),
       }),
       execute: (input) =>
         attempt(async () => {
           const { action } = input;
-          const channelRecords = (await listChannels(userId)).map(publicChannel);
-          const labels = new Map(channelRecords.map((channel) => [channel.id, channel.label]));
+          const channelRecords = (await listChannels(userId)).map(
+            publicChannel,
+          );
+          const labels = new Map(
+            channelRecords.map((channel) => [channel.id, channel.label]),
+          );
           const channelIds =
             action === "create" || (action === "update" && input.channels)
               ? await resolveChannels(userId, input.channels)
               : undefined;
           const needsQuote =
             (action === "create" && (input.metric ?? "price") === "move") ||
-            (action === "update" && (input.metric === "move" || input.symbol !== undefined));
+            (action === "update" &&
+              (input.metric === "move" || input.symbol !== undefined));
           const quoteSymbol =
             input.symbol ??
             (action === "update"
-              ? (await readWorkspaceData(userId)).alerts.find((rule) => rule.id === input.id)?.symbol
+              ? (await readWorkspaceData(userId)).alerts.find(
+                  (rule) => rule.id === input.id,
+                )?.symbol
               : undefined);
           const quote =
             needsQuote && quoteSymbol
@@ -547,19 +696,30 @@ export function workspaceTools({ user }: { user: Identity }) {
               : undefined;
           return write(userId, (workspace) => {
             const rules = workspace.alerts;
-            const withRules = (next: AlertRule[]) => ({ ...workspace, alerts: next });
+            const withRules = (next: AlertRule[]) => ({
+              ...workspace,
+              alerts: next,
+            });
             switch (action) {
               case "create": {
-                if (rules.length >= 60) throw new Error("At most 60 alerts are allowed. Delete some first.");
+                if (rules.length >= 60)
+                  throw new Error(
+                    "At most 60 alerts are allowed. Delete some first.",
+                  );
                 const metric = input.metric ?? "price";
                 const symbol = need(input.symbol, "Provide a symbol.");
                 if (metric === "move" && !quote)
-                  throw new Error(`No live quote for ${symbol}, so the move reference price cannot be set.`);
+                  throw new Error(
+                    `No live quote for ${symbol}, so the move reference price cannot be set.`,
+                  );
                 const created: AlertRule = {
                   id: randomUUID(),
                   symbol,
                   metric,
-                  direction: need(input.direction, "Provide a direction (above or below)."),
+                  direction: need(
+                    input.direction,
+                    "Provide a direction (above or below).",
+                  ),
                   target: need(input.target, "Provide a target."),
                   reference: metric === "move" ? (quote?.price ?? null) : null,
                   repeat: input.repeat ?? "once",
@@ -574,7 +734,9 @@ export function workspaceTools({ user }: { user: Identity }) {
                 };
                 return [
                   withRules([created, ...rules]),
-                  changed(`Created ${symbol} alert: ${describeRule(created)}`, { alert: alertView(created, labels) }),
+                  changed(`Created ${symbol} alert: ${describeRule(created)}`, {
+                    alert: alertView(created, labels),
+                  }),
                 ];
               }
               case "update": {
@@ -600,61 +762,97 @@ export function workspaceTools({ user }: { user: Identity }) {
                   repeat: input.repeat ?? prior.repeat,
                   note: input.note ?? prior.note,
                   channels: channelIds ?? prior.channels,
-                  expires: input.expires === undefined ? prior.expires : input.expires,
+                  expires:
+                    input.expires === undefined ? prior.expires : input.expires,
                 };
                 const unchanged = sameRule(prior, next);
                 const result: AlertRule = unchanged
                   ? next
-                  : { ...next, lastTriggered: null, triggeredPrice: null, triggerCount: 0, primed: true };
+                  : {
+                      ...next,
+                      lastTriggered: null,
+                      triggeredPrice: null,
+                      triggerCount: 0,
+                      primed: true,
+                    };
                 return [
-                  withRules(rules.map((rule) => (rule.id === prior.id ? result : rule))),
-                  changed(`Updated ${symbol} alert: ${describeRule(result)}`, { alert: alertView(result, labels) }),
+                  withRules(
+                    rules.map((rule) => (rule.id === prior.id ? result : rule)),
+                  ),
+                  changed(`Updated ${symbol} alert: ${describeRule(result)}`, {
+                    alert: alertView(result, labels),
+                  }),
                 ];
               }
               case "delete": {
                 const ids = need(input.ids, "Provide the alert ids to delete.");
                 const missing = missingIds(rules, ids);
-                if (missing.length) throw new Error(`No alert with id ${missing.join(", ")}.`);
+                if (missing.length)
+                  throw new Error(`No alert with id ${missing.join(", ")}.`);
                 const gone = rules.filter((rule) => ids.includes(rule.id));
                 return [
                   {
-                    ...withRules(rules.filter((rule) => !ids.includes(rule.id))),
-                    alertLog: workspace.alertLog.filter((event) => !ids.includes(event.alertId)),
+                    ...withRules(
+                      rules.filter((rule) => !ids.includes(rule.id)),
+                    ),
+                    alertLog: workspace.alertLog.filter(
+                      (event) => !ids.includes(event.alertId),
+                    ),
                   },
-                  changed(`Deleted ${gone.length} alert${gone.length === 1 ? "" : "s"}: ${gone.map((rule) => `${rule.symbol} ${describeRule(rule)}`).join("; ")}`, {
-                    deleted: gone.map((rule) => ({ id: rule.id, symbol: rule.symbol })),
-                  }),
+                  changed(
+                    `Deleted ${gone.length} alert${gone.length === 1 ? "" : "s"}: ${gone.map((rule) => `${rule.symbol} ${describeRule(rule)}`).join("; ")}`,
+                    {
+                      deleted: gone.map((rule) => ({
+                        id: rule.id,
+                        symbol: rule.symbol,
+                      })),
+                    },
+                  ),
                 ];
               }
               case "pause":
               case "arm": {
-                const ids = need(input.ids, `Provide the alert ids to ${action}.`);
+                const ids = need(
+                  input.ids,
+                  `Provide the alert ids to ${action}.`,
+                );
                 const missing = missingIds(rules, ids);
-                if (missing.length) throw new Error(`No alert with id ${missing.join(", ")}.`);
+                if (missing.length)
+                  throw new Error(`No alert with id ${missing.join(", ")}.`);
                 const touched: AlertRule[] = [];
                 const next = rules.map((rule) => {
                   if (!ids.includes(rule.id)) return rule;
                   const result: AlertRule =
-                    action === "pause" ? { ...rule, enabled: false } : { ...rule, enabled: true, primed: true };
+                    action === "pause"
+                      ? { ...rule, enabled: false }
+                      : { ...rule, enabled: true, primed: true };
                   touched.push(result);
                   return result;
                 });
                 return [
                   withRules(next),
-                  changed(`${action === "pause" ? "Paused" : "Armed"} ${touched.map((rule) => rule.symbol).join(", ")}`, {
-                    alerts: touched.map((rule) => alertView(rule, labels)),
-                  }),
+                  changed(
+                    `${action === "pause" ? "Paused" : "Armed"} ${touched.map((rule) => rule.symbol).join(", ")}`,
+                    {
+                      alerts: touched.map((rule) => alertView(rule, labels)),
+                    },
+                  ),
                 ];
               }
               case "clearActivity": {
                 const scope = input.ids;
                 const remaining = scope
-                  ? workspace.alertLog.filter((event) => !scope.includes(event.alertId))
+                  ? workspace.alertLog.filter(
+                      (event) => !scope.includes(event.alertId),
+                    )
                   : [];
                 const cleared = workspace.alertLog.length - remaining.length;
                 return [
                   { ...workspace, alertLog: remaining },
-                  changed(`Cleared ${cleared} alert event${cleared === 1 ? "" : "s"}`, { cleared }),
+                  changed(
+                    `Cleared ${cleared} alert event${cleared === 1 ? "" : "s"}`,
+                    { cleared },
+                  ),
                 ];
               }
             }
@@ -670,7 +868,10 @@ export function workspaceTools({ user }: { user: Identity }) {
         ids: z.array(uuid).max(50).optional().describe("Note ids for delete"),
         title: z.string().trim().min(1).max(120).optional(),
         body: z.string().max(40000).optional(),
-        symbol: z.union([z.literal(""), ticker]).optional().describe("Related ticker, or empty for none"),
+        symbol: z
+          .union([z.literal(""), ticker])
+          .optional()
+          .describe("Related ticker, or empty for none"),
       }),
       execute: ({ action, id, ids, title, body, symbol }) =>
         attempt(
@@ -689,7 +890,8 @@ export function workspaceTools({ user }: { user: Identity }) {
               });
               switch (action) {
                 case "create": {
-                  if (notes.length >= 150) throw new Error("At most 150 notes are allowed.");
+                  if (notes.length >= 150)
+                    throw new Error("At most 150 notes are allowed.");
                   const created = {
                     id: randomUUID(),
                     title: need(title, "Provide a title."),
@@ -699,7 +901,9 @@ export function workspaceTools({ user }: { user: Identity }) {
                   };
                   return [
                     { ...workspace, notes: [created, ...notes] },
-                    changed(`Created note “${created.title}”`, { note: brief(created) }),
+                    changed(`Created note “${created.title}”`, {
+                      note: brief(created),
+                    }),
                   ];
                 }
                 case "update": {
@@ -713,7 +917,9 @@ export function workspaceTools({ user }: { user: Identity }) {
                   };
                   return [
                     { ...workspace, notes: replace(next) },
-                    changed(`Updated note “${next.title}”`, { note: brief(next) }),
+                    changed(`Updated note “${next.title}”`, {
+                      note: brief(next),
+                    }),
                   ];
                 }
                 case "append": {
@@ -721,24 +927,40 @@ export function workspaceTools({ user }: { user: Identity }) {
                   const addition = need(body, "Provide the text to append.");
                   const next = {
                     ...prior,
-                    body: prior.body ? `${prior.body}\n\n${addition}` : addition,
+                    body: prior.body
+                      ? `${prior.body}\n\n${addition}`
+                      : addition,
                     updatedAt: now,
                   };
                   return [
                     { ...workspace, notes: replace(next) },
-                    changed(`Appended to note “${next.title}”`, { note: brief(next) }),
+                    changed(`Appended to note “${next.title}”`, {
+                      note: brief(next),
+                    }),
                   ];
                 }
                 case "delete": {
                   const targets = need(ids, "Provide the note ids to delete.");
                   const missing = missingIds(notes, targets);
-                  if (missing.length) throw new Error(`No note with id ${missing.join(", ")}.`);
-                  const gone = notes.filter((note) => targets.includes(note.id));
+                  if (missing.length)
+                    throw new Error(`No note with id ${missing.join(", ")}.`);
+                  const gone = notes.filter((note) =>
+                    targets.includes(note.id),
+                  );
                   return [
-                    { ...workspace, notes: notes.filter((note) => !targets.includes(note.id)) },
-                    changed(`Deleted ${gone.length} note${gone.length === 1 ? "" : "s"}: ${gone.map((note) => `“${note.title}”`).join(", ")}`, {
-                      deleted: gone.map((note) => ({ id: note.id, title: note.title })),
-                    }),
+                    {
+                      ...workspace,
+                      notes: notes.filter((note) => !targets.includes(note.id)),
+                    },
+                    changed(
+                      `Deleted ${gone.length} note${gone.length === 1 ? "" : "s"}: ${gone.map((note) => `“${note.title}”`).join(", ")}`,
+                      {
+                        deleted: gone.map((note) => ({
+                          id: note.id,
+                          title: note.title,
+                        })),
+                      },
+                    ),
                   ];
                 }
               }
@@ -750,29 +972,54 @@ export function workspaceTools({ user }: { user: Identity }) {
       description:
         "Manage portfolios (books) and their manual transactions. Broker-synced books (brokerSynced true in getWorkspace) are read-only: they cannot be renamed, deleted or have trades edited. createBook: name. renameBook: book + name. deleteBook: book (also deletes its trades). addTrades: book + trades (max 50; currency defaults to the symbol's quote currency; a sale needs enough prior shares in the same currency). updateTrade: tradeId + any trade fields. deleteTrades: tradeIds. `book` is an id or exact name.",
       inputSchema: z.object({
-        action: z.enum(["createBook", "renameBook", "deleteBook", "addTrades", "updateTrade", "deleteTrades"]),
-        book: z.string().max(120).optional().describe("Portfolio id or exact name"),
+        action: z.enum([
+          "createBook",
+          "renameBook",
+          "deleteBook",
+          "addTrades",
+          "updateTrade",
+          "deleteTrades",
+        ]),
+        book: z
+          .string()
+          .max(120)
+          .optional()
+          .describe("Portfolio id or exact name"),
         name: z.string().trim().min(1).max(120).optional(),
         trades: z.array(tradeInput).max(50).optional(),
         tradeId: uuid.optional(),
         tradeIds: z.array(uuid).max(100).optional(),
-        changes: tradeInput.partial().optional().describe("Fields to change for updateTrade"),
+        changes: tradeInput
+          .partial()
+          .optional()
+          .describe("Fields to change for updateTrade"),
       }),
       execute: ({ action, book, name, trades, tradeId, tradeIds, changes }) =>
         attempt(async () => {
           const symbolsToPrice = [
-            ...(trades ?? []).filter((trade) => !trade.currency).map((trade) => trade.symbol),
+            ...(trades ?? [])
+              .filter((trade) => !trade.currency)
+              .map((trade) => trade.symbol),
             ...(changes?.symbol && !changes.currency ? [changes.symbol] : []),
           ];
           const currencies = symbolsToPrice.length
             ? await defaultCurrencies(symbolsToPrice)
             : new Map<string, string>();
           const resolveCurrency = (symbol: string, given: string | undefined) =>
-            given ?? need(currencies.get(symbol), `No quote currency found for ${symbol}; pass a currency.`);
+            given ??
+            need(
+              currencies.get(symbol),
+              `No quote currency found for ${symbol}; pass a currency.`,
+            );
           return write(userId, (workspace) => {
-            const refuseBroker = (target: { name: string; broker?: unknown }) => {
+            const refuseBroker = (target: {
+              name: string;
+              broker?: unknown;
+            }) => {
               if (target.broker)
-                throw new Error(`${target.name} is synced from a broker and read-only.`);
+                throw new Error(
+                  `${target.name} is synced from a broker and read-only.`,
+                );
             };
             const valid = (next: Workspace) => {
               checkTrades(next.trades, next.books);
@@ -780,55 +1027,89 @@ export function workspaceTools({ user }: { user: Identity }) {
             };
             switch (action) {
               case "createBook": {
-                if (workspace.books.length >= 25) throw new Error("At most 25 portfolios are allowed.");
-                const created = { id: randomUUID(), name: need(name, "Provide a portfolio name.") };
+                if (workspace.books.length >= 25)
+                  throw new Error("At most 25 portfolios are allowed.");
+                const created = {
+                  id: randomUUID(),
+                  name: need(name, "Provide a portfolio name."),
+                };
                 return [
                   { ...workspace, books: [...workspace.books, created] },
-                  changed(`Created portfolio ${created.name}`, { book: created }),
+                  changed(`Created portfolio ${created.name}`, {
+                    book: created,
+                  }),
                 ];
               }
               case "renameBook": {
                 const target = pick(workspace.books, book, "portfolio");
                 refuseBroker(target);
-                const next = { ...target, name: need(name, "Provide the new name.") };
+                const next = {
+                  ...target,
+                  name: need(name, "Provide the new name."),
+                };
                 return [
-                  { ...workspace, books: workspace.books.map((item) => (item.id === target.id ? next : item)) },
-                  changed(`Renamed portfolio ${target.name} to ${next.name}`, { book: next }),
+                  {
+                    ...workspace,
+                    books: workspace.books.map((item) =>
+                      item.id === target.id ? next : item,
+                    ),
+                  },
+                  changed(`Renamed portfolio ${target.name} to ${next.name}`, {
+                    book: next,
+                  }),
                 ];
               }
               case "deleteBook": {
                 const target = pick(workspace.books, book, "portfolio");
                 refuseBroker(target);
-                const dropped = workspace.trades.filter((trade) => trade.bookId === target.id).length;
+                const dropped = workspace.trades.filter(
+                  (trade) => trade.bookId === target.id,
+                ).length;
                 return [
                   valid({
                     ...workspace,
-                    books: workspace.books.filter((item) => item.id !== target.id),
-                    trades: workspace.trades.filter((trade) => trade.bookId !== target.id),
+                    books: workspace.books.filter(
+                      (item) => item.id !== target.id,
+                    ),
+                    trades: workspace.trades.filter(
+                      (trade) => trade.bookId !== target.id,
+                    ),
                   }),
-                  changed(`Deleted portfolio ${target.name} and its ${dropped} transactions`, {
-                    deleted: { id: target.id, name: target.name, trades: dropped },
-                  }),
+                  changed(
+                    `Deleted portfolio ${target.name} and its ${dropped} transactions`,
+                    {
+                      deleted: {
+                        id: target.id,
+                        name: target.name,
+                        trades: dropped,
+                      },
+                    },
+                  ),
                 ];
               }
               case "addTrades": {
                 const target = pick(workspace.books, book, "portfolio");
                 refuseBroker(target);
-                const added = need(trades, "Provide the trades to add.").map((trade) => ({
-                  id: randomUUID(),
-                  bookId: target.id,
-                  symbol: trade.symbol,
-                  side: trade.side,
-                  quantity: trade.quantity,
-                  price: trade.price,
-                  fees: trade.fees,
-                  currency: resolveCurrency(trade.symbol, trade.currency),
-                  date: trade.date,
-                }));
+                const added = need(trades, "Provide the trades to add.").map(
+                  (trade) => ({
+                    id: randomUUID(),
+                    bookId: target.id,
+                    symbol: trade.symbol,
+                    side: trade.side,
+                    quantity: trade.quantity,
+                    price: trade.price,
+                    fees: trade.fees,
+                    currency: resolveCurrency(trade.symbol, trade.currency),
+                    date: trade.date,
+                  }),
+                );
                 if (workspace.trades.length + added.length > 5000)
                   throw new Error("At most 5000 transactions are allowed.");
                 return [
-                  valid({ ...workspace, trades: [...workspace.trades, ...added] }),
+                  valid({
+                    ...workspace,
+                    trades: [...workspace.trades, ...added],
+                  }),
                   changed(
                     `Added ${added.length} transaction${added.length === 1 ? "" : "s"} to ${target.name}: ${added.map((trade) => `${trade.side} ${trade.quantity} ${trade.symbol}`).join(", ")}`,
                     { book: target.name, trades: added },
@@ -836,8 +1117,14 @@ export function workspaceTools({ user }: { user: Identity }) {
                 ];
               }
               case "updateTrade": {
-                const prior = pickById(workspace.trades, tradeId, "transaction");
-                const owner = workspace.books.find((item) => item.id === prior.bookId);
+                const prior = pickById(
+                  workspace.trades,
+                  tradeId,
+                  "transaction",
+                );
+                const owner = workspace.books.find(
+                  (item) => item.id === prior.bookId,
+                );
                 if (owner) refuseBroker(owner);
                 const edit = need(changes, "Provide the fields to change.");
                 const next = {
@@ -855,24 +1142,55 @@ export function workspaceTools({ user }: { user: Identity }) {
                 return [
                   valid({
                     ...workspace,
-                    trades: workspace.trades.map((trade) => (trade.id === prior.id ? next : trade)),
+                    trades: workspace.trades.map((trade) =>
+                      trade.id === prior.id ? next : trade,
+                    ),
                   }),
-                  changed(`Updated ${next.side} ${next.quantity} ${next.symbol} on ${next.date}`, { trade: next }),
+                  changed(
+                    `Updated ${next.side} ${next.quantity} ${next.symbol} on ${next.date}`,
+                    { trade: next },
+                  ),
                 ];
               }
               case "deleteTrades": {
-                const ids = need(tradeIds, "Provide the transaction ids to delete.");
+                const ids = need(
+                  tradeIds,
+                  "Provide the transaction ids to delete.",
+                );
                 const missing = missingIds(workspace.trades, ids);
-                if (missing.length) throw new Error(`No transaction with id ${missing.join(", ")}.`);
-                const gone = workspace.trades.filter((trade) => ids.includes(trade.id));
-                const synced = new Set(workspace.books.filter((item) => item.broker).map((item) => item.id));
+                if (missing.length)
+                  throw new Error(
+                    `No transaction with id ${missing.join(", ")}.`,
+                  );
+                const gone = workspace.trades.filter((trade) =>
+                  ids.includes(trade.id),
+                );
+                const synced = new Set(
+                  workspace.books
+                    .filter((item) => item.broker)
+                    .map((item) => item.id),
+                );
                 if (gone.some((trade) => synced.has(trade.bookId)))
-                  throw new Error("Transactions in broker-synced portfolios are read-only.");
+                  throw new Error(
+                    "Transactions in broker-synced portfolios are read-only.",
+                  );
                 return [
-                  valid({ ...workspace, trades: workspace.trades.filter((trade) => !ids.includes(trade.id)) }),
-                  changed(`Deleted ${gone.length} transaction${gone.length === 1 ? "" : "s"}`, {
-                    deleted: gone.map((trade) => ({ id: trade.id, symbol: trade.symbol, date: trade.date })),
+                  valid({
+                    ...workspace,
+                    trades: workspace.trades.filter(
+                      (trade) => !ids.includes(trade.id),
+                    ),
                   }),
+                  changed(
+                    `Deleted ${gone.length} transaction${gone.length === 1 ? "" : "s"}`,
+                    {
+                      deleted: gone.map((trade) => ({
+                        id: trade.id,
+                        symbol: trade.symbol,
+                        date: trade.date,
+                      })),
+                    },
+                  ),
                 ];
               }
             }
@@ -899,7 +1217,9 @@ export function workspaceTools({ user }: { user: Identity }) {
                   const chosen = need(kind, "Provide a drawing kind.");
                   const anchors = need(points, "Provide the anchor points.");
                   if (anchors.length !== toolPoints[chosen])
-                    throw new Error(`A ${toolLabels[chosen].toLowerCase()} needs exactly ${toolPoints[chosen]} point(s).`);
+                    throw new Error(
+                      `A ${toolLabels[chosen].toLowerCase()} needs exactly ${toolPoints[chosen]} point(s).`,
+                    );
                   const created = {
                     id: randomUUID(),
                     symbol: need(symbol, "Provide a symbol."),
@@ -908,27 +1228,58 @@ export function workspaceTools({ user }: { user: Identity }) {
                     color: color ?? "#e0a030",
                     ...(text ? { text } : {}),
                   };
-                  if (workspace.drawings.length >= 600) throw new Error("At most 600 drawings are allowed.");
+                  if (workspace.drawings.length >= 600)
+                    throw new Error("At most 600 drawings are allowed.");
                   return [
-                    { ...workspace, drawings: [...workspace.drawings, created] },
-                    changed(`Drew ${toolLabels[chosen].toLowerCase()} on ${created.symbol}`, { drawing: created }),
+                    {
+                      ...workspace,
+                      drawings: [...workspace.drawings, created],
+                    },
+                    changed(
+                      `Drew ${toolLabels[chosen].toLowerCase()} on ${created.symbol}`,
+                      { drawing: created },
+                    ),
                   ];
                 }
                 case "remove": {
-                  const targets = need(ids, "Provide the drawing ids to remove.");
+                  const targets = need(
+                    ids,
+                    "Provide the drawing ids to remove.",
+                  );
                   const missing = missingIds(workspace.drawings, targets);
-                  if (missing.length) throw new Error(`No drawing with id ${missing.join(", ")}.`);
+                  if (missing.length)
+                    throw new Error(
+                      `No drawing with id ${missing.join(", ")}.`,
+                    );
                   return [
-                    { ...workspace, drawings: workspace.drawings.filter((item) => !targets.includes(item.id)) },
-                    changed(`Removed ${targets.length} drawing${targets.length === 1 ? "" : "s"}`, { removed: targets }),
+                    {
+                      ...workspace,
+                      drawings: workspace.drawings.filter(
+                        (item) => !targets.includes(item.id),
+                      ),
+                    },
+                    changed(
+                      `Removed ${targets.length} drawing${targets.length === 1 ? "" : "s"}`,
+                      { removed: targets },
+                    ),
                   ];
                 }
                 case "clear": {
                   const subject = need(symbol, "Provide the symbol to clear.");
-                  const count = workspace.drawings.filter((item) => item.symbol === subject).length;
+                  const count = workspace.drawings.filter(
+                    (item) => item.symbol === subject,
+                  ).length;
                   return [
-                    { ...workspace, drawings: workspace.drawings.filter((item) => item.symbol !== subject) },
-                    changed(`Cleared ${count} drawing${count === 1 ? "" : "s"} on ${subject}`, { cleared: count }),
+                    {
+                      ...workspace,
+                      drawings: workspace.drawings.filter(
+                        (item) => item.symbol !== subject,
+                      ),
+                    },
+                    changed(
+                      `Cleared ${count} drawing${count === 1 ? "" : "s"} on ${subject}`,
+                      { cleared: count },
+                    ),
                   ];
                 }
               }
@@ -953,12 +1304,15 @@ export function workspaceTools({ user }: { user: Identity }) {
               const items = workspace.overlays;
               const checked = (value: string) => {
                 if (!decodeOverlay(value).length)
-                  throw new Error("The overlay spec has no valid series; check the expressions.");
+                  throw new Error(
+                    "The overlay spec has no valid series; check the expressions.",
+                  );
                 return value;
               };
               switch (action) {
                 case "create": {
-                  if (items.length >= 30) throw new Error("At most 30 overlays are allowed.");
+                  if (items.length >= 30)
+                    throw new Error("At most 30 overlays are allowed.");
                   const created = {
                     id: randomUUID(),
                     name: need(name, "Provide a name."),
@@ -967,7 +1321,9 @@ export function workspaceTools({ user }: { user: Identity }) {
                   };
                   return [
                     { ...workspace, overlays: [...items, created] },
-                    changed(`Saved overlay ${created.name}`, { overlay: created }),
+                    changed(`Saved overlay ${created.name}`, {
+                      overlay: created,
+                    }),
                   ];
                 }
                 case "update": {
@@ -979,15 +1335,25 @@ export function workspaceTools({ user }: { user: Identity }) {
                     range: range ?? prior.range,
                   };
                   return [
-                    { ...workspace, overlays: items.map((item) => (item.id === prior.id ? next : item)) },
+                    {
+                      ...workspace,
+                      overlays: items.map((item) =>
+                        item.id === prior.id ? next : item,
+                      ),
+                    },
                     changed(`Updated overlay ${next.name}`, { overlay: next }),
                   ];
                 }
                 case "delete": {
                   const prior = pickById(items, id, "overlay");
                   return [
-                    { ...workspace, overlays: items.filter((item) => item.id !== prior.id) },
-                    changed(`Deleted overlay ${prior.name}`, { deleted: { id: prior.id, name: prior.name } }),
+                    {
+                      ...workspace,
+                      overlays: items.filter((item) => item.id !== prior.id),
+                    },
+                    changed(`Deleted overlay ${prior.name}`, {
+                      deleted: { id: prior.id, name: prior.name },
+                    }),
                   ];
                 }
               }
@@ -1015,27 +1381,56 @@ export function workspaceTools({ user }: { user: Identity }) {
           () =>
             write(userId, (workspace) => {
               const key = name.toLowerCase();
-              const index = workspace.screens.findIndex((screen) => screen.name.toLowerCase() === key);
+              const index = workspace.screens.findIndex(
+                (screen) => screen.name.toLowerCase() === key,
+              );
               if (action === "delete") {
                 if (index < 0) throw new Error(`No screen named "${name}".`);
                 return [
-                  { ...workspace, screens: workspace.screens.filter((_, i) => i !== index) },
+                  {
+                    ...workspace,
+                    screens: workspace.screens.filter((_, i) => i !== index),
+                  },
                   changed(`Deleted screen ${name}`, { deleted: name }),
                 ];
               }
-              const blank = { sectors: [], query: "", price: ["", ""], day: ["", ""], period: ["", ""], position: ["", ""], turnover: "", lookback: "YTD" };
+              const blank = {
+                sectors: [],
+                query: "",
+                price: ["", ""],
+                day: ["", ""],
+                period: ["", ""],
+                position: ["", ""],
+                turnover: "",
+                lookback: "YTD",
+              };
               const prior = index >= 0 ? workspace.screens[index] : undefined;
               const defined = Object.fromEntries(
-                Object.entries(fields).filter(([, value]) => value !== undefined),
+                Object.entries(fields).filter(
+                  ([, value]) => value !== undefined,
+                ),
               );
-              const next = screenSchema.parse({ ...blank, ...prior, ...defined, name });
-              if (index < 0 && workspace.screens.length >= 20) throw new Error("At most 20 screens are allowed.");
+              const next = screenSchema.parse({
+                ...blank,
+                ...prior,
+                ...defined,
+                name,
+              });
+              if (index < 0 && workspace.screens.length >= 20)
+                throw new Error("At most 20 screens are allowed.");
               return [
                 {
                   ...workspace,
-                  screens: index < 0 ? [...workspace.screens, next] : workspace.screens.map((screen, i) => (i === index ? next : screen)),
+                  screens:
+                    index < 0
+                      ? [...workspace.screens, next]
+                      : workspace.screens.map((screen, i) =>
+                          i === index ? next : screen,
+                        ),
                 },
-                changed(`${prior ? "Updated" : "Saved"} screen ${name}`, { screen: next }),
+                changed(`${prior ? "Updated" : "Saved"} screen ${name}`, {
+                  screen: next,
+                }),
               ];
             }),
           "The screen could not be saved.",
@@ -1055,18 +1450,34 @@ export function workspaceTools({ user }: { user: Identity }) {
         share: relationNoteSchema.shape.share.optional(),
         note: relationNoteSchema.shape.note.optional(),
       }),
-      execute: ({ action, id, ids, owner, counterparty, ticker: peer, role, share, note }) =>
+      execute: ({
+        action,
+        id,
+        ids,
+        owner,
+        counterparty,
+        ticker: peer,
+        role,
+        share,
+        note,
+      }) =>
         attempt(
           () =>
             write(userId, (workspace) => {
               const items = workspace.relations;
               switch (action) {
                 case "create": {
-                  if (items.length >= 400) throw new Error("At most 400 relationship notes are allowed.");
+                  if (items.length >= 400)
+                    throw new Error(
+                      "At most 400 relationship notes are allowed.",
+                    );
                   const created = {
                     id: randomUUID(),
                     owner: need(owner, "Provide the owner symbol."),
-                    counterparty: need(counterparty, "Provide the counterparty name."),
+                    counterparty: need(
+                      counterparty,
+                      "Provide the counterparty name.",
+                    ),
                     ticker: peer ?? null,
                     role: need(role, "Provide the role."),
                     share: share ?? null,
@@ -1075,7 +1486,10 @@ export function workspaceTools({ user }: { user: Identity }) {
                   };
                   return [
                     { ...workspace, relations: [...items, created] },
-                    changed(`Added ${created.role} ${created.counterparty} to ${created.owner}`, { relation: created }),
+                    changed(
+                      `Added ${created.role} ${created.counterparty} to ${created.owner}`,
+                      { relation: created },
+                    ),
                   ];
                 }
                 case "update": {
@@ -1090,17 +1504,36 @@ export function workspaceTools({ user }: { user: Identity }) {
                     note: note ?? prior.note,
                   };
                   return [
-                    { ...workspace, relations: items.map((item) => (item.id === prior.id ? next : item)) },
-                    changed(`Updated ${next.owner} ${next.role} ${next.counterparty}`, { relation: next }),
+                    {
+                      ...workspace,
+                      relations: items.map((item) =>
+                        item.id === prior.id ? next : item,
+                      ),
+                    },
+                    changed(
+                      `Updated ${next.owner} ${next.role} ${next.counterparty}`,
+                      { relation: next },
+                    ),
                   ];
                 }
                 case "delete": {
                   const targets = need(ids, "Provide the ids to delete.");
                   const missing = missingIds(items, targets);
-                  if (missing.length) throw new Error(`No relationship note with id ${missing.join(", ")}.`);
+                  if (missing.length)
+                    throw new Error(
+                      `No relationship note with id ${missing.join(", ")}.`,
+                    );
                   return [
-                    { ...workspace, relations: items.filter((item) => !targets.includes(item.id)) },
-                    changed(`Deleted ${targets.length} relationship note${targets.length === 1 ? "" : "s"}`, { deleted: targets }),
+                    {
+                      ...workspace,
+                      relations: items.filter(
+                        (item) => !targets.includes(item.id),
+                      ),
+                    },
+                    changed(
+                      `Deleted ${targets.length} relationship note${targets.length === 1 ? "" : "s"}`,
+                      { deleted: targets },
+                    ),
                   ];
                 }
               }
@@ -1121,14 +1554,25 @@ export function workspaceTools({ user }: { user: Identity }) {
         panes: z.array(customPaneSchema).max(4).optional(),
         appearance: chartAppearanceSchema.partial().optional(),
       }),
-      execute: ({ action, id, name, style, studies, scale, averages, panes, appearance }) =>
+      execute: ({
+        action,
+        id,
+        name,
+        style,
+        studies,
+        scale,
+        averages,
+        panes,
+        appearance,
+      }) =>
         attempt(
           () =>
             write(userId, (workspace) => {
               const items = workspace.chartTemplates;
               switch (action) {
                 case "create": {
-                  if (items.length >= 30) throw new Error("At most 30 chart templates are allowed.");
+                  if (items.length >= 30)
+                    throw new Error("At most 30 chart templates are allowed.");
                   const created = {
                     id: randomUUID(),
                     name: need(name, "Provide a template name."),
@@ -1141,7 +1585,9 @@ export function workspaceTools({ user }: { user: Identity }) {
                   };
                   return [
                     { ...workspace, chartTemplates: [...items, created] },
-                    changed(`Saved chart template ${created.name}`, { template: created }),
+                    changed(`Saved chart template ${created.name}`, {
+                      template: created,
+                    }),
                   ];
                 }
                 case "update": {
@@ -1157,15 +1603,29 @@ export function workspaceTools({ user }: { user: Identity }) {
                     appearance: { ...prior.appearance, ...appearance },
                   };
                   return [
-                    { ...workspace, chartTemplates: items.map((item) => (item.id === prior.id ? next : item)) },
-                    changed(`Updated chart template ${next.name}`, { template: next }),
+                    {
+                      ...workspace,
+                      chartTemplates: items.map((item) =>
+                        item.id === prior.id ? next : item,
+                      ),
+                    },
+                    changed(`Updated chart template ${next.name}`, {
+                      template: next,
+                    }),
                   ];
                 }
                 case "delete": {
                   const prior = pickById(items, id, "chart template");
                   return [
-                    { ...workspace, chartTemplates: items.filter((item) => item.id !== prior.id) },
-                    changed(`Deleted chart template ${prior.name}`, { deleted: { id: prior.id, name: prior.name } }),
+                    {
+                      ...workspace,
+                      chartTemplates: items.filter(
+                        (item) => item.id !== prior.id,
+                      ),
+                    },
+                    changed(`Deleted chart template ${prior.name}`, {
+                      deleted: { id: prior.id, name: prior.name },
+                    }),
                   ];
                 }
               }
@@ -1178,7 +1638,9 @@ export function workspaceTools({ user }: { user: Identity }) {
         "Change the user's app settings; only the fields you pass change. theme: light|dark|system|terminal. home: landing view overview|markets|portfolio|research. refresh: live auto-refresh on/off. baseCurrency: 3-letter ISO code the portfolio NAV is converted into (default USD). chart: default chart preferences (style, range, studies, log, scale, averages, panes, appearance flags/colors).",
       inputSchema: z.object({
         theme: z.enum(["light", "dark", "system", "terminal"]).optional(),
-        home: z.enum(["overview", "markets", "portfolio", "research"]).optional(),
+        home: z
+          .enum(["overview", "markets", "portfolio", "research"])
+          .optional(),
         refresh: z.boolean().optional(),
         baseCurrency: z
           .string()
@@ -1205,12 +1667,17 @@ export function workspaceTools({ user }: { user: Identity }) {
             write(userId, (workspace) => {
               const { settings } = workspace;
               const defined = Object.fromEntries(
-                Object.entries(chart ?? {}).filter(([, value]) => value !== undefined),
+                Object.entries(chart ?? {}).filter(
+                  ([, value]) => value !== undefined,
+                ),
               );
               const nextChart = chartPreferencesSchema.parse({
                 ...settings.chart,
                 ...defined,
-                appearance: { ...settings.chart.appearance, ...chart?.appearance },
+                appearance: {
+                  ...settings.chart.appearance,
+                  ...chart?.appearance,
+                },
               });
               const next = {
                 theme: theme ?? settings.theme,
@@ -1222,14 +1689,18 @@ export function workspaceTools({ user }: { user: Identity }) {
               const parts = [
                 theme && `theme ${theme}`,
                 home && `home ${home}`,
-                refresh !== undefined && `auto-refresh ${refresh ? "on" : "off"}`,
+                refresh !== undefined &&
+                  `auto-refresh ${refresh ? "on" : "off"}`,
                 baseCurrency && `base currency ${baseCurrency}`,
                 chart && "chart defaults",
               ].filter(Boolean);
-              if (!parts.length) throw new Error("Pass at least one setting to change.");
+              if (!parts.length)
+                throw new Error("Pass at least one setting to change.");
               return [
                 { ...workspace, settings: next },
-                changed(`Settings updated: ${parts.join(", ")}`, { settings: next }),
+                changed(`Settings updated: ${parts.join(", ")}`, {
+                  settings: next,
+                }),
               ];
             }),
           "The settings could not be updated.",

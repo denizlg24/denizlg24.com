@@ -27,7 +27,8 @@ const money = (value: string | undefined) => {
   if (!value || value === "N/A") return null;
   const negative = /\(.*\)/.test(value) || value.trim().startsWith("-");
   const parsed = Number(value.replace(/[^0-9.]/g, ""));
-  if (!Number.isFinite(parsed) || value.replace(/[^0-9.]/g, "") === "") return null;
+  if (!Number.isFinite(parsed) || value.replace(/[^0-9.]/g, "") === "")
+    return null;
   return negative ? -parsed : parsed;
 };
 
@@ -41,7 +42,9 @@ async function earningsOn(date: string): Promise<EarningsEvent[]> {
     },
   );
   if (!response.ok) throw new Error("Earnings calendar is unavailable.");
-  const body = (await response.json()) as { data?: { rows?: NasdaqRow[] | null } | null };
+  const body = (await response.json()) as {
+    data?: { rows?: NasdaqRow[] | null } | null;
+  };
   return (body.data?.rows ?? []).flatMap((row): EarningsEvent[] =>
     row.symbol
       ? [

@@ -1,25 +1,25 @@
 import "server-only";
 import { series } from "@/lib/market";
-import { isMoex } from "@/lib/moex";
 import type { ChartPoint } from "@/lib/models";
+import { isMoex } from "@/lib/moex";
 import type { Range } from "@/lib/universes";
 import {
-  chartSchema,
-  isMarketSpec,
-  maxPoints,
   type Chart,
   type ChartSeries,
   type ChartSpec,
+  chartSchema,
+  isMarketSpec,
   type MarketChartSpec,
+  maxPoints,
 } from "./chart";
 import {
-  deckSchema,
-  maxDocBytes,
-  reportSchema,
   type Deck,
   type DeckInput,
+  deckSchema,
+  maxDocBytes,
   type Report,
   type ReportInput,
+  reportSchema,
 } from "./types";
 
 const intraday = (range: Range | undefined, since: string | undefined) =>
@@ -29,7 +29,7 @@ const dayKey = (seconds: number) =>
   new Date(seconds * 1000).toISOString().slice(0, 10);
 const timeKey = (seconds: number, intra: boolean) =>
   intra
-    ? new Date(seconds * 1000).toISOString().slice(0, 16) + "Z"
+    ? `${new Date(seconds * 1000).toISOString().slice(0, 16)}Z`
     : dayKey(seconds);
 
 const round = (value: number, digits: number) =>

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { type FormEvent, type ReactNode, useState } from "react";
+import { Failure } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,7 +12,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -19,17 +19,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Failure } from "@/components/shared";
+import { Textarea } from "@/components/ui/textarea";
 import {
-  deskFunctions,
-  widgetSchema,
   type DeskFunction,
+  deskFunctions,
   type Widget,
   type WidgetKind,
+  widgetSchema,
 } from "@/lib/desk";
-import { monitorFunctions } from "@/lib/terminal";
 import type { Workspace } from "@/lib/models";
-import { ranges, universes, type Range, type Universe } from "@/lib/universes";
+import { monitorFunctions } from "@/lib/terminal";
+import { type Range, ranges, type Universe, universes } from "@/lib/universes";
 import { parseSymbols } from "./frame";
 
 export const widgetCatalog: Record<
@@ -94,9 +94,9 @@ export const widgetCatalog: Record<
   },
 };
 
-const kinds = Object.keys(widgetCatalog).filter((kind): kind is WidgetKind =>
-  kind !== "overlay" &&
-  Object.hasOwn(widgetCatalog, kind),
+const kinds = Object.keys(widgetCatalog).filter(
+  (kind): kind is WidgetKind =>
+    kind !== "overlay" && Object.hasOwn(widgetCatalog, kind),
 );
 const rangeKeys = Object.keys(ranges).filter((key): key is Range =>
   Object.hasOwn(ranges, key),
@@ -400,7 +400,11 @@ export function AddWidgetDialog({
                   <SelectContent>
                     {deskFunctions.map((item) => (
                       <SelectItem key={item} value={item}>
-                        {item} · {monitorFunctions.find((entry) => entry.code === item)?.label}
+                        {item} ·{" "}
+                        {
+                          monitorFunctions.find((entry) => entry.code === item)
+                            ?.label
+                        }
                       </SelectItem>
                     ))}
                   </SelectContent>

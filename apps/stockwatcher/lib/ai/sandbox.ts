@@ -1,10 +1,10 @@
 import "server-only";
+import variant from "@jitl/quickjs-singlefile-cjs-release-sync";
 import {
   newQuickJSWASMModuleFromVariant,
-  Scope,
   type QuickJSWASMModule,
+  Scope,
 } from "quickjs-emscripten";
-import variant from "@jitl/quickjs-singlefile-cjs-release-sync";
 import { z } from "zod";
 import {
   backtest,
@@ -64,7 +64,10 @@ const optional = <T extends z.ZodType>(schema: T) =>
 
 type Helper = (args: unknown) => unknown;
 const helper =
-  <S extends z.ZodType>(schema: S, run: (args: z.output<S>) => unknown): Helper =>
+  <S extends z.ZodType>(
+    schema: S,
+    run: (args: z.output<S>) => unknown,
+  ): Helper =>
   (args) =>
     run(schema.parse(args));
 
@@ -145,9 +148,8 @@ const helpers: Record<string, Helper> = {
   ),
   returns: helper(z.tuple([numbers]), ([closes]) => returns(closes)),
   drawdowns: helper(z.tuple([numbers]), ([closes]) => drawdowns(closes)),
-  rollingVolatility: helper(
-    z.tuple([barsInput, period]),
-    ([bars, window]) => rollingVolatility(bars, window),
+  rollingVolatility: helper(z.tuple([barsInput, period]), ([bars, window]) =>
+    rollingVolatility(bars, window),
   ),
   regression: helper(
     z.tuple([barsInput, barsInput, optional(period)]),
@@ -158,7 +160,9 @@ const helpers: Record<string, Helper> = {
     ([bars, benchmark, window]) => rollingBeta(bars, benchmark, window),
   ),
   correlationMatrix: helper(
-    z.tuple([z.array(z.object({ symbol: z.string(), bars: barsInput })).min(2)]),
+    z.tuple([
+      z.array(z.object({ symbol: z.string(), bars: barsInput })).min(2),
+    ]),
     ([items]) =>
       correlationMatrix(
         items.map(({ symbol, bars }) => ({ symbol, points: bars })),
@@ -172,10 +176,14 @@ const helpers: Record<string, Helper> = {
 function describeIssue(name: string, error: unknown) {
   if (error instanceof z.ZodError) {
     const issue = error.issues[0];
-    const where = issue.path.length ? ` (argument ${issue.path.join(".")})` : "";
+    const where = issue.path.length
+      ? ` (argument ${issue.path.join(".")})`
+      : "";
     return `ta.${name}: ${issue.message}${where}`;
   }
-  return error instanceof Error ? `ta.${name}: ${error.message}` : `ta.${name} failed`;
+  return error instanceof Error
+    ? `ta.${name}: ${error.message}`
+    : `ta.${name} failed`;
 }
 
 const prelude = (names: string[]) => `"use strict";
@@ -261,7 +269,9 @@ function describeFailure(value: unknown, timedOut: boolean) {
   if (/out of memory/i.test(message))
     return `Out of memory (limit ${sandboxLimits.memoryBytes / 1024 / 1024} MB). Process fewer symbols or a shorter range, and avoid building large intermediate arrays.`;
   const line = stack?.match(/compute\.js:(\d+)(?::(\d+))?/);
-  const at = line ? ` (line ${line[1]}${line[2] ? `, column ${line[2]}` : ""})` : "";
+  const at = line
+    ? ` (line ${line[1]}${line[2] ? `, column ${line[2]}` : ""})`
+    : "";
   return `${name && name !== "Error" ? `${name}: ` : ""}${message}${at}`;
 }
 
@@ -304,11 +314,7 @@ export async function runSandbox(
         }),
       );
       vm.setProp(vm.global, "__host", host);
-      vm.setProp(
-        vm.global,
-        "__dataJson",
-        scope.manage(vm.newString(dataJson)),
-      );
+      vm.setProp(vm.global, "__dataJson", scope.manage(vm.newString(dataJson)));
       const setup = vm.evalCode(prelude(Object.keys(helpers)), "prelude.js");
       if ("error" in setup && setup.error)
         return fail(vm.dump(scope.manage(setup.error)));

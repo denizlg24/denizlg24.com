@@ -17,7 +17,10 @@ export const curveTenors = [
 ] as const;
 
 export type CurveTenor = (typeof curveTenors)[number];
-export type CurvePoint = { date: string; yields: Partial<Record<CurveTenor, number>> };
+export type CurvePoint = {
+  date: string;
+  yields: Partial<Record<CurveTenor, number>>;
+};
 
 const HEADER_TENORS: Record<string, CurveTenor> = {
   "1 Mo": "1M",
@@ -72,7 +75,10 @@ async function yearRows(year: number) {
   return rows;
 }
 
-const shift = (date: string, offset: { days?: number; months?: number; years?: number }) => {
+const shift = (
+  date: string,
+  offset: { days?: number; months?: number; years?: number },
+) => {
   const result = new Date(`${date}T00:00:00Z`);
   result.setUTCFullYear(result.getUTCFullYear() - (offset.years ?? 0));
   result.setUTCMonth(result.getUTCMonth() - (offset.months ?? 0));
@@ -98,10 +104,14 @@ export async function yieldCurve(compare: ComparisonKey[], on?: string) {
   let latest = on ? rows.find((row) => row.date <= on) : rows[0];
   if (!latest) latest = (await yearRows(targetYear - 1))[0];
   if (!latest)
-    throw new Error(on ? `No Treasury curve on or before ${on}.` : "No Treasury curve is available.");
-  const curves: Array<{ label: string; requested: string | null } & CurvePoint> = [
-    { label: "latest", requested: on ?? null, ...latest },
-  ];
+    throw new Error(
+      on
+        ? `No Treasury curve on or before ${on}.`
+        : "No Treasury curve is available.",
+    );
+  const curves: Array<
+    { label: string; requested: string | null } & CurvePoint
+  > = [{ label: "latest", requested: on ?? null, ...latest }];
   for (const key of compare) {
     const wanted = shift(latest.date, comparisonOffsets[key]);
     const pool = await yearRows(Number(wanted.slice(0, 4)));

@@ -3,37 +3,109 @@ import { symbolPattern } from "./universes";
 export const securityFunctions = [
   { code: "GP", label: "Price graph", detail: "Chart with studies" },
   { code: "DES", label: "Description", detail: "Profile and key statistics" },
-  { code: "FA", label: "Financials", detail: "Income, balance sheet, cash flow" },
+  {
+    code: "FA",
+    label: "Financials",
+    detail: "Income, balance sheet, cash flow",
+  },
   { code: "ANR", label: "Analysts", detail: "Ratings, targets and changes" },
   { code: "ERN", label: "Earnings", detail: "Next report and EPS surprises" },
   { code: "HDS", label: "Holders", detail: "Institutions, funds and insiders" },
   { code: "MGMT", label: "Management", detail: "Officers, pay and governance" },
   { code: "DVD", label: "Dividends", detail: "Dividend and split history" },
-  { code: "RELS", label: "Relationships", detail: "Peers, holders, indices, board" },
-  { code: "SPLC", label: "Supply chain", detail: "Customers and suppliers from SEC filings" },
+  {
+    code: "RELS",
+    label: "Relationships",
+    detail: "Peers, holders, indices, board",
+  },
+  {
+    code: "SPLC",
+    label: "Supply chain",
+    detail: "Customers and suppliers from SEC filings",
+  },
   { code: "CN", label: "Company news", detail: "Latest headlines" },
-  { code: "HVT", label: "Volatility", detail: "Realised volatility, 10–90 day, with percentile" },
-  { code: "BETA", label: "Beta", detail: "Regression vs any benchmark, rolling beta" },
-  { code: "SEAS", label: "Seasonality", detail: "Monthly returns by year, averages and hit rate" },
-  { code: "BTST", label: "Backtest", detail: "Test crossover, RSI, breakout and momentum rules" },
+  {
+    code: "HVT",
+    label: "Volatility",
+    detail: "Realised volatility, 10–90 day, with percentile",
+  },
+  {
+    code: "BETA",
+    label: "Beta",
+    detail: "Regression vs any benchmark, rolling beta",
+  },
+  {
+    code: "SEAS",
+    label: "Seasonality",
+    detail: "Monthly returns by year, averages and hit rate",
+  },
+  {
+    code: "BTST",
+    label: "Backtest",
+    detail: "Test crossover, RSI, breakout and momentum rules",
+  },
 ] as const;
 export type SecurityFunction = (typeof securityFunctions)[number]["code"];
 
 export const monitorFunctions = [
-  { code: "MOST", label: "Most active", detail: "Top gainers, losers and volume" },
+  {
+    code: "MOST",
+    label: "Most active",
+    detail: "Top gainers, losers and volume",
+  },
   { code: "WEI", label: "World indices", detail: "Global equity benchmarks" },
   { code: "ECO", label: "Economics", detail: "Rates, inflation, jobs (FRED)" },
-  { code: "GC", label: "Yield curve", detail: "US Treasury curve, 2s10s and 3m10y" },
+  {
+    code: "GC",
+    label: "Yield curve",
+    detail: "US Treasury curve, 2s10s and 3m10y",
+  },
   { code: "FXC", label: "FX crosses", detail: "Currency cross-rate matrix" },
-  { code: "CMDTY", label: "Commodities", detail: "Energy, metals and agriculture futures" },
-  { code: "CRYP", label: "Crypto", detail: "Digital assets and listed proxies" },
-  { code: "CORR", label: "Correlation", detail: "Correlation matrix, e.g. CORR AAPL MSFT NVDA" },
-  { code: "EQS", label: "Screener", detail: "Screen the S&P 500 by sector, moves and range" },
-  { code: "RRG", label: "Rotation", detail: "Relative rotation of sectors, regions and factors" },
-  { code: "GRID", label: "Chart grid", detail: "Up to nine linked charts, e.g. GRID AAPL MSFT NVDA SPY" },
-  { code: "PRSK", label: "Portfolio risk", detail: "VaR, beta, risk contribution and stress of your book" },
-  { code: "TOP", label: "News wire", detail: "Headlines across watchlists, positions or trending" },
-  { code: "EVTS", label: "Calendar", detail: "Earnings calendar by week, with FOMC decisions" },
+  {
+    code: "CMDTY",
+    label: "Commodities",
+    detail: "Energy, metals and agriculture futures",
+  },
+  {
+    code: "CRYP",
+    label: "Crypto",
+    detail: "Digital assets and listed proxies",
+  },
+  {
+    code: "CORR",
+    label: "Correlation",
+    detail: "Correlation matrix, e.g. CORR AAPL MSFT NVDA",
+  },
+  {
+    code: "EQS",
+    label: "Screener",
+    detail: "Screen the S&P 500 by sector, moves and range",
+  },
+  {
+    code: "RRG",
+    label: "Rotation",
+    detail: "Relative rotation of sectors, regions and factors",
+  },
+  {
+    code: "GRID",
+    label: "Chart grid",
+    detail: "Up to nine linked charts, e.g. GRID AAPL MSFT NVDA SPY",
+  },
+  {
+    code: "PRSK",
+    label: "Portfolio risk",
+    detail: "VaR, beta, risk contribution and stress of your book",
+  },
+  {
+    code: "TOP",
+    label: "News wire",
+    detail: "Headlines across watchlists, positions or trending",
+  },
+  {
+    code: "EVTS",
+    label: "Calendar",
+    detail: "Earnings calendar by week, with FOMC decisions",
+  },
 ] as const;
 export type MonitorFunction = (typeof monitorFunctions)[number]["code"];
 
@@ -45,12 +117,37 @@ export const overlayFunction = {
 
 export const workspaceFunctions = [
   { code: "DESK", label: "Desk", detail: "Your launchpad", view: "desk" },
-  { code: "MKT", label: "Markets", detail: "Heat map and compare", view: "markets" },
-  { code: "PORT", label: "Portfolio", detail: "Positions and P&L", view: "portfolio" },
-  { code: "W", label: "Watchlists", detail: "Quote monitors", view: "watchlists" },
+  {
+    code: "MKT",
+    label: "Markets",
+    detail: "Heat map and compare",
+    view: "markets",
+  },
+  {
+    code: "PORT",
+    label: "Portfolio",
+    detail: "Positions and P&L",
+    view: "portfolio",
+  },
+  {
+    code: "W",
+    label: "Watchlists",
+    detail: "Quote monitors",
+    view: "watchlists",
+  },
   { code: "ALRT", label: "Alerts", detail: "Price alerts", view: "alerts" },
-  { code: "RES", label: "Research", detail: "Filings and journal", view: "research" },
-  { code: "RPT", label: "Reports", detail: "Saved reports and decks", view: "reports" },
+  {
+    code: "RES",
+    label: "Research",
+    detail: "Filings and journal",
+    view: "research",
+  },
+  {
+    code: "RPT",
+    label: "Reports",
+    detail: "Saved reports and decks",
+    view: "reports",
+  },
   { code: "PREF", label: "Settings", detail: "Preferences", view: "settings" },
 ] as const;
 type WorkspaceCode = (typeof workspaceFunctions)[number]["code"];
@@ -141,9 +238,10 @@ const monitorCodes = new Map<string, MonitorFunction>([
   ["CALENDAR", "EVTS"],
 ]);
 const workspaceCodes = new Map<string, WorkspaceView>([
-  ...workspaceFunctions.map(
-    (item): [WorkspaceCode, WorkspaceView] => [item.code, item.view],
-  ),
+  ...workspaceFunctions.map((item): [WorkspaceCode, WorkspaceView] => [
+    item.code,
+    item.view,
+  ]),
   ["LAUNCH", "desk"],
   ["BLP", "desk"],
   ["HOME", "desk"],
@@ -181,7 +279,11 @@ export function parseCommand(input: string, current?: string): Command | null {
     .filter((word) => word && !yellowKeys.has(word));
   if (words.length === 0) return null;
   if (words[0] === "G" || words[0] === "OV") {
-    const rest = input.trim().toUpperCase().replace(/^(G|OV)\b/, "").trim();
+    const rest = input
+      .trim()
+      .toUpperCase()
+      .replace(/^(G|OV)\b/, "")
+      .trim();
     const parts = /[;,]/.test(rest)
       ? rest.split(/[;,]/)
       : /[+*/()]|\s-\s/.test(rest)
@@ -202,7 +304,8 @@ export function parseCommand(input: string, current?: string): Command | null {
     return { kind: "monitor", fn: leading, symbols: words.slice(1, 31) };
   if (words.length === 1) {
     const [word] = words;
-    if (word === "HELP" || word === "?" || word === "HL") return { kind: "help" };
+    if (word === "HELP" || word === "?" || word === "HL")
+      return { kind: "help" };
     if (word === "TOUR" || word === "GUIDE") return { kind: "tour" };
     const numbered = /^\d{1,2}$/.test(word)
       ? securityFunctions[Number(word) - 1]?.code
@@ -253,7 +356,11 @@ export const shortcuts: { keys: string; label: string }[] = [
   { keys: "⌘/Ctrl J", label: "Toggle the assistant" },
   { keys: "Alt T / Alt W", label: "New panel tab / close tab" },
   { keys: "Alt ← → / Alt 1–9", label: "Switch panel tabs" },
-  { keys: "⇧T ⇧R ⇧H ⇧V ⇧B ⇧F ⇧C ⇧N ⇧M ⇧A ⇧E", label: "Chart tools: trend, ray, level, vertical, box, Fibonacci, channel, note, measure, alert, erase" },
+  {
+    keys: "⇧T ⇧R ⇧H ⇧V ⇧B ⇧F ⇧C ⇧N ⇧M ⇧A ⇧E",
+    label:
+      "Chart tools: trend, ray, level, vertical, box, Fibonacci, channel, note, measure, alert, erase",
+  },
   { keys: "Esc", label: "Back to the chart cursor, leave full screen" },
   { keys: "Wheel / drag / double-click", label: "Zoom, pan and reset a chart" },
 ];
@@ -262,7 +369,10 @@ export function suggestFunctions(input: string) {
   const word = input.trim().toUpperCase().split(/\s+/).at(-1) ?? "";
   if (!word) return [];
   const all = [
-    ...securityFunctions.map((item) => ({ ...item, scope: "security" as const })),
+    ...securityFunctions.map((item) => ({
+      ...item,
+      scope: "security" as const,
+    })),
     ...monitorFunctions.map((item) => ({ ...item, scope: "monitor" as const })),
     { ...overlayFunction, scope: "monitor" as const },
     ...workspaceFunctions.map((item) => ({

@@ -1,15 +1,6 @@
 "use client";
 
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
-import { DropdownMenu } from "radix-ui";
-import {
   Download,
   ExternalLink,
   Maximize2,
@@ -17,39 +8,54 @@ import {
   Plus,
   Share2,
 } from "lucide-react";
-import { api } from "@/components/shared";
-import { useQuotes } from "@/components/market-widgets";
-import type { Link, OwnDisclosure } from "@/lib/supply-chain-types";
-import type { RelationNote } from "@/lib/models";
-import { symbolPattern } from "@/lib/universes";
-import constituents from "@/data/sp500.json";
+import { DropdownMenu } from "radix-ui";
+import {
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { z } from "zod";
+import { useQuotes } from "@/components/market-widgets";
+import { api } from "@/components/shared";
+import constituents from "@/data/sp500.json";
+import type { RelationNote } from "@/lib/models";
+import type { Link, OwnDisclosure } from "@/lib/supply-chain-types";
+import { symbolPattern } from "@/lib/universes";
 
-const sectorBySymbol = new Map(constituents.map((item) => [item.symbol, item.sector]));
-const pointsSchema = z.record(z.string(), z.object({ x: z.number(), y: z.number() }));
+const sectorBySymbol = new Map(
+  constituents.map((item) => [item.symbol, item.sector]),
+);
+const pointsSchema = z.record(
+  z.string(),
+  z.object({ x: z.number(), y: z.number() }),
+);
+
+import { downloadCsv, downloadPng, downloadSvg } from "@/lib/export";
 import {
   buildGraph,
   concentration,
-  filterGraph,
-  layoutGraph,
-  neighbours,
-  nodeId,
-  propagateShock,
-  mergeGraphs,
-  sharedNeighbours,
-  sectorLayout,
-  shortestPath,
-  noteLink,
-  USER_FORM,
-  relationLabel,
   type EdgeKind,
+  filterGraph,
   type Graph,
   type GraphEdge,
   type GraphNode,
   type Layout,
+  layoutGraph,
+  mergeGraphs,
+  neighbours,
+  nodeId,
+  noteLink,
   type Point,
+  propagateShock,
+  relationLabel,
+  sectorLayout,
+  sharedNeighbours,
+  shortestPath,
+  USER_FORM,
 } from "@/lib/supply-graph";
-import { downloadCsv, downloadPng, downloadSvg } from "@/lib/export";
 import type { SecurityFunction } from "@/lib/terminal";
 import { amount, compact, percent, tone } from "@/lib/utils";
 
@@ -173,15 +179,23 @@ function edgePath(a: Point, b: Point, bend: number) {
   };
 }
 
-function fit(positions: Map<string, Point>, width: number, height: number): View {
-  if (!positions.size || !width || !height) return { x: width / 2, y: height / 2, k: 1 };
+function fit(
+  positions: Map<string, Point>,
+  width: number,
+  height: number,
+): View {
+  if (!positions.size || !width || !height)
+    return { x: width / 2, y: height / 2, k: 1 };
   const xs = [...positions.values()].map((point) => point.x);
   const ys = [...positions.values()].map((point) => point.y);
   const minX = Math.min(...xs) - NODE_W * 0.75;
   const maxX = Math.max(...xs) + NODE_W * 0.75;
   const minY = Math.min(...ys) - NODE_H * 1.2;
   const maxY = Math.max(...ys) + NODE_H * 1.2;
-  const k = Math.min(1.6, Math.max(0.2, Math.min(width / (maxX - minX), height / (maxY - minY))));
+  const k = Math.min(
+    1.6,
+    Math.max(0.2, Math.min(width / (maxX - minX), height / (maxY - minY))),
+  );
   return {
     k,
     x: width / 2 - ((minX + maxX) / 2) * k,
@@ -225,7 +239,8 @@ export function SupplyGraph({
   const [peerText, setPeerText] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
-  const positionKey = (name: Layout) => `stockwatcher.splc.pos.${ticker}.${name}`;
+  const positionKey = (name: Layout) =>
+    `stockwatcher.splc.pos.${ticker}.${name}`;
   const loadMoved = (name: Layout): Record<string, Point> => {
     try {
       const parsed = pointsSchema.safeParse(
@@ -236,9 +251,13 @@ export function SupplyGraph({
       return {};
     }
   };
-  const [moved, setMovedState] = useState<Record<string, Point>>(() => loadMoved("tiered"));
+  const [moved, setMovedState] = useState<Record<string, Point>>(() =>
+    loadMoved("tiered"),
+  );
   const setMoved = (
-    next: Record<string, Point> | ((current: Record<string, Point>) => Record<string, Point>),
+    next:
+      | Record<string, Point>
+      | ((current: Record<string, Point>) => Record<string, Point>),
   ) =>
     setMovedState((current) => {
       const value = typeof next === "function" ? next(current) : next;
@@ -255,7 +274,14 @@ export function SupplyGraph({
   const svg = useRef<SVGSVGElement>(null);
   const drag = useRef<
     | { type: "pan"; x: number; y: number; view: View; moved: boolean }
-    | { type: "node"; id: string; x: number; y: number; origin: Point; moved: boolean }
+    | {
+        type: "node";
+        id: string;
+        x: number;
+        y: number;
+        origin: Point;
+        moved: boolean;
+      }
     | null
   >(null);
   const rootId = nodeId(ticker, company);
@@ -294,7 +320,11 @@ export function SupplyGraph({
       if (note.owner === ticker) own.push(link);
       else done.set(note.owner, [...(done.get(note.owner) ?? []), link]);
     }
-    const main = buildGraph({ ticker, name: company }, [...links, ...own], done);
+    const main = buildGraph(
+      { ticker, name: company },
+      [...links, ...own],
+      done,
+    );
     const peerData = peer ? expansions[peer] : undefined;
     if (!peer || peerData?.state !== "done") return main;
     return mergeGraphs(
@@ -303,7 +333,10 @@ export function SupplyGraph({
     );
   }, [ticker, company, links, expansions, notes, peer]);
   const peerId = peer && expansions[peer]?.state === "done" ? peer : null;
-  const roots = useMemo(() => (peerId ? [rootId, peerId] : [rootId]), [rootId, peerId]);
+  const roots = useMemo(
+    () => (peerId ? [rootId, peerId] : [rootId]),
+    [rootId, peerId],
+  );
   const visible = useMemo(
     () =>
       filterGraph(graph, roots, {
@@ -410,7 +443,10 @@ export function SupplyGraph({
       const px = event.clientX - rect.left;
       const py = event.clientY - rect.top;
       setView((current) => {
-        const k = Math.min(3, Math.max(0.15, current.k * Math.exp(-event.deltaY * 0.0015)));
+        const k = Math.min(
+          3,
+          Math.max(0.15, current.k * Math.exp(-event.deltaY * 0.0015)),
+        );
         return {
           k,
           x: px - ((px - current.x) / current.k) * k,
@@ -483,7 +519,10 @@ export function SupplyGraph({
   }
 
   const path = useMemo(
-    () => (selected && selected !== rootId ? shortestPath(visible, rootId, selected) : null),
+    () =>
+      selected && selected !== rootId
+        ? shortestPath(visible, rootId, selected)
+        : null,
     [visible, rootId, selected],
   );
   const pathEdges = useMemo(() => {
@@ -562,7 +601,10 @@ export function SupplyGraph({
           ))}
         </div>
         {color === "shock" ? (
-          <label className="graph-select" title="Revenue change at the centre company, passed to suppliers by their stated revenue share">
+          <label
+            className="graph-select"
+            title="Revenue change at the centre company, passed to suppliers by their stated revenue share"
+          >
             Shock {ticker}
             <input
               type="range"
@@ -689,7 +731,9 @@ export function SupplyGraph({
               value={peerText}
               maxLength={20}
               aria-label="Compare supply chain with"
-              onChange={(event) => setPeerText(event.target.value.toUpperCase())}
+              onChange={(event) =>
+                setPeerText(event.target.value.toUpperCase())
+              }
             />
           )}
         </form>
@@ -733,7 +777,10 @@ export function SupplyGraph({
                   markerUnits="userSpaceOnUse"
                   orient="auto-start-reverse"
                 >
-                  <path d="M0,0 L10,5 L0,10 z" className={`graph-arrow-${kind}`} />
+                  <path
+                    d="M0,0 L10,5 L0,10 z"
+                    className={`graph-arrow-${kind}`}
+                  />
                 </marker>
               ))}
             </defs>
@@ -748,7 +795,13 @@ export function SupplyGraph({
               {sectorBands?.bands.map((band) =>
                 band.name ? (
                   <g key={band.name} className="graph-band">
-                    <rect x={band.x} y={band.y} width={band.width} height={band.height} rx={4} />
+                    <rect
+                      x={band.x}
+                      y={band.y}
+                      width={band.width}
+                      height={band.height}
+                      rx={4}
+                    />
                     <text x={band.x + 8} y={band.y + 16}>
                       {band.name}
                     </text>
@@ -775,23 +828,31 @@ export function SupplyGraph({
                     className="graph-edge"
                     data-kind={edge.kind}
                     data-dim={dim || undefined}
-                    data-path={pathEdges.has(`${edge.from}|${edge.to}`) || undefined}
+                    data-path={
+                      pathEdges.has(`${edge.from}|${edge.to}`) || undefined
+                    }
                     data-user={
-                      edge.links.every((item) => item.source.form === USER_FORM) || undefined
+                      edge.links.every(
+                        (item) => item.source.form === USER_FORM,
+                      ) || undefined
                     }
                   >
                     <path
                       d={path.d}
                       strokeWidth={width}
                       markerEnd={
-                        edge.kind === "supply" ? `url(#arrow-${edge.kind})` : undefined
+                        edge.kind === "supply"
+                          ? `url(#arrow-${edge.kind})`
+                          : undefined
                       }
                     >
                       <title>
                         {edge.kind === "supply"
                           ? `${edge.from} sells to ${edge.to}`
                           : `${edge.from} · ${edge.to} (${edge.kind})`}
-                        {edge.share != null ? ` · ${amount(edge.share * 100)}% of revenue` : ""}
+                        {edge.share != null
+                          ? ` · ${amount(edge.share * 100)}% of revenue`
+                          : ""}
                       </title>
                     </path>
                     {labels && edge.share != null ? (
@@ -811,7 +872,9 @@ export function SupplyGraph({
                 if (!point) return null;
                 const quote = node.ticker ? quotes.get(node.ticker) : undefined;
                 const scale = scaleOf(node);
-                const expansion = node.ticker ? expansions[node.ticker] : undefined;
+                const expansion = node.ticker
+                  ? expansions[node.ticker]
+                  : undefined;
                 const hit = impact.get(node.id);
                 const fill =
                   color === "shock"
@@ -819,16 +882,16 @@ export function SupplyGraph({
                       ? "none"
                       : heat(hit * 100 * (node.id === rootId ? 0.2 : 1))
                     : color === "move"
-                    ? heat(quote?.percent)
-                    : color === "chain"
-                      ? node.id === rootId
-                        ? "root"
-                        : node.tier < 0
-                          ? "up"
-                          : node.tier > 0
-                            ? "down"
-                            : "side"
-                      : `d${Math.min(node.depth, 3)}`;
+                      ? heat(quote?.percent)
+                      : color === "chain"
+                        ? node.id === rootId
+                          ? "root"
+                          : node.tier < 0
+                            ? "up"
+                            : node.tier > 0
+                              ? "down"
+                              : "side"
+                        : `d${Math.min(node.depth, 3)}`;
                 return (
                   <g
                     key={node.id}
@@ -852,7 +915,11 @@ export function SupplyGraph({
                       height={NODE_H}
                       rx={3}
                     />
-                    <text x={-NODE_W / 2 + 8} y={-4} className="graph-node-code">
+                    <text
+                      x={-NODE_W / 2 + 8}
+                      y={-4}
+                      className="graph-node-code"
+                    >
                       {node.ticker ?? "PRIVATE"}
                     </text>
                     {color === "shock" ? (
@@ -876,7 +943,11 @@ export function SupplyGraph({
                         {percent(quote.percent)}
                       </text>
                     ) : null}
-                    <text x={-NODE_W / 2 + 8} y={12} className="graph-node-name">
+                    <text
+                      x={-NODE_W / 2 + 8}
+                      y={12}
+                      className="graph-node-name"
+                    >
                       {truncate(node.name, 22)}
                     </text>
                     {expansion ? (
@@ -903,10 +974,18 @@ export function SupplyGraph({
             </g>
           </svg>
           <div className="graph-controls">
-            <button type="button" onClick={() => zoom(1.25)} aria-label="Zoom in">
+            <button
+              type="button"
+              onClick={() => zoom(1.25)}
+              aria-label="Zoom in"
+            >
               <Plus size={14} />
             </button>
-            <button type="button" onClick={() => zoom(0.8)} aria-label="Zoom out">
+            <button
+              type="button"
+              onClick={() => zoom(0.8)}
+              aria-label="Zoom out"
+            >
               <Minus size={14} />
             </button>
             <button type="button" onClick={fitView} aria-label="Fit to screen">
@@ -919,10 +998,16 @@ export function SupplyGraph({
                 </button>
               </DropdownMenu.Trigger>
               <DropdownMenu.Portal>
-                <DropdownMenu.Content className="menu-content" align="end" sideOffset={4}>
+                <DropdownMenu.Content
+                  className="menu-content"
+                  align="end"
+                  sideOffset={4}
+                >
                   <DropdownMenu.Item
                     className="menu-item"
-                    onSelect={() => svg.current && downloadSvg(svg.current, filename)}
+                    onSelect={() =>
+                      svg.current && downloadSvg(svg.current, filename)
+                    }
                   >
                     SVG image
                   </DropdownMenu.Item>
@@ -949,7 +1034,9 @@ export function SupplyGraph({
             <span data-kind="partner">partner</span>
             <span data-kind="competitor">competitor</span>
             <span data-kind="user">your link</span>
-            <span>width = revenue share · drag to move · double-click to expand</span>
+            <span>
+              width = revenue share · drag to move · double-click to expand
+            </span>
           </div>
           {loading || pending ? (
             <div className="graph-status" role="status">
@@ -963,9 +1050,15 @@ export function SupplyGraph({
               node={selectedNode}
               graph={visible}
               rootId={rootId}
-              quote={selectedNode.ticker ? quotes.get(selectedNode.ticker) : undefined}
+              quote={
+                selectedNode.ticker
+                  ? quotes.get(selectedNode.ticker)
+                  : undefined
+              }
               expansion={
-                selectedNode.ticker ? expansions[selectedNode.ticker] : undefined
+                selectedNode.ticker
+                  ? expansions[selectedNode.ticker]
+                  : undefined
               }
               path={path}
               nameOf={(id) => {
@@ -1155,7 +1248,12 @@ function Inspector({
   node: GraphNode;
   graph: Graph;
   rootId: string;
-  quote?: { price: number; percent: number | null; cap: number | null; currency: string };
+  quote?: {
+    price: number;
+    percent: number | null;
+    cap: number | null;
+    currency: string;
+  };
   expansion?: Expansion;
   path: string[] | null;
   nameOf: (id: string) => string;
@@ -1204,7 +1302,11 @@ function Inspector({
       ) : null}
       {node.ticker ? (
         <div className="graph-actions">
-          <button type="button" className="chip" onClick={() => select(node.ticker!)}>
+          <button
+            type="button"
+            className="chip"
+            onClick={() => select(node.ticker!)}
+          >
             GP
           </button>
           {openFunction ? (
@@ -1255,7 +1357,11 @@ function Inspector({
           <ol>
             {path.map((id) => (
               <li key={id}>
-                <button type="button" className="security-link" onClick={() => choose(id)}>
+                <button
+                  type="button"
+                  className="security-link"
+                  onClick={() => choose(id)}
+                >
                   {nameOf(id)}
                 </button>
               </li>
@@ -1266,17 +1372,30 @@ function Inspector({
       {expansion?.state === "failed" ? (
         <p className="negative graph-note">{expansion.error}</p>
       ) : null}
-      {node.ticker && addNote ? <NoteForm owner={node.ticker} add={addNote} /> : null}
+      {node.ticker && addNote ? (
+        <NoteForm owner={node.ticker} add={addNote} />
+      ) : null}
       {notes.length && removeNote ? (
         <ul className="graph-notes">
           {notes.map((note) => (
             <li key={note.id}>
               <span>
-                <b>{note.owner}</b> {note.role === "customer" ? "sells to" : note.role === "supplier" ? "buys from" : note.role === "partner" ? "partners with" : "competes with"}{" "}
+                <b>{note.owner}</b>{" "}
+                {note.role === "customer"
+                  ? "sells to"
+                  : note.role === "supplier"
+                    ? "buys from"
+                    : note.role === "partner"
+                      ? "partners with"
+                      : "competes with"}{" "}
                 <b>{note.ticker ?? note.counterparty}</b>
                 {note.share != null ? ` · ${amount(note.share * 100)}%` : ""}
               </span>
-              <button type="button" aria-label="Delete your relationship" onClick={() => removeNote(note.id)}>
+              <button
+                type="button"
+                aria-label="Delete your relationship"
+                onClick={() => removeNote(note.id)}
+              >
                 ×
               </button>
             </li>
@@ -1351,7 +1470,13 @@ const noteRoles = [
   ["competitor", "competes with"],
 ] as const;
 
-function NoteForm({ owner, add }: { owner: string; add: (note: RelationNote) => void }) {
+function NoteForm({
+  owner,
+  add,
+}: {
+  owner: string;
+  add: (note: RelationNote) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [role, setRole] = useState<RelationNote["role"]>("customer");
   const [other, setOther] = useState("");

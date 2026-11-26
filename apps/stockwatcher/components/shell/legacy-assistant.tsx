@@ -1,26 +1,26 @@
 "use client";
 
+import { ArrowRight, Bookmark, X } from "lucide-react";
 import {
+  type FormEvent,
+  type Ref,
   useEffect,
   useImperativeHandle,
   useRef,
   useState,
-  type FormEvent,
-  type Ref,
 } from "react";
-import { ArrowRight, Bookmark, X } from "lucide-react";
+import type { AssistantHandle } from "@/components/assistant/assistant-panel";
+import type { Save } from "@/components/forms";
+import { api, Failure, SourceLink } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api, Failure, SourceLink } from "@/components/shared";
-import type { Save } from "@/components/forms";
-import type { AssistantHandle } from "@/components/assistant/assistant-panel";
-import type { Workspace } from "@/lib/models";
 import {
-  dashboardFromResult,
-  dashboardLink,
   type AssistantResult,
   type DashboardState,
+  dashboardFromResult,
+  dashboardLink,
 } from "@/lib/assistant-types";
+import type { Workspace } from "@/lib/models";
 
 const suggestions = [
   "Show me the S&P 500",

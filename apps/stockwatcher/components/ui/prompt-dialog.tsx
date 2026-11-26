@@ -49,7 +49,9 @@ export function PromptDialog({
         >
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
-            {description ? <DialogDescription>{description}</DialogDescription> : null}
+            {description ? (
+              <DialogDescription>{description}</DialogDescription>
+            ) : null}
           </DialogHeader>
           <label className="field">
             <span>{label}</span>
@@ -96,7 +98,9 @@ export function ConfirmDialog({
       <DialogContent className="prompt-dialog">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          {description ? <DialogDescription>{description}</DialogDescription> : null}
+          {description ? (
+            <DialogDescription>{description}</DialogDescription>
+          ) : null}
         </DialogHeader>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose} autoFocus>

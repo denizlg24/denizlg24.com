@@ -2,8 +2,8 @@
 
 import { useMemo } from "react";
 import { useQuotes } from "@/components/market-widgets";
-import { positionsFor, valuePosition, type Position } from "@/lib/portfolio";
 import type { Quote, Workspace } from "@/lib/models";
+import { type Position, positionsFor, valuePosition } from "@/lib/portfolio";
 
 export type HoldingRow = Position & {
   quote?: Quote;

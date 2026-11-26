@@ -1,7 +1,5 @@
 import "server-only";
-import { isMoex, moexQuotes, moexSeries } from "./moex";
 import constituents from "@/data/sp500.json";
-import { ranges, universes, type Range, type Universe } from "./universes";
 import type {
   ChartPoint,
   CorporateEvent,
@@ -10,6 +8,8 @@ import type {
   News,
   Quote,
 } from "./models";
+import { isMoex, moexQuotes, moexSeries } from "./moex";
+import { type Range, ranges, type Universe, universes } from "./universes";
 
 const index = new Map(constituents.map((item) => [item.symbol, item]));
 type SourceMeta = {
@@ -38,7 +38,12 @@ type SourceBars = {
     dividends?: Record<string, { amount?: number; date?: number }>;
     splits?: Record<
       string,
-      { date?: number; numerator?: number; denominator?: number; splitRatio?: string }
+      {
+        date?: number;
+        numerator?: number;
+        denominator?: number;
+        splitRatio?: string;
+      }
     >;
   };
   indicators?: {
@@ -143,7 +148,10 @@ export async function yahooAuthed<T>(
   for (const refresh of [false, true]) {
     const session = await ensureYahooSession(refresh);
     const url = new URL(path, "https://query2.finance.yahoo.com");
-    url.search = new URLSearchParams({ ...query, crumb: session.crumb }).toString();
+    url.search = new URLSearchParams({
+      ...query,
+      crumb: session.crumb,
+    }).toString();
     const result = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0", Cookie: session.cookie },
       next: { revalidate: seconds },
@@ -186,9 +194,7 @@ function makeQuote(
   );
   const previous =
     range === "1D"
-      ? asNumber(
-          meta.previousClose ?? dailyPrevious ?? meta.chartPreviousClose,
-        )
+      ? asNumber(meta.previousClose ?? dailyPrevious ?? meta.chartPreviousClose)
       : ranges[range][1] === "1d"
         ? asNumber(dailyPrevious)
         : null;
@@ -270,7 +276,11 @@ export async function series(
     start != null && warmup ? start - WARMUP_DAYS * 86400 : start;
   const query: Record<string, string> =
     start == null || fetchStart == null
-      ? { range: warmup ? warmupPeriods[range] : period, interval, events: "div,splits" }
+      ? {
+          range: warmup ? warmupPeriods[range] : period,
+          interval,
+          events: "div,splits",
+        }
       : {
           period1: String(fetchStart),
           period2: String(end + 86400),
@@ -628,7 +638,11 @@ export type WireItem = News & { symbols: string[]; id: string };
 export async function newsWire(symbols: string[]): Promise<WireItem[]> {
   const results = await Promise.allSettled(
     symbols.map((symbol) =>
-      yahoo<YahooSearch & { news?: Array<{ uuid?: string; relatedTickers?: string[] }> }>(
+      yahoo<
+        YahooSearch & {
+          news?: Array<{ uuid?: string; relatedTickers?: string[] }>;
+        }
+      >(
         "/v1/finance/search",
         { q: symbol, quotesCount: "0", newsCount: "8" },
         300,
@@ -641,10 +655,14 @@ export async function newsWire(symbols: string[]): Promise<WireItem[]> {
     const { symbol, output } = result.value;
     for (const item of output.news ?? []) {
       if (!item.title || !item.link?.startsWith("https://")) continue;
-      const id = ("uuid" in item && typeof item.uuid === "string" && item.uuid) || item.link;
+      const id =
+        ("uuid" in item && typeof item.uuid === "string" && item.uuid) ||
+        item.link;
       const related =
         "relatedTickers" in item && Array.isArray(item.relatedTickers)
-          ? item.relatedTickers.filter((ticker): ticker is string => typeof ticker === "string")
+          ? item.relatedTickers.filter(
+              (ticker): ticker is string => typeof ticker === "string",
+            )
           : [];
       const prior = stories.get(id);
       stories.set(id, {
@@ -653,7 +671,13 @@ export async function newsWire(symbols: string[]): Promise<WireItem[]> {
         url: item.link,
         publisher: item.publisher ?? "Yahoo Finance",
         time: item.providerPublishTime ?? 0,
-        symbols: [...new Set([...(prior?.symbols ?? []), symbol, ...related.filter((ticker) => symbols.includes(ticker))])],
+        symbols: [
+          ...new Set([
+            ...(prior?.symbols ?? []),
+            symbol,
+            ...related.filter((ticker) => symbols.includes(ticker)),
+          ]),
+        ],
       });
     }
   }

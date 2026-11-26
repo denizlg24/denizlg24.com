@@ -1,25 +1,36 @@
 import "server-only";
 import { tool } from "ai";
 import { z } from "zod";
-import { attempt, isoTime, round, snapshot, ticker } from "./shared";
 import {
   backtest,
   correlationMatrix,
   drawdowns,
   regression,
+  type Strategy,
   strategyKinds,
   strategyLabels,
-  type Strategy,
 } from "@/lib/analytics";
 import { earningsCalendar, fomcMeetings } from "@/lib/calendar";
-import { readWorkspace, type Identity } from "@/lib/db";
-import { computeStudies, studyKeySchema, type StudyRow } from "@/lib/indicators";
-import { history, members, newsWire, quotes, series, trending } from "@/lib/market";
-import { positionsFor } from "@/lib/portfolio";
+import { type Identity, readWorkspace } from "@/lib/db";
 import { fredSeries } from "@/lib/fred";
+import {
+  computeStudies,
+  type StudyRow,
+  studyKeySchema,
+} from "@/lib/indicators";
+import {
+  history,
+  members,
+  newsWire,
+  quotes,
+  series,
+  trending,
+} from "@/lib/market";
+import { positionsFor } from "@/lib/portfolio";
 import { relay } from "@/lib/relay-data";
 import { moverListSchema } from "@/lib/security-types";
 import { universeKeys } from "@/lib/universes";
+import { attempt, isoTime, round, snapshot, ticker } from "./shared";
 
 const worldIndices = [
   {
@@ -93,7 +104,10 @@ function lastCrossover(
   return null;
 }
 
-async function trackedSymbols(user: Identity, scope: "watchlists" | "holdings") {
+async function trackedSymbols(
+  user: Identity,
+  scope: "watchlists" | "holdings",
+) {
   const { data } = await readWorkspace(user.id);
   if (scope === "watchlists")
     return [...new Set(data.watchlists.flatMap((list) => list.symbols))];
@@ -160,7 +174,8 @@ export function marketTools({ user }: { user: Identity }) {
           const close = lastValue(bars).close;
           const sma50 = lastValue(sma50Series);
           const sma200 = lastValue(sma200Series);
-          const rsiNow = last.rsi == null ? null : lastValue(column(rows, "rsi"));
+          const rsiNow =
+            last.rsi == null ? null : lastValue(column(rows, "rsi"));
           const hist =
             last.macdHist == null ? null : lastValue(column(rows, "macdHist"));
           const times = bars.map((bar) => bar.time);
@@ -241,7 +256,13 @@ export function marketTools({ user }: { user: Identity }) {
       description:
         "Top movers. source gainers|losers|actives = US screener lists (the MOST monitor); trending = Yahoo trending tickers with quotes; universe = best and worst performers today inside a named market group (e.g. 'AI & chips', 'Banks', 'Magnificent Seven', 'Energy', 'Healthcare', 'Crypto').",
       inputSchema: z.object({
-        source: z.enum(["gainers", "losers", "actives", "trending", "universe"]),
+        source: z.enum([
+          "gainers",
+          "losers",
+          "actives",
+          "trending",
+          "universe",
+        ]),
         universe: z
           .enum(universeKeys)
           .optional()
@@ -356,7 +377,9 @@ export function marketTools({ user }: { user: Identity }) {
         attempt(async () => {
           const today = new Date().toISOString().slice(0, 10);
           const base = {
-            upcomingFomc: fomcMeetings.filter((date) => date >= today).slice(0, 4),
+            upcomingFomc: fomcMeetings
+              .filter((date) => date >= today)
+              .slice(0, 4),
           };
           if (!id) return base;
           if (id === "catalog") {
@@ -373,7 +396,8 @@ export function marketTools({ user }: { user: Identity }) {
           }
           const data = await fredSeries(id, from, true);
           const values = data.observations;
-          if (values.length === 0) throw new Error(`FRED series ${data.id} has no observations.`);
+          if (values.length === 0)
+            throw new Error(`FRED series ${data.id} has no observations.`);
           const latest = lastValue(values);
           return {
             ...base,
@@ -385,10 +409,17 @@ export function marketTools({ user }: { user: Identity }) {
               latest,
               observations: values.length,
               recent: values.slice(-12),
-              high: values.length ? Math.max(...values.map((item) => item.value)) : null,
-              low: values.length ? Math.min(...values.map((item) => item.value)) : null,
+              high: values.length
+                ? Math.max(...values.map((item) => item.value))
+                : null,
+              low: values.length
+                ? Math.min(...values.map((item) => item.value))
+                : null,
             },
-            source: data.source === "FRED API" ? "FRED API (St. Louis Fed)" : "FRED (St. Louis Fed)",
+            source:
+              data.source === "FRED API"
+                ? "FRED API (St. Louis Fed)"
+                : "FRED (St. Louis Fed)",
           };
         }, "Macro data is temporarily unavailable."),
     }),
@@ -404,13 +435,18 @@ export function marketTools({ user }: { user: Identity }) {
         attempt(async () => {
           const unique = [...new Set(symbols)];
           const [bench, ...histories] = await Promise.all(
-            [benchmark, ...unique].map((symbol) => history(symbol, years, "1d")),
+            [benchmark, ...unique].map((symbol) =>
+              history(symbol, years, "1d"),
+            ),
           );
           const usable = histories.filter((item) => item.points.length > 20);
           if (!usable.length)
             throw new Error("No usable price history for those symbols.");
           const stats = correlationMatrix(
-            usable.map((item) => ({ symbol: item.symbol, points: item.points })),
+            usable.map((item) => ({
+              symbol: item.symbol,
+              points: item.points,
+            })),
           );
           return {
             years,
@@ -492,19 +528,44 @@ export function marketTools({ user }: { user: Identity }) {
         symbol: ticker,
         strategy: z.enum(strategyKinds),
         years: z.number().min(1).max(20).default(5),
-        fast: z.number().int().min(2).max(400).optional().describe("Fast/entry window or RSI period"),
-        slow: z.number().int().min(2).max(500).optional().describe("Slow/exit window or momentum lookback"),
+        fast: z
+          .number()
+          .int()
+          .min(2)
+          .max(400)
+          .optional()
+          .describe("Fast/entry window or RSI period"),
+        slow: z
+          .number()
+          .int()
+          .min(2)
+          .max(500)
+          .optional()
+          .describe("Slow/exit window or momentum lookback"),
         lower: z.number().min(1).max(50).optional().describe("RSI buy below"),
         upper: z.number().min(50).max(99).optional().describe("RSI sell above"),
         shorts: z.boolean().default(false),
         costBps: z.number().min(0).max(200).default(5),
       }),
-      execute: ({ symbol, strategy, years, fast, slow, lower, upper, shorts, costBps }) =>
+      execute: ({
+        symbol,
+        strategy,
+        years,
+        fast,
+        slow,
+        lower,
+        upper,
+        shorts,
+        costBps,
+      }) =>
         attempt(async () => {
           const data = await history(symbol, years, "1d");
           if (data.points.length < 60)
             throw new Error(`Not enough price history for ${symbol}.`);
-          const defaults: Record<(typeof strategyKinds)[number], Pick<Strategy, "fast" | "slow">> = {
+          const defaults: Record<
+            (typeof strategyKinds)[number],
+            Pick<Strategy, "fast" | "slow">
+          > = {
             smaCross: { fast: 50, slow: 200 },
             rsi: { fast: 14, slow: 200 },
             breakout: { fast: 55, slow: 20 },
