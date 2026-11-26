@@ -8,6 +8,7 @@
 @import "./styles/ibkr-guide.css";
 @import "./styles/channel-guide.css";
 @import "./styles/alerts.css";
+@import "./styles/admin.css";
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, [data-theme="terminal"], [data-theme="terminal"] *));
 
 @theme inline {

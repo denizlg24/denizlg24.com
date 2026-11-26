@@ -13,7 +13,12 @@ import { studies, studyKeys } from "@/lib/indicators";
 
 const studyGroups = [...new Set(studies.map((item) => item.group))];
 
-export type Account = { name: string; email: string | null; demo: boolean };
+export type Account = {
+  name: string;
+  email: string | null;
+  demo: boolean;
+  admin?: boolean;
+};
 
 export function Settings({
   workspace,

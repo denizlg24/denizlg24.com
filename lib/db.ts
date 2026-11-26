@@ -82,6 +82,18 @@ function sqlite() {
       status TEXT NOT NULL, error TEXT, created_at TEXT NOT NULL, sent_at TEXT
     );
     CREATE INDEX IF NOT EXISTS alert_channels_user ON alert_channels(user_id);
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT, last_seen TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS chat_runs (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL, thread_id TEXT NOT NULL,
+      message_id TEXT, started_at TEXT NOT NULL, duration_ms INTEGER NOT NULL,
+      model TEXT, finish_reason TEXT, steps INTEGER NOT NULL,
+      input_tokens INTEGER, output_tokens INTEGER, tool_calls TEXT NOT NULL,
+      error TEXT, prompt TEXT, reply TEXT, context TEXT
+    );
+    CREATE INDEX IF NOT EXISTS chat_runs_user ON chat_runs(user_id, started_at);
+    CREATE INDEX IF NOT EXISTS chat_runs_started ON chat_runs(started_at);
   `);
   globals.stockwatcherDb = db;
   return db;
@@ -144,6 +156,20 @@ function pg(url: string) {
         created_at TIMESTAMPTZ NOT NULL, sent_at TIMESTAMPTZ
       )`;
       await sql`CREATE INDEX IF NOT EXISTS stockwatcher_alert_channels_user ON stockwatcher_alert_channels(user_id)`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_users (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT,
+        last_seen TIMESTAMPTZ NOT NULL
+      )`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_chat_runs (
+        id TEXT PRIMARY KEY, user_id TEXT NOT NULL, thread_id TEXT NOT NULL,
+        message_id TEXT, started_at TIMESTAMPTZ NOT NULL,
+        duration_ms INTEGER NOT NULL, model TEXT, finish_reason TEXT,
+        steps INTEGER NOT NULL, input_tokens INTEGER, output_tokens INTEGER,
+        tool_calls JSONB NOT NULL, error TEXT, prompt TEXT, reply TEXT,
+        context JSONB
+      )`;
+      await sql`CREATE INDEX IF NOT EXISTS stockwatcher_chat_runs_user ON stockwatcher_chat_runs(user_id, started_at)`;
+      await sql`CREATE INDEX IF NOT EXISTS stockwatcher_chat_runs_started ON stockwatcher_chat_runs(started_at)`;
     });
     return db;
   })().catch(async (error) => {
@@ -183,11 +209,19 @@ export async function createSession(identity: Identity) {
   const token = randomBytes(32).toString("base64url");
   const now = Date.now();
   const expires = now + sessionAge * 1000;
+  const seen = new Date(now).toISOString();
   const url = process.env.DATABASE_URL;
   if (url) {
     const sql = await pg(url);
     await sql`DELETE FROM stockwatcher_sessions WHERE expires <= ${now}`;
     await sql`INSERT INTO stockwatcher_sessions VALUES (${hash(token)}, ${sql.json(identity)}, ${expires})`;
+    await sql`
+      INSERT INTO stockwatcher_users (id, name, email, last_seen)
+      VALUES (${identity.id}, ${identity.name}, ${identity.email}, ${seen})
+      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name,
+        email = EXCLUDED.email, last_seen = EXCLUDED.last_seen`.catch(
+      profileFailed,
+    );
   } else {
     const db = sqlite();
     db.prepare("DELETE FROM sessions WHERE expires <= ?").run(now);
@@ -196,8 +230,21 @@ export async function createSession(identity: Identity) {
       JSON.stringify(identity),
       expires,
     );
+    try {
+      db.prepare(
+        "INSERT INTO users (id, name, email, last_seen) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name = excluded.name, email = excluded.email, last_seen = excluded.last_seen",
+      ).run(identity.id, identity.name, identity.email, seen);
+    } catch (error) {
+      profileFailed(error);
+    }
   }
   return token;
+}
+
+function profileFailed(error: unknown) {
+  console.warn("Stockwatcher user profile save failed", {
+    name: error instanceof Error ? error.name : "UnknownError",
+  });
 }
 
 export async function sessionIdentity(

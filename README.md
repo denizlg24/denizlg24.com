@@ -64,6 +64,7 @@ Set these production runtime values in Forge.
 | `ALERT_MONITOR`                                    | `1`                                                                    |
 | `SEC_USER_AGENT`                                   | Application name and an operator contact email                         |
 | `WORKSPACE_ALLOWED_EMAILS`                         | Optional list of permitted, verified email addresses                   |
+| `STOCKWATCHER_ADMIN_SUBJECTS`                      | Optional comma-separated Deniz Cloud user ids that can open `/admin`. Empty means nobody. |
 | `AI_GATEWAY_API_KEY`                               | Server-side Vercel AI Gateway key. Enables the assistant, brief and memory. |
 | `AI_GATEWAY_MODEL`                                 | Optional chat model ID. Defaults to `anthropic/claude-sonnet-5.5`.     |
 | `AI_GATEWAY_BRIEF_MODEL`                           | Optional daily-brief model ID. Defaults to `AI_GATEWAY_MODEL`.         |
@@ -74,6 +75,12 @@ Set these production runtime values in Forge.
 | `MARKETS_DATA_URL`, `MARKETS_DATA_TOKEN`  | Optional HTTP origin and bearer token for the relay data API behind the security functions and monitors. Default to the relay URL and signing secret. |
 
 Forge replaces app containers during deploys. PostgreSQL keeps workspaces, alerts, and sessions across those replacements. The app creates its own prefixed tables on first connection. Grant the database role permission to create tables and indexes in its schema.
+
+## Admin
+
+`/admin` is an owner-only audit of the in-app assistant. It lists every user, their threads and workspace counts, and each assistant request with its prompt, tool calls, errors, token usage and timing. Thread pages show the full transcript, including tool inputs, outputs and error text, with the matching run beside each reply. Runs are kept when a user deletes the thread.
+
+Deniz Cloud does not put a superuser claim on tenant-client tokens, so access is set by configuration. Add your Deniz Cloud user id (the `sub` claim) to `STOCKWATCHER_ADMIN_SUBJECTS`. A full workspace id in the form `issuer|sub` also works. Everyone else, including preview sessions, gets a 404. Admins see an **Assistant audit** link in the account menu.
 
 ## Data coverage
 

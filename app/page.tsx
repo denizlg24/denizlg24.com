@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { ChartNoAxesCombined } from "lucide-react";
 import { DenizSignIn, PreviewSignIn } from "@/components/sign-in-actions";
 import { Dashboard } from "@/components/dashboard";
-import { authReady, currentUser, demoEnabled } from "@/lib/auth";
+import { authReady, currentUser, demoEnabled, isAdmin } from "@/lib/auth";
 import { aiEnabled } from "@/lib/ai/config";
 import { readWorkspace } from "@/lib/db";
 
@@ -44,7 +44,12 @@ async function Home({ searchParams }: PageProps<"/">) {
         aiEnabled={aiEnabled(user)}
         monitoring={process.env.ALERT_MONITOR === "1"}
         initial={await readWorkspace(user.id)}
-        account={{ name: user.name, email: user.email, demo: user.demo }}
+        account={{
+          name: user.name,
+          email: user.email,
+          demo: user.demo,
+          admin: isAdmin(user),
+        }}
       />
     );
   const status = (await searchParams).auth;

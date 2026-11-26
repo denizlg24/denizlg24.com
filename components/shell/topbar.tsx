@@ -11,6 +11,7 @@ import {
   Search,
   Settings2,
   Brain,
+  ScanSearch,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Benchmarks } from "@/components/market-widgets";
@@ -144,6 +145,13 @@ export function Topbar({
               <DropdownMenu.Item className="menu-item" onSelect={onMemory}>
                 <Brain /> Memory
               </DropdownMenu.Item>
+              {account.admin ? (
+                <DropdownMenu.Item className="menu-item" asChild>
+                  <a href="/admin">
+                    <ScanSearch /> Assistant audit
+                  </a>
+                </DropdownMenu.Item>
+              ) : null}
               <DropdownMenu.Separator className="menu-separator" />
               <DropdownMenu.Item
                 className="menu-item"

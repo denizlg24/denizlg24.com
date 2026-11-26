@@ -55,6 +55,26 @@ export function accountAllowed(identity: Identity) {
   );
 }
 
+// Deniz Cloud never puts a superuser claim on tenant-client tokens, so admin
+// access is granted by configuration: a list of Deniz Cloud subjects.
+export function isAdmin(identity: Identity) {
+  if (identity.demo) return false;
+  const subjects = new Set(
+    (process.env.STOCKWATCHER_ADMIN_SUBJECTS ?? "")
+      .split(",")
+      .map((subject) => subject.trim())
+      .filter(Boolean),
+  );
+  if (!subjects.size) return false;
+  if (subjects.has(identity.id)) return true;
+  const split = identity.id.lastIndexOf("|");
+  if (split < 0) return false;
+  return (
+    identity.id.slice(0, split) === issuer() &&
+    subjects.has(identity.id.slice(split + 1))
+  );
+}
+
 export const currentUser = cache(async () => {
   const jar = await cookies();
   const secure = process.env.APP_URL?.startsWith("https:") ?? false;
