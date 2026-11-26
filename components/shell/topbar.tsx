@@ -1,9 +1,9 @@
 "use client";
 
+import { BrandGlyph } from "@/components/brand-glyph";
 import { useRef } from "react";
 import { DropdownMenu } from "radix-ui";
 import {
-  ChartNoAxesCombined,
   Command,
   LogOut,
   Menu,
@@ -74,7 +74,7 @@ export function Topbar({
           }}
         >
           <span className="brand-mark">
-            <ChartNoAxesCombined size={15} />
+            <BrandGlyph size={15} />
           </span>
           <span className="brand-name">Stockwatcher</span>
         </a>

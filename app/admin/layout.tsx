@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ChartNoAxesCombined } from "lucide-react";
+import { BrandGlyph } from "@/components/brand-glyph";
 import { ThemeSync } from "@/components/admin/theme-sync";
 import { requireAdmin } from "@/lib/admin";
 import { readWorkspace } from "@/lib/db";
@@ -19,7 +19,7 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
       <header className="admin-masthead">
         <Link href="/" className="brand">
           <span className="brand-mark" aria-hidden>
-            <ChartNoAxesCombined size={15} />
+            <BrandGlyph size={15} />
           </span>
           <span className="brand-name">Stockwatcher</span>
         </Link>

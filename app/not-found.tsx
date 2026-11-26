@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChartNoAxesCombined } from "lucide-react";
+import { BrandGlyph } from "@/components/brand-glyph";
 
 export default function NotFound() {
   return (
@@ -8,7 +8,7 @@ export default function NotFound() {
         <header className="doc-masthead">
           <span className="brand">
             <span className="brand-mark" aria-hidden>
-              <ChartNoAxesCombined size={16} />
+              <BrandGlyph size={16} />
             </span>
             <span>Stockwatcher</span>
           </span>

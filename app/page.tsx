@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { ChartNoAxesCombined } from "lucide-react";
+import { BrandGlyph } from "@/components/brand-glyph";
 import { DenizSignIn, PreviewSignIn } from "@/components/sign-in-actions";
 import { Dashboard } from "@/components/dashboard";
 import { authReady, currentUser, demoEnabled, isAdmin } from "@/lib/auth";
@@ -65,7 +65,7 @@ async function Home({ searchParams }: PageProps<"/">) {
       <header className="sign-in-masthead">
         <div className="brand">
           <span className="brand-mark">
-            <ChartNoAxesCombined size={23} />
+            <BrandGlyph size={23} />
           </span>
           <span>Stockwatcher</span>
         </div>

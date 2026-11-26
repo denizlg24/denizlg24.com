@@ -1,4 +1,4 @@
-import { ChartNoAxesCombined } from "lucide-react";
+import { BrandGlyph } from "@/components/brand-glyph";
 import { editionDate } from "@/lib/reports/format";
 
 export function Masthead({ label, date }: { label: string; date: string }) {
@@ -6,7 +6,7 @@ export function Masthead({ label, date }: { label: string; date: string }) {
     <header className="doc-masthead">
       <span className="brand">
         <span className="brand-mark" aria-hidden>
-          <ChartNoAxesCombined size={16} />
+          <BrandGlyph size={16} />
         </span>
         <span>Stockwatcher</span>
       </span>
