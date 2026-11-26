@@ -97,8 +97,20 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      # Not gitleaks-action: it scans `<oldest PR commit>^..head`, which dies
+      # on `unknown revision` whenever a PR brings in another repository's
+      # history (git subtree add), because that oldest commit is a root with
+      # no parent. `base..head` covers the same commits and imported ones too.
       - name: Scan changed commits for secrets with redacted output
-        uses: gitleaks/gitleaks-action@v3
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_ENABLE_COMMENTS: "false"
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            range="${BASE_SHA}..${HEAD_SHA}"
+          else
+            range="-1 ${HEAD_SHA}"
+          fi
+          curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz \
+            | tar -xz -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" git --redact --verbose --exit-code=2 --log-opts="$range" .

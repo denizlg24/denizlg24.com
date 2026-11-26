@@ -1,0 +1,894 @@
+"use client";
+
+import { X } from "lucide-react";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useRef, useState } from "react";
+import useSWR from "swr";
+import { describeRule } from "@/lib/alerts";
+import {
+  type AssistantResult,
+  type DashboardState,
+  dashboardFromHash,
+  dashboardFromResult,
+  dashboardLink,
+} from "@/lib/assistant-types";
+import type { WorkspaceRecord } from "@/lib/db";
+import type { ChartPreferences, ChartTemplate, Drawing } from "@/lib/models";
+import { encodeOverlay } from "@/lib/overlay";
+import {
+  type Command,
+  functionKeys,
+  type MonitorFunction,
+  monitorFunctions,
+  parseCommand,
+  type SecurityFunction,
+  securityFunctions,
+} from "@/lib/terminal";
+import type { Universe } from "@/lib/universes";
+import type { AlertDraft } from "./alerts/alert-editor";
+import { useAlertAnnouncer } from "./alerts/browser-alerts";
+import { useChannels } from "./alerts/use-channels";
+import {
+  type AlertProposal,
+  type AssistantContext,
+  type AssistantHandle,
+  AssistantPanel,
+} from "./assistant/assistant-panel";
+import { Desk } from "./desk/desk";
+import type { Save } from "./forms";
+import { useLiveStatus } from "./live-quotes";
+import { ChartPanel, MarketMap } from "./market-widgets";
+import type { ResearchTab } from "./research";
+import { api, Loading } from "./shared";
+import { CommandHelp } from "./shell/command-line";
+import { useHash, useMediaQuery, useStoredFlag } from "./shell/hooks";
+import { LegacyAssistant } from "./shell/legacy-assistant";
+import { homeView, type View, viewFromHash, viewLabel } from "./shell/nav";
+import { PanelTabs } from "./shell/panel-tabs";
+import { SearchDialog } from "./shell/search-dialog";
+import { type Account, Settings } from "./shell/settings";
+import { Sidebar } from "./shell/sidebar";
+import { Topbar } from "./shell/topbar";
+import { AddSymbolDialog, ListEditor } from "./watchlists";
+
+const ComparePanel = dynamic(() => import("./comparison"), {
+  ssr: false,
+  loading: () => <Loading />,
+});
+const Portfolio = dynamic(
+  () => import("./portfolio").then((module) => module.Portfolio),
+  { loading: () => <Loading /> },
+);
+const Research = dynamic(
+  () => import("./research").then((module) => module.Research),
+  { loading: () => <Loading /> },
+);
+const Watchlists = dynamic(
+  () => import("./watchlists").then((module) => module.Watchlists),
+  { loading: () => <Loading /> },
+);
+const AlertEditor = dynamic(
+  () => import("./alerts/alert-editor").then((module) => module.AlertEditor),
+  { ssr: false },
+);
+const Alerts = dynamic(
+  () => import("./alerts").then((module) => module.Alerts),
+  { loading: () => <Loading /> },
+);
+const ReportsLibrary = dynamic(
+  () => import("./reports/library").then((module) => module.ReportsLibrary),
+  { loading: () => <Loading /> },
+);
+const SecurityView = dynamic(
+  () =>
+    import("./security/security-view").then((module) => module.SecurityView),
+  { loading: () => <Loading /> },
+);
+const OverlayView = dynamic(
+  () => import("./overlay/overlay-view").then((module) => module.OverlayView),
+  { loading: () => <Loading /> },
+);
+const Monitor = dynamic(
+  () => import("./security/monitor").then((module) => module.Monitor),
+  { loading: () => <Loading /> },
+);
+const MemoryPanel = dynamic(
+  () => import("./assistant/memory-panel").then((module) => module.MemoryPanel),
+  { loading: () => <Loading /> },
+);
+const DocumentsPanel = dynamic(
+  () =>
+    import("./assistant/documents-panel").then(
+      (module) => module.DocumentsPanel,
+    ),
+  { loading: () => <Loading /> },
+);
+
+const mobileQuery = "(max-width: 980px)";
+const securityFn = (value?: string): SecurityFunction =>
+  securityFunctions.find((item) => item.code === value)?.code ?? "GP";
+const monitorFn = (value?: string): MonitorFunction =>
+  monitorFunctions.find((item) => item.code === value)?.code ?? "MOST";
+
+export function Dashboard({
+  initial,
+  account,
+  monitoring,
+  aiEnabled,
+}: {
+  initial: WorkspaceRecord;
+  account: Account;
+  monitoring: boolean;
+  aiEnabled: boolean;
+}) {
+  const { data: record = initial, mutate } = useSWR<WorkspaceRecord>(
+    "/api/workspace",
+    api,
+    { fallbackData: initial, refreshInterval: 45_000 },
+  );
+  const workspace = record.data;
+  const hash = useHash();
+  const view = viewFromHash(hash) ?? homeView(workspace.settings.home);
+  const explicit = dashboardFromHash(hash);
+  const recent = workspace.dashboard;
+  const viewState = explicit ?? (recent?.view === view ? recent : undefined);
+  const ticker = viewState?.ticker ?? viewState?.symbols?.[0] ?? "^GSPC";
+  const custom = viewState?.symbols ?? [];
+  const universe =
+    viewState?.universe ?? (viewState?.symbols ? undefined : "US & Europe");
+  const tab = viewState?.researchTab ?? "company";
+  const cik = viewState?.cik ?? "1067983";
+  const since = viewState?.since;
+  const marketState: DashboardState = {
+    ...viewState,
+    view: "markets",
+    ticker,
+    universe,
+    symbols: viewState?.symbols,
+  };
+  const refresh = workspace.settings.refresh;
+
+  const [watchlist, setWatchlist] = useState(
+    initial.data.watchlists[0]?.id ?? "",
+  );
+  const [search, setSearch] = useState(false);
+  const [help, setHelp] = useState(false);
+  const liveStatus = useLiveStatus();
+  const [modal, setModal] = useState<"symbol" | "list" | null>(null);
+  const [proposed, setProposed] = useState<AlertProposal | null>(null);
+  const [navOpen, setNavOpen] = useState(false);
+  const [notice, setNotice] = useState<{ text: string; error: boolean }>();
+  const [aiDown, setAiDown] = useState(false);
+  const [docked, setDocked] = useStoredFlag("stockwatcher.assistant", true);
+  const [sheet, setSheet] = useState(false);
+  const mobile = useMediaQuery(mobileQuery);
+  const assistantOpen = mobile ? sheet : docked;
+  const useAI = aiEnabled && !aiDown;
+  const assistant = useRef<AssistantHandle>(null);
+  const main = useRef<HTMLElement>(null);
+
+  const notify = useCallback(
+    (text: string, error = false) => setNotice({ text, error }),
+    [],
+  );
+  const triggered = workspace.alerts.filter(
+    (item) => !item.enabled && item.lastTriggered,
+  ).length;
+  const shortlist = workspace.watchlists[0];
+  const watched = shortlist?.symbols.includes(ticker) ?? false;
+
+  const save: Save = useCallback(
+    async (update) => {
+      try {
+        await mutate(
+          async (current = initial) =>
+            api<WorkspaceRecord>("/api/workspace", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                revision: current.revision,
+                data: update(current.data),
+              }),
+            }),
+          { revalidate: false, throwOnError: true },
+        );
+      } catch (error) {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "status" in error &&
+          error.status === 409
+        )
+          await mutate();
+        throw error;
+      }
+    },
+    [initial, mutate],
+  );
+
+  const toTop = () => main.current?.scrollTo({ top: 0, behavior: "instant" });
+  const link = useCallback((state: DashboardState) => {
+    const next = dashboardLink(state);
+    if (window.location.hash !== next) window.location.hash = next;
+    main.current?.scrollTo({ top: 0, behavior: "instant" });
+  }, []);
+  const remember = useCallback(
+    (state: DashboardState) =>
+      void save((next) => ({ ...next, dashboard: state })).catch(
+        (error: Error) => notify(error.message, true),
+      ),
+    [save, notify],
+  );
+  function go(destination: View) {
+    setNavOpen(false);
+    if (window.location.hash.slice(1) !== destination)
+      window.location.hash = destination;
+    toTop();
+  }
+  function choose(symbol: string) {
+    link(
+      view === "markets"
+        ? { ...marketState, ticker: symbol }
+        : {
+            view: "security",
+            ticker: symbol,
+            fn: view === "security" ? securityFn(viewState?.fn) : "GP",
+          },
+    );
+  }
+  const savePreferences = useCallback(
+    async (chart: ChartPreferences) => {
+      try {
+        await save((next) => ({
+          ...next,
+          settings: { ...next.settings, chart },
+        }));
+        notify("Chart defaults saved.");
+      } catch (error) {
+        notify((error as Error).message, true);
+      }
+    },
+    [save, notify],
+  );
+  const saveDrawings = useCallback(
+    (symbol: string, next: Drawing[]) =>
+      save((current) => ({
+        ...current,
+        drawings: [
+          ...current.drawings.filter((item) => item.symbol !== symbol),
+          ...next,
+        ].slice(-600),
+      })).catch((error: Error) => {
+        notify(error.message, true);
+        throw error;
+      }),
+    [save, notify],
+  );
+  const [alertDraft, setAlertDraft] = useState<AlertDraft | null>(null);
+  const { data: alertChannels } = useChannels();
+  const createAlert = useCallback(
+    (symbol: string, target: number, direction: "above" | "below") =>
+      setAlertDraft({ symbol, target, direction, metric: "price" }),
+    [],
+  );
+  useAlertAnnouncer(workspace.alertLog, notify);
+  const saveTemplates = useCallback(
+    (chartTemplates: ChartTemplate[]) =>
+      void save((current) => ({ ...current, chartTemplates })).catch(
+        (error: Error) => notify(error.message, true),
+      ),
+    [save, notify],
+  );
+  const runCommandRef = useRef<(command: Command) => void>(() => undefined);
+  const touring = useRef(false);
+  const workspaceRef = useRef(workspace);
+  useEffect(() => {
+    workspaceRef.current = workspace;
+  }, [workspace]);
+  const beginTour = useCallback(() => {
+    if (touring.current) return;
+    touring.current = true;
+    setHelp(false);
+    setNavOpen(false);
+    void import("./shell/tour").then(({ startTour }) =>
+      startTour(() => {
+        touring.current = false;
+        if (!workspaceRef.current.tourSeen)
+          void save((current) => ({ ...current, tourSeen: true })).catch(
+            () => undefined,
+          );
+      }),
+    );
+  }, [save]);
+  useEffect(() => {
+    if (workspace.tourSeen || navigator.webdriver) return;
+    const timer = setTimeout(beginTour, 900);
+    return () => clearTimeout(timer);
+    // Only on first load: later workspace refreshes must not restart it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  function runCommand(command: Command) {
+    setNavOpen(false);
+    if (command.kind === "help") setHelp(true);
+    else if (command.kind === "tour") beginTour();
+    else if (command.kind === "search") setSearch(true);
+    else if (command.kind === "view") go(command.view);
+    else if (command.kind === "monitor")
+      link({ view: "monitor", fn: command.fn, symbols: command.symbols });
+    else if (command.kind === "overlay")
+      link({
+        view: "overlay",
+        spec: command.series.length
+          ? encodeOverlay(
+              command.series.map((expr, index) => ({
+                expr,
+                axis: index === 0 ? "left" : "right",
+                mode: command.series.length > 2 ? "rebased" : "price",
+                invert: false,
+                studies: [],
+              })),
+            )
+          : viewState?.spec,
+        period: viewState?.period,
+      });
+    else
+      openView({
+        view: "security",
+        ticker: command.ticker,
+        fn: command.fn,
+      });
+  }
+
+  const openAssistant = useCallback(() => {
+    setNavOpen(false);
+    if (window.matchMedia(mobileQuery).matches) setSheet(true);
+    else setDocked(true);
+    requestAnimationFrame(() => assistant.current?.focus());
+  }, [setDocked]);
+  const closeAssistant = useCallback(() => {
+    setSheet(false);
+    if (!window.matchMedia(mobileQuery).matches) setDocked(false);
+  }, [setDocked]);
+  const toggleAssistant = useCallback(() => {
+    if (assistantOpen) closeAssistant();
+    else openAssistant();
+  }, [assistantOpen, closeAssistant, openAssistant]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = workspace.settings.theme;
+  }, [workspace.settings.theme]);
+  useEffect(() => {
+    void fetch("/auth/renew", { method: "POST" }).catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    function shortcut(event: KeyboardEvent) {
+      const fkey = functionKeys.find((item) => item.key === event.key);
+      if (fkey && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault();
+        const command = parseCommand(fkey.command);
+        if (command) runCommandRef.current(command);
+        return;
+      }
+      const target = event.target;
+      const typing =
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+      if (event.key === "?" && !typing && !event.metaKey && !event.ctrlKey) {
+        event.preventDefault();
+        setHelp(true);
+        return;
+      }
+      if (!(event.metaKey || event.ctrlKey)) return;
+      const key = event.key.toLowerCase();
+      if (key === "k") {
+        event.preventDefault();
+        setSearch(true);
+      } else if (key === "j") {
+        event.preventDefault();
+        toggleAssistant();
+      }
+    }
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  }, [toggleAssistant]);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(undefined), 5500);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  function toggleWatch() {
+    if (!shortlist) {
+      void save((next) => ({
+        ...next,
+        watchlists: [
+          ...next.watchlists,
+          { id: crypto.randomUUID(), name: "My watchlist", symbols: [ticker] },
+        ],
+      }))
+        .then(() => notify(`${ticker} added to My watchlist.`))
+        .catch((error: Error) => notify(error.message, true));
+      return;
+    }
+    void save((next) => ({
+      ...next,
+      watchlists: next.watchlists.map((item) =>
+        item.id === shortlist.id
+          ? {
+              ...item,
+              symbols: watched
+                ? item.symbols.filter((symbol) => symbol !== ticker)
+                : [...new Set([...item.symbols, ticker])],
+            }
+          : item,
+      ),
+    }))
+      .then(() =>
+        notify(
+          watched
+            ? `${ticker} removed from ${shortlist.name}.`
+            : `${ticker} added to ${shortlist.name}.`,
+        ),
+      )
+      .catch((error: Error) => notify(error.message, true));
+  }
+
+  function openRequest(result: AssistantResult) {
+    const state = dashboardFromResult(result);
+    if (!state) return;
+    if (result.alert) setProposed(result.alert);
+    setSheet(false);
+    link(state);
+    remember(state);
+  }
+  const openView = useCallback(
+    (state: DashboardState) => {
+      setSheet(false);
+      link(state);
+      remember(state);
+    },
+    [link, remember],
+  );
+  const proposeAlert = useCallback(
+    (proposal: AlertProposal) => {
+      setProposed(proposal);
+      setSheet(false);
+      link({ view: "alerts", ticker: proposal.symbol });
+    },
+    [link],
+  );
+  const deskChanged = useCallback(() => void mutate(), [mutate]);
+  const unavailable = useCallback(() => setAiDown(true), []);
+  const ask = useCallback(
+    (prompt: string) => {
+      openAssistant();
+      assistant.current?.send(prompt);
+    },
+    [openAssistant],
+  );
+
+  useEffect(() => {
+    runCommandRef.current = runCommand;
+  });
+
+  const currentDashboard =
+    view === "markets"
+      ? marketState
+      : view === "security"
+        ? { view: "security" as const, ticker, fn: securityFn(viewState?.fn) }
+        : view === "overlay"
+          ? {
+              view: "overlay" as const,
+              spec: viewState?.spec,
+              period: viewState?.period,
+            }
+          : view === "desk" ||
+              view === "memory" ||
+              view === "settings" ||
+              view === "reports"
+            ? undefined
+            : (viewState ?? { view, ticker });
+  const context: AssistantContext = {
+    view,
+    dashboard: currentDashboard,
+    ticker: currentDashboard ? ticker : undefined,
+  };
+
+  return (
+    <div
+      className="app-shell"
+      data-dock={docked ? "open" : "closed"}
+      data-sheet={sheet ? "open" : "closed"}
+    >
+      <a
+        href="#workspace-main"
+        className="skip-link"
+        onClick={(event) => {
+          event.preventDefault();
+          main.current?.focus();
+        }}
+      >
+        Skip to workspace
+      </a>
+      <Topbar
+        account={account}
+        ticker={view === "markets" ? ticker : undefined}
+        refresh={refresh}
+        navOpen={navOpen}
+        assistantOpen={assistantOpen}
+        onMenu={() => setNavOpen(!navOpen)}
+        onHome={() => go("desk")}
+        onSearch={() => setSearch(true)}
+        onAssistant={openAssistant}
+        onSymbol={choose}
+        onSettings={() => go("settings")}
+        onMemory={() => go("memory")}
+        security={
+          view === "security" || view === "markets" || view === "research"
+            ? ticker
+            : undefined
+        }
+        onCommand={runCommand}
+      />
+      <Sidebar
+        view={view}
+        open={navOpen}
+        badges={{ alerts: triggered }}
+        go={go}
+        close={() => setNavOpen(false)}
+      />
+      <main className="shell-main" id="workspace-main" ref={main} tabIndex={-1}>
+        <div className="shell-content">
+          <PanelTabs hash={hash} />
+          <header className="view-header">
+            <h1>
+              {view === "security"
+                ? `${ticker} ${securityFn(viewState?.fn)}`
+                : view === "monitor"
+                  ? monitorFn(viewState?.fn)
+                  : view === "overlay"
+                    ? "G · Overlay"
+                    : viewLabel(view)}
+            </h1>
+            {view === "markets" || view === "security" ? (
+              <span className="meta">
+                {liveStatus === "live"
+                  ? "Streaming quotes · history from Yahoo Finance"
+                  : "Exchange-delayed quotes · Yahoo Finance"}
+              </span>
+            ) : null}
+          </header>
+          {view === "desk" ? (
+            <Desk
+              workspace={workspace}
+              save={save}
+              refresh={refresh}
+              aiEnabled={useAI}
+              onOpenSymbol={choose}
+              onOpenView={openView}
+              onAsk={ask}
+            />
+          ) : null}
+          {view === "markets" ? (
+            <div className="stack-layout">
+              {viewState?.symbols?.length === 0 && !universe ? null : (
+                <ChartPanel
+                  key={ticker}
+                  ticker={ticker}
+                  refresh={refresh}
+                  watch={watched}
+                  onWatch={toggleWatch}
+                  onResearch={() =>
+                    link({ view: "research", ticker, researchTab: "company" })
+                  }
+                  onFunction={(fn) => link({ view: "security", ticker, fn })}
+                  preferences={workspace.settings.chart}
+                  savePreferences={savePreferences}
+                  since={since}
+                  clearSince={() => link({ ...marketState, since: undefined })}
+                  drawings={workspace.drawings}
+                  saveDrawings={saveDrawings}
+                  alerts={workspace.alerts}
+                  createAlert={createAlert}
+                  templates={workspace.chartTemplates}
+                  saveTemplates={saveTemplates}
+                />
+              )}
+              <MarketMap
+                universe={universe}
+                setUniverse={(next: Universe) =>
+                  link({ view: "markets", ticker, universe: next, since })
+                }
+                custom={custom}
+                excluded={viewState?.excluded}
+                since={since}
+                select={choose}
+                refresh={refresh}
+              />
+              <ComparePanel
+                key={custom.length > 1 ? custom.join(",") : "empty"}
+                symbols={custom.slice(0, 6)}
+                apply={(symbols) =>
+                  link({ view: "markets", ticker: symbols[0], symbols, since })
+                }
+                since={since}
+              />
+            </div>
+          ) : null}
+          {view === "security" ? (
+            <SecurityView
+              ticker={ticker}
+              fn={securityFn(viewState?.fn)}
+              setFn={(fn) => link({ view: "security", ticker, fn })}
+              refresh={refresh}
+              preferences={workspace.settings.chart}
+              savePreferences={savePreferences}
+              watch={watched}
+              onWatch={toggleWatch}
+              onResearch={() =>
+                link({ view: "research", ticker, researchTab: "company" })
+              }
+              select={(symbol) =>
+                link({ view: "security", ticker: symbol, fn: "GP" })
+              }
+              openFunction={(symbol, fn) =>
+                link({ view: "security", ticker: symbol, fn })
+              }
+              drawings={workspace.drawings}
+              saveDrawings={saveDrawings}
+              alerts={workspace.alerts}
+              createAlert={createAlert}
+              templates={workspace.chartTemplates}
+              saveTemplates={saveTemplates}
+              relations={workspace.relations}
+              saveRelations={(relations) =>
+                void save((current) => ({ ...current, relations })).catch(
+                  (error: Error) => notify(error.message, true),
+                )
+              }
+            />
+          ) : null}
+          {view === "monitor" ? (
+            <Monitor
+              fn={monitorFn(viewState?.fn)}
+              setFn={(fn) => link({ view: "monitor", fn })}
+              select={(symbol) =>
+                link({ view: "security", ticker: symbol, fn: "GP" })
+              }
+              refresh={refresh}
+              symbols={viewState?.symbols}
+              correlate={(symbols) =>
+                link({ view: "monitor", fn: "CORR", symbols })
+              }
+              overlay={(symbols) =>
+                runCommand({ kind: "overlay", series: symbols })
+              }
+              screens={workspace.screens}
+              books={workspace.books}
+              trades={workspace.trades}
+              watchlists={workspace.watchlists}
+              openFunction={(symbol, fn) =>
+                link({ view: "security", ticker: symbol, fn })
+              }
+              saveScreens={(screens) =>
+                save((current) => ({ ...current, screens })).catch(
+                  (error: Error) => {
+                    notify(error.message, true);
+                    throw error;
+                  },
+                )
+              }
+            />
+          ) : null}
+          {view === "overlay" ? (
+            <OverlayView
+              spec={viewState?.spec}
+              period={viewState?.period}
+              onChange={(spec, period) =>
+                link({ view: "overlay", spec, period })
+              }
+              workspace={workspace}
+              save={save}
+              notify={notify}
+            />
+          ) : null}
+          {view === "watchlists" ? (
+            <Watchlists
+              lists={workspace.watchlists}
+              listId={watchlist}
+              setList={setWatchlist}
+              add={() =>
+                setModal(workspace.watchlists.length ? "symbol" : "list")
+              }
+              save={save}
+              select={choose}
+              refresh={refresh}
+            />
+          ) : null}
+          {view === "portfolio" ? (
+            <Portfolio
+              workspace={workspace}
+              save={save}
+              select={choose}
+              refresh={refresh}
+              reload={mutate}
+            />
+          ) : null}
+          {view === "research" ? (
+            <Research
+              tab={tab}
+              setTab={(researchTab: ResearchTab) =>
+                link({
+                  ...viewState,
+                  view: "research",
+                  ticker,
+                  researchTab,
+                  cik,
+                })
+              }
+              ticker={ticker}
+              refresh={refresh}
+              notes={workspace.notes}
+              save={save}
+              cik={cik}
+              setCik={(next) =>
+                link({
+                  ...viewState,
+                  view: "research",
+                  ticker,
+                  researchTab: tab,
+                  cik: next || undefined,
+                })
+              }
+              select={choose}
+              onSearch={() => setSearch(true)}
+              onChart={() =>
+                link({ view: "markets", ticker, symbols: [ticker] })
+              }
+            />
+          ) : null}
+          {view === "alerts" ? (
+            <Alerts
+              alerts={workspace.alerts}
+              signals={workspace.signals}
+              log={workspace.alertLog}
+              ticker={ticker}
+              save={save}
+              reload={() => void mutate()}
+              refresh={refresh}
+              demo={account.demo}
+              monitoring={monitoring}
+              select={choose}
+              proposed={proposed}
+              clearProposed={() => setProposed(null)}
+              notify={notify}
+            />
+          ) : null}
+          {view === "reports" ? (
+            <ReportsLibrary onAsk={useAI ? ask : undefined} />
+          ) : null}
+          {view === "memory" ? (
+            <>
+              <MemoryPanel />
+              <DocumentsPanel />
+            </>
+          ) : null}
+          {view === "settings" ? (
+            <Settings workspace={workspace} account={account} save={save} />
+          ) : null}
+          <footer className="workspace-footer">
+            <span>
+              {liveStatus === "live"
+                ? "Live quotes streaming; history and fundamentals from Yahoo Finance"
+                : "Quotes are exchange-delayed when the live feed is off"}
+            </span>
+            <span>Times shown in your device’s time zone</span>
+          </footer>
+        </div>
+      </main>
+      <aside
+        className="dock"
+        id="assistant-dock"
+        aria-label="Assistant"
+        data-open={assistantOpen || undefined}
+      >
+        {useAI ? (
+          <AssistantPanel
+            ref={assistant}
+            context={context}
+            onOpenView={openView}
+            onProposeAlert={proposeAlert}
+            onWorkspaceChanged={deskChanged}
+            onOpenSymbol={choose}
+            onClose={closeAssistant}
+            onUnavailable={unavailable}
+            hasBook={
+              workspace.trades.length > 0 ||
+              workspace.books.some((book) => book.broker)
+            }
+          />
+        ) : (
+          <LegacyAssistant
+            ref={assistant}
+            close={closeAssistant}
+            ticker={ticker}
+            currentDashboard={currentDashboard}
+            navigate={openRequest}
+            saved={workspace.requests}
+            save={save}
+          />
+        )}
+      </aside>
+      {search ? (
+        <SearchDialog
+          close={() => setSearch(false)}
+          choose={(symbol) => {
+            setSearch(false);
+            if (view === "research")
+              link({
+                view: "research",
+                ticker: symbol,
+                researchTab: "company",
+              });
+            else choose(symbol);
+          }}
+        />
+      ) : null}
+      {help ? (
+        <CommandHelp close={() => setHelp(false)} onTour={beginTour} />
+      ) : null}
+      {modal === "symbol" ? (
+        <AddSymbolDialog
+          lists={workspace.watchlists}
+          listId={watchlist}
+          close={() => setModal(null)}
+          save={save}
+        />
+      ) : null}
+      {modal === "list" ? (
+        <ListEditor
+          close={() => setModal(null)}
+          save={save}
+          created={setWatchlist}
+        />
+      ) : null}
+      {alertDraft ? (
+        <AlertEditor
+          draft={alertDraft}
+          channels={alertChannels.channels}
+          save={save}
+          close={() => setAlertDraft(null)}
+          saved={(rule) =>
+            notify(
+              `Alert set: ${rule.symbol} ${describeRule(rule).toLowerCase()}.`,
+            )
+          }
+          setupChannel={
+            account.demo
+              ? undefined
+              : () => {
+                  setAlertDraft(null);
+                  go("alerts");
+                }
+          }
+        />
+      ) : null}
+      {notice ? (
+        <div
+          className={`toast ${notice.error ? "toast-error" : ""}`}
+          role={notice.error ? "alert" : "status"}
+        >
+          {notice.text}
+          <button
+            type="button"
+            onClick={() => setNotice(undefined)}
+            aria-label="Dismiss message"
+          >
+            <X size={15} />
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
