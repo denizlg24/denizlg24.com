@@ -8,6 +8,13 @@ The owner called the previous UI "super cardy boxy". If you are about to add a b
 
 Mode: **Operate**. Scanability and density matter more than expression. The brand shows in the type, the rules, and the forest accent, never in decoration.
 
+## Mark
+
+A **W drawn as one price line**, closing on a dot (the last print): `components/brand-glyph.tsx`. On a 64 grid: path `M10 21L18.5 45L31 27L43.5 45L52 21`, stroke 7, round caps and joins, dot `r=5.2` at the end point. It is built to read at 16px; do not thin the stroke or add a second line.
+
+- In the UI it sits in `.brand-mark` (24px, `--primary` tile, `--primary-foreground` mark) and uses the cropped viewBox `4 10 56 44`.
+- Files that carry it: `public/stockwatcher.svg` (favicon, 64 tile, `rx=14`, mark at 72%), `app/apple-icon.png` (180, full bleed, the OS rounds it), `app/opengraph-image.png` (the logo tile and the top bar inside the screenshot), and the product videos in `public/media`.
+
 ## Tokens
 
 Defined in `app/globals.css` on `:root`. Dark values are set under `:root[data-theme="dark"]` and again under `prefers-color-scheme: dark` when no light theme is forced. Always use the token, never a raw hex.
