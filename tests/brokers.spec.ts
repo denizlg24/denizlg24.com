@@ -7,7 +7,7 @@ test("Interactive Brokers rejects bad credentials without saving a link", async 
   page,
 }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Open preview" }).click();
+  await page.getByRole("button", { name: "Open preview" }).first().click();
   const malformed = await page.request.post("/api/brokers/ibkr", {
     data: { token: "abc", queryId: "424242" },
     headers,
@@ -37,7 +37,7 @@ test("connecting Interactive Brokers syncs a read-only portfolio the client cann
   page,
 }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Open preview" }).click();
+  await page.getByRole("button", { name: "Open preview" }).first().click();
   await page
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("link", { name: "Portfolio" })
