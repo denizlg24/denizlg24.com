@@ -2,6 +2,7 @@
 
 import {
   Brain,
+  Coins,
   Command,
   LogOut,
   Menu,
@@ -145,6 +146,13 @@ export function Topbar({
               <DropdownMenu.Item className="menu-item" onSelect={onMemory}>
                 <Brain /> Memory
               </DropdownMenu.Item>
+              {account.demo ? null : (
+                <DropdownMenu.Item className="menu-item" asChild>
+                  <a href="/account">
+                    <Coins /> Plan & credits
+                  </a>
+                </DropdownMenu.Item>
+              )}
               {account.admin ? (
                 <DropdownMenu.Item className="menu-item" asChild>
                   <a href="/admin">

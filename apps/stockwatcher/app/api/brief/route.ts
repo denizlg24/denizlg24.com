@@ -1,9 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { createTextStreamResponse, streamText, toTextStream } from "ai";
 import { z } from "zod";
 import { briefDataPack } from "@/lib/ai/brief";
 import { aiEnabled, briefModel } from "@/lib/ai/config";
 import { briefInstructions } from "@/lib/ai/prompt";
 import { currentUser, json, sameOrigin } from "@/lib/auth";
+import { reserve } from "@/lib/billing/credits";
+import { meter } from "@/lib/billing/meter";
 import { readWorkspace } from "@/lib/db";
 import { getBrief, listMemories, saveBrief } from "@/lib/memory";
 
@@ -45,6 +48,16 @@ export async function POST(request: Request) {
   if (!input.success)
     return json({ error: "Enter a date as YYYY-MM-DD." }, 400);
   const { date } = input.data;
+  const reservation = await reserve(user);
+  if (!reservation.ok)
+    return json(
+      {
+        error: "You are out of credits.",
+        code: "out_of_credits",
+        balance: reservation.balance,
+      },
+      402,
+    );
 
   const [workspace, memories] = await Promise.all([
     readWorkspace(user.id),
@@ -58,7 +71,12 @@ export async function POST(request: Request) {
     prompt: `Data pack (JSON):\n${pack}\n\nWrite the brief for ${date}.`,
     maxOutputTokens: 1200,
     timeout: { totalMs: 80_000 },
-    onEnd: async ({ text, finishReason }) => {
+    onEnd: async ({ text, finishReason, steps }) => {
+      await meter(user, reservation, steps, {
+        ref: `brief:${randomUUID()}`,
+        model: steps[0]?.model.modelId ?? null,
+        source: "brief",
+      });
       const content = text.trim();
       if (!content || finishReason === "error") return;
       try {

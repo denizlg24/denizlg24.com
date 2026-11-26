@@ -42,3 +42,11 @@ its history (`git subtree`). Product truth is `PRODUCT.md`, the visual system
 - Dev runs on port 3013 (`bun run dev:stockwatcher` at the root). The tenant
   client needs `http://localhost:3013/auth/callback` registered for local
   sign-in; preview mode works without it.
+- **Credits are a Postgres ledger, Polar only takes the money.** Polar never
+  blocks usage, so `lib/billing/credits.ts` is the hard limit: reserve a hold
+  before any model call, settle at the gateway's reported cost
+  (`providerMetadata.gateway.cost`, a decimal string per step) after. Every
+  new model call must go through `reserve` + `meter`, or it is free. Spend
+  below a request (a tool that calls `generateText`) is added with
+  `addScopedCost` inside `withCostScope`. Plan:
+  `docs/internal/plans/035-stockwatcher-multi-user.md`.

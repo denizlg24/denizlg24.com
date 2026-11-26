@@ -521,8 +521,10 @@ export function createTools(ctx: { user: Identity; origin: string }) {
 
 export type StockwatcherTools = ReturnType<typeof createTools>;
 export type StockwatcherDataParts = Record<string, never>;
+export type StockwatcherMessageMetadata = { credits?: number };
+
 export type StockwatcherMessage = UIMessage<
-  never,
+  StockwatcherMessageMetadata,
   StockwatcherDataParts,
   InferUITools<StockwatcherTools>
 >;

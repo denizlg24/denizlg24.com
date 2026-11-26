@@ -19,6 +19,14 @@ import { chatInstructions } from "@/lib/ai/prompt";
 import { createTools, type StockwatcherMessage } from "@/lib/ai/tools";
 import { dashboardSchema } from "@/lib/assistant-types";
 import { appOrigin, currentUser, json, sameOrigin } from "@/lib/auth";
+import {
+  chargeFor,
+  credits,
+  gatewayCost,
+  reserve,
+} from "@/lib/billing/credits";
+import { meter } from "@/lib/billing/meter";
+import { type CostScope, withCostScope } from "@/lib/billing/scope";
 import { readWorkspace } from "@/lib/db";
 import { listMemories, saveThread, threadIdSchema } from "@/lib/memory";
 import { symbolPattern } from "@/lib/universes";
@@ -121,7 +129,11 @@ function modelHistory(messages: StockwatcherMessage[]) {
   return start > 0 ? recent.slice(start) : recent;
 }
 
-export async function POST(request: Request) {
+export function POST(request: Request) {
+  return withCostScope((scope) => chat(request, scope));
+}
+
+async function chat(request: Request, scope: CostScope) {
   const startedAt = Date.now();
   if (!sameOrigin(request)) return json({ error: "Origin not allowed" }, 403);
   const user = await currentUser();
@@ -180,6 +192,17 @@ export async function POST(request: Request) {
       400,
     );
 
+  const reservation = await reserve(user);
+  if (!reservation.ok)
+    return json(
+      {
+        error: "You are out of credits.",
+        code: "out_of_credits",
+        balance: reservation.balance,
+      },
+      402,
+    );
+
   const [workspace, memories] = await Promise.all([
     readWorkspace(user.id),
     listMemories(user.id).catch(() => []),
@@ -203,13 +226,27 @@ export async function POST(request: Request) {
   ) => {
     if (recorded) return;
     recorded = true;
+    const runId = randomUUID();
+    void meter(
+      user,
+      reservation,
+      steps,
+      {
+        ref: `run:${runId}`,
+        threadId,
+        messageId: responseId,
+        model: steps[0]?.model.modelId ?? model.modelId,
+        source: "chat",
+      },
+      scope.extraUsd,
+    );
     const usage = outcome.usage ?? sumUsage(steps);
     const reply = steps
       .map((step) => step.text.trim())
       .filter(Boolean)
       .join("\n\n");
     recordRun({
-      id: randomUUID(),
+      id: runId,
       userId: user.id,
       threadId,
       messageId: responseId,
@@ -298,6 +335,14 @@ export async function POST(request: Request) {
       tools,
       originalMessages: messages,
       generateMessageId: () => responseId,
+      messageMetadata: ({ part }) =>
+        part.type === "finish" && reservation.metered
+          ? {
+              credits: credits(
+                chargeFor(gatewayCost(finishedSteps).costUsd + scope.extraUsd),
+              ),
+            }
+          : undefined,
       sendSources: true,
       redactToolErrors: false,
       onError: () =>
