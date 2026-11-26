@@ -1,8 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { getCardById } from "@/lib/kanban";
+import { completeCard, NoDoneColumnError } from "@/lib/kanban";
 import { requireAdmin } from "@/lib/require-admin";
 
-export async function GET(
+export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ cardId: string }> },
 ) {
@@ -11,13 +11,15 @@ export async function GET(
 
   try {
     const { cardId } = await params;
-    const card = await getCardById(cardId);
+    const card = await completeCard(cardId);
     if (!card)
       return NextResponse.json({ error: "Card not found" }, { status: 404 });
     return NextResponse.json({ card }, { status: 200 });
-  } catch (_error) {
+  } catch (error) {
+    if (error instanceof NoDoneColumnError)
+      return NextResponse.json({ error: error.message }, { status: 409 });
     return NextResponse.json(
-      { error: "Failed to fetch card" },
+      { error: "Failed to complete card" },
       { status: 500 },
     );
   }

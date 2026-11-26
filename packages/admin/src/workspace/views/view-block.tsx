@@ -34,7 +34,6 @@ import type { ModuleId } from "../modules";
 import { recordHref } from "../records";
 import type { WorkspaceNav } from "../refs";
 import { useWorkspaceNav } from "../use-workspace-nav";
-import { ActionListLayout, ActionTableLayout } from "./action-layouts";
 import { ViewConfigEditor } from "./config";
 import {
   BoardLayout,
@@ -99,32 +98,43 @@ export function viewConfigOf(block: BlockOf<"view">): ViewConfig {
   return config;
 }
 
-/** Resolve the Done column by the card's board id, never by a duplicate title. */
-const doneColumns = new WeakMap<AdminClient, Map<string, Promise<string>>>();
+type RowAction = {
+  label: string;
+  run: (client: AdminClient, row: ViewRow) => Promise<unknown>;
+};
 
-function doneColumnFor(client: AdminClient, boardId: string): Promise<string> {
-  let byBoard = doneColumns.get(client);
-  if (!byBoard) {
-    byBoard = new Map();
-    doneColumns.set(client, byBoard);
-  }
-  const cached = byBoard.get(boardId);
-  if (cached) return cached;
-  const pending = client
-    .get<{
-      columns: { _id: string; isDoneColumn?: boolean }[];
-    }>(`kanban/boards/${encodeURIComponent(boardId)}/columns`)
-    .then(({ columns }) => {
-      const done = columns.find((column) => column.isDoneColumn === true);
-      if (!done) throw new Error("Task board has no Done column");
-      return done._id;
-    })
-    .catch((error) => {
-      byBoard.delete(boardId);
-      throw error;
-    });
-  byBoard.set(boardId, pending);
-  return pending;
+const filtersOn = (
+  config: ViewConfig,
+  field: string,
+  value: ViewFilter["value"],
+) =>
+  config.filters.some(
+    (filter) =>
+      filter.field === field && filter.op === "is" && filter.value === value,
+  );
+
+/**
+ * A one-click action for views whose filter the action takes the row out of,
+ * so hiding the row at once is exactly what the server will confirm.
+ */
+function rowActionFor(config: ViewConfig): RowAction | null {
+  if (config.layout !== "list" && config.layout !== "table") return null;
+  if (config.group) return null;
+  if (config.source === "kanban-cards" && filtersOn(config, "done", false))
+    return {
+      label: "Complete task",
+      run: (client, row) =>
+        client.post(`kanban/cards/${encodeURIComponent(row.id)}/complete`, {}),
+    };
+  if (config.source === "triage" && filtersOn(config, "status", "pending"))
+    return {
+      label: "Mark reviewed",
+      run: (client, row) =>
+        client.patch(`triage/${encodeURIComponent(row.id)}`, {
+          userStatus: "reviewed",
+        }),
+    };
+  return null;
 }
 
 /** One view's rows: shared stale-while-revalidate cache, more on demand. */
@@ -270,53 +280,16 @@ export function ViewBlock({
   );
   const label = block.title ?? descriptor.label;
   const href = nav.moduleHref(SOURCE_MODULE[config.source]);
-  const hasPendingTriageFilter = config.filters.some(
-    (filter) =>
-      filter.field === "status" &&
-      filter.op === "is" &&
-      filter.value === "pending",
-  );
-  let homeAction: "complete-task" | "review-mail" | null = null;
-  if (
-    block.id === "home-work" &&
-    config.source === "kanban-cards" &&
-    config.layout === "list"
-  ) {
-    homeAction = "complete-task";
-  } else if (
-    block.id === "home-mail" &&
-    config.source === "triage" &&
-    config.layout === "table" &&
-    !config.group &&
-    hasPendingTriageFilter
-  ) {
-    homeAction = "review-mail";
-  }
+  const action = useMemo(() => rowActionFor(config), [config]);
 
   const actOnRow = useCallback(
     async (row: ViewRow) => {
-      if (!homeAction || pendingRef.current.has(row.id)) return;
-      pendingRef.current.add(row.id);
+      if (!action || pendingRef.current.has(row.id)) return;
       const optimistic = query.optimisticRemove(row);
-      if (!optimistic) {
-        pendingRef.current.delete(row.id);
-        return;
-      }
+      if (!optimistic) return;
+      pendingRef.current.add(row.id);
       try {
-        if (homeAction === "complete-task") {
-          const { card } = await client.get<{
-            card: { boardId: string };
-          }>(`kanban/cards/${encodeURIComponent(row.id)}`);
-          const columnId = await doneColumnFor(client, card.boardId);
-          await client.patch(
-            `kanban/boards/${encodeURIComponent(card.boardId)}/cards/${encodeURIComponent(row.id)}`,
-            { columnId },
-          );
-        } else {
-          await client.patch(`triage/${encodeURIComponent(row.id)}`, {
-            userStatus: "reviewed",
-          });
-        }
+        await action.run(client, row);
         await query.reload();
         optimistic.commit();
       } catch (error) {
@@ -326,31 +299,26 @@ export function ViewBlock({
         pendingRef.current.delete(row.id);
       }
     },
-    [client, homeAction, query.optimisticRemove, query.reload],
+    [client, action, query.optimisticRemove, query.reload],
   );
 
-  const rowAction = homeAction
-    ? (row: ViewRow): ReactNode => {
-        const actionLabel =
-          homeAction === "complete-task" ? "Complete task" : "Mark reviewed";
-        const title = String(row.values[descriptor.titleField] ?? "");
-        return (
-          <button
-            type="button"
-            aria-label={`${actionLabel}: ${title}`}
-            title={actionLabel}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              void actOnRow(row);
-            }}
-            className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-surface hover:text-accent-strong"
-          >
-            <Check className="size-3.5" />
-          </button>
-        );
-      }
-    : null;
+  const rowAction = action
+    ? (row: ViewRow): ReactNode => (
+        <button
+          type="button"
+          aria-label={`${action.label}: ${String(row.values[descriptor.titleField] ?? "")}`}
+          title={action.label}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void actOnRow(row);
+          }}
+          className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-surface hover:text-accent-strong"
+        >
+          <Check className="size-3.5" />
+        </button>
+      )
+    : undefined;
 
   let body: React.ReactNode;
   if (!query.result && query.error) {
@@ -371,13 +339,10 @@ export function ViewBlock({
       rows: query.rows,
       fields,
       rowHref,
+      rowAction,
     };
     if (query.result.total === 0 && config.layout !== "calendar") {
       body = <span className="text-xs text-muted-foreground">—</span>;
-    } else if (homeAction === "complete-task" && rowAction) {
-      body = <ActionListLayout {...props} action={rowAction} />;
-    } else if (homeAction === "review-mail" && rowAction) {
-      body = <ActionTableLayout {...props} action={rowAction} />;
     } else if (config.layout === "list") body = <ListLayout {...props} />;
     else if (config.layout === "board") body = <BoardLayout {...props} />;
     else if (config.layout === "gallery") body = <GalleryLayout {...props} />;
