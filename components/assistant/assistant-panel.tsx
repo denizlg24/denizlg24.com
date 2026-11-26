@@ -68,6 +68,7 @@ export type AssistantPanelProps = {
   onClose?: () => void;
   onUnavailable?: () => void;
   available?: boolean;
+  hasBook?: boolean;
   className?: string;
 };
 
@@ -84,13 +85,20 @@ const transport = new DefaultChatTransport<StockwatcherMessage>({
   api: "/api/chat",
 });
 
-const starters = [
+const bookStarters = [
   "What moved my book today and why?",
+  "Which of my holdings report earnings or file with the SEC soon?",
+  "Where is my book most concentrated, per currency?",
+  "What % of S&P 500 stocks are above their 50-day average? Chart it",
+  "Compare NVDA, AMD and AVGO since January",
+];
+
+const marketStarters = [
+  "What % of S&P 500 stocks are above their 50-day average? Chart it",
+  "Which S&P 500 sectors are leading this month, by equal-weight return?",
   "Compare NVDA, AMD and AVGO since January",
   "Summarise Berkshire's latest 13F changes",
   "Pin a 6M chart of ^STOXX50E to my desk",
-  "Which of my holdings report earnings or file with the SEC soon?",
-  "Where is my book most concentrated, per currency?",
 ];
 
 const viewLabels: Partial<Record<string, string>> = {
@@ -148,6 +156,7 @@ export function AssistantPanel({
   onClose,
   onUnavailable,
   available = true,
+  hasBook = true,
   className,
 }: AssistantPanelProps) {
   const [session, setSession] = useState<Session>(newSession);
@@ -462,7 +471,11 @@ export function AssistantPanel({
                   ) : null}
                 </div>
               ) : (
-                <Starters onPick={send} />
+                <Starters
+                  hasBook={hasBook}
+                  onPick={send}
+                  onAddBook={() => onOpenView({ view: "portfolio" })}
+                />
               )}
             </div>
 
@@ -627,15 +640,33 @@ function Answer({
   );
 }
 
-function Starters({ onPick }: { onPick: (text: string) => void }) {
+function Starters({
+  hasBook,
+  onPick,
+  onAddBook,
+}: {
+  hasBook: boolean;
+  onPick: (text: string) => void;
+  onAddBook: () => void;
+}) {
   return (
     <div className="chat-empty">
       <p className="chat-empty-lead">
-        Reads your ledger, live quotes, SEC filings and the news. Every number
-        comes back with its source, time and currency.
+        Reads your ledger, live quotes, SEC filings and the news, and computes
+        any indicator or statistic from live prices. Every number comes back
+        with its source, time and currency.
       </p>
+      {hasBook ? null : (
+        <p className="chat-empty-lead">
+          No portfolio yet.{" "}
+          <button type="button" className="chat-empty-link" onClick={onAddBook}>
+            Connect Interactive Brokers or add positions
+          </button>{" "}
+          to ask about your book.
+        </p>
+      )}
       <ul className="ruled-list flush-top chat-starters">
-        {starters.map((starter) => (
+        {(hasBook ? bookStarters : marketStarters).map((starter) => (
           <li key={starter}>
             <button type="button" onClick={() => onPick(starter)}>
               {starter}

@@ -316,7 +316,7 @@ export function ema(values: Series, period: number): Series {
   return out;
 }
 
-function wilder(values: Series, period: number): Series {
+export function wilder(values: Series, period: number): Series {
   const out: Series = new Array(values.length).fill(null);
   let prev: number | null = null;
   let seed = 0;

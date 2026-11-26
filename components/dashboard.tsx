@@ -786,6 +786,10 @@ export function Dashboard({
             onOpenSymbol={choose}
             onClose={closeAssistant}
             onUnavailable={unavailable}
+            hasBook={
+              workspace.trades.length > 0 ||
+              workspace.books.some((book) => book.broker)
+            }
           />
         ) : (
           <LegacyAssistant

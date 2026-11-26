@@ -148,6 +148,7 @@ const toolNames: Record<ToolPart["type"], string> = {
   "tool-getRiskAnalytics": "Risk analytics",
   "tool-getNewsWire": "News wire",
   "tool-backtestStrategy": "Backtest",
+  "tool-compute": "Compute",
 };
 
 export function runningLabel(part: ToolPart): string {
@@ -277,6 +278,8 @@ export function runningLabel(part: ToolPart): string {
       return part.input?.symbol
         ? `Backtesting ${part.input.symbol}`
         : "Backtesting strategy";
+    case "tool-compute":
+      return part.input?.description ?? "Computing";
   }
 }
 
@@ -596,6 +599,18 @@ function ToolOutput({ part }: { part: DonePart }) {
         />
       );
     }
+    case "tool-compute": {
+      const output = part.output;
+      return isFailure(output) ? (
+        <ComputeFailure
+          description={part.input.description}
+          code={part.input.code}
+          error={failureText(output)}
+        />
+      ) : (
+        <Compute input={part.input} output={output} />
+      );
+    }
     case "tool-backtestStrategy": {
       const output = part.output;
       return isFailure(output) ? (
@@ -608,6 +623,171 @@ function ToolOutput({ part }: { part: DonePart }) {
       );
     }
   }
+}
+
+type ComputeInput = Tools["compute"]["input"];
+type ComputeResult = Success<"compute">["result"];
+type Cell = string | number | boolean | null;
+
+const isCell = (value: ComputeResult): value is Cell =>
+  value === null || typeof value !== "object";
+const isRecord = (
+  value: ComputeResult,
+): value is { [key: string]: ComputeResult } =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+const MAX_TABLE_ROWS = 200;
+const MAX_TABLE_COLUMNS = 12;
+const PREVIEW_CHARS = 1200;
+
+function cellText(value: Cell | undefined) {
+  if (value === null || value === undefined) return "—";
+  if (typeof value !== "number") return String(value);
+  if (!Number.isFinite(value)) return "—";
+  return Math.abs(value) >= 1000
+    ? value.toLocaleString("en-US", { maximumFractionDigits: 2 })
+    : String(Number(value.toPrecision(5)));
+}
+
+function tabulate(result: ComputeResult) {
+  if (isRecord(result)) {
+    const entries = Object.entries(result);
+    const rows = entries.flatMap(([key, value]): Cell[][] =>
+      isCell(value) ? [[key, value]] : [],
+    );
+    if (rows.length !== entries.length || rows.length === 0 || rows.length > 40)
+      return null;
+    return { columns: ["Field", "Value"], rows, total: rows.length };
+  }
+  if (!Array.isArray(result) || result.length === 0) return null;
+  const records = result.filter(isRecord);
+  if (records.length !== result.length) return null;
+  if (!records.every((record) => Object.values(record).every(isCell)))
+    return null;
+  const columns = [...new Set(records.flatMap((record) => Object.keys(record)))];
+  if (columns.length === 0 || columns.length > MAX_TABLE_COLUMNS) return null;
+  return {
+    columns,
+    rows: records
+      .slice(0, MAX_TABLE_ROWS)
+      .map((record) =>
+        columns.map((column) => {
+          const value = record[column];
+          return value !== undefined && isCell(value) ? value : null;
+        }),
+      ),
+    total: records.length,
+  };
+}
+
+function ComputeResultView({ result }: { result: ComputeResult }) {
+  const table = tabulate(result);
+  if (table)
+    return (
+      <>
+        <div className="chat-compute-scroll">
+          <table className="data-table chat-table">
+            <thead>
+              <tr>
+                {table.columns.map((column, i) => (
+                  <th key={column} className={i === 0 ? undefined : "num"}>
+                    {column}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {table.rows.map((row, r) => (
+                <tr key={r}>
+                  {row.map((cell, c) => (
+                    <td key={table.columns[c]} className={c === 0 ? undefined : "num"}>
+                      {cellText(cell)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {table.total > table.rows.length ? (
+          <p className="muted chat-compute-note">
+            Showing {table.rows.length} of {table.total} rows
+          </p>
+        ) : null}
+      </>
+    );
+  if (isCell(result))
+    return <p className="chat-compute-value">{cellText(result)}</p>;
+  const pretty = JSON.stringify(result, null, 2);
+  if (pretty.length <= PREVIEW_CHARS)
+    return <pre className="chat-compute-code">{pretty}</pre>;
+  return (
+    <details className="chat-compute-details">
+      <summary>
+        <pre className="chat-compute-code">{pretty.slice(0, PREVIEW_CHARS)}…</pre>
+        <span className="muted">Expand full result</span>
+      </summary>
+      <pre className="chat-compute-code">{pretty}</pre>
+    </details>
+  );
+}
+
+function ComputeCode({ code }: { code: string }) {
+  return (
+    <details className="chat-compute-details">
+      <summary>Code</summary>
+      <pre className="chat-compute-code">{code}</pre>
+    </details>
+  );
+}
+
+function Compute({
+  input,
+  output,
+}: {
+  input: ComputeInput;
+  output: Success<"compute">;
+}) {
+  const stats = [
+    output.symbols > 0 ? `${output.symbols} symbols` : null,
+    output.missingCount > 0 ? `${output.missingCount} missing` : null,
+    `${(output.ms / 1000).toFixed(1)} s`,
+  ].filter(Boolean);
+  return (
+    <Block title="Compute" meta={stats.join(" · ")}>
+      <p className="chat-compute-title">{output.description}</p>
+      <ComputeResultView result={output.result} />
+      {output.missingCount > 0 ? (
+        <p className="muted chat-compute-note" title={output.missing.join(", ")}>
+          No data for {output.missing.slice(0, 8).join(", ")}
+          {output.missingCount > 8 ? ` and ${output.missingCount - 8} more` : ""}
+        </p>
+      ) : null}
+      <ComputeCode code={input.code} />
+      <div className="chat-tool-foot">
+        <span>{output.source}</span>
+        <span>As of {stamp(Date.parse(output.asOf))}</span>
+      </div>
+    </Block>
+  );
+}
+
+function ComputeFailure({
+  description,
+  code,
+  error,
+}: {
+  description: string;
+  code: string;
+  error: string;
+}) {
+  return (
+    <Block title="Compute" meta="failed">
+      <p className="chat-compute-title">{description}</p>
+      <ToolError name="Compute" text={error} />
+      <ComputeCode code={code} />
+    </Block>
+  );
 }
 
 function Chip({ icon, text }: { icon: ReactNode; text: string }) {

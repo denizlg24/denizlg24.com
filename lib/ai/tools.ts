@@ -6,6 +6,7 @@ import { gateway } from "./config";
 import { attempt, ticker } from "./shared";
 import { workspaceTools } from "./workspace-tools";
 import { marketTools } from "./market-tools";
+import { computeTools } from "./compute-tools";
 import {
   newsFor,
   portfolioSnapshot,
@@ -492,6 +493,7 @@ export function createTools(ctx: { user: Identity; origin: string }) {
     }),
     ...workspaceTools({ user }),
     ...marketTools({ user }),
+    ...computeTools(),
     webSearch: gateway().tools.perplexitySearch({
       maxResults: 8,
       maxTokensPerPage: 1024,

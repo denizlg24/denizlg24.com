@@ -287,7 +287,12 @@ export function workspaceDigest(workspace: Workspace) {
           "; ",
         )}${holdings.size > 40 ? ` (+${holdings.size - 40} more)` : ""}`,
     );
-  else lines.push("No open positions recorded.");
+  else if (workspace.books.some((book) => book.broker))
+    lines.push("No open positions recorded.");
+  else
+    lines.push(
+      "The user's book is empty: no open positions and no broker link.",
+    );
   for (const list of workspace.watchlists.slice(0, 10))
     lines.push(
       `Watchlist "${list.name}" (watchlistId ${list.id}): ${list.symbols.slice(0, 30).join(", ") || "empty"}${list.symbols.length > 30 ? ` (+${list.symbols.length - 30})` : ""}`,

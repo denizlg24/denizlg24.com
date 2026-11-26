@@ -672,6 +672,16 @@
   font-size: var(--fs-sm);
   line-height: 1.5;
 }
+.chat-empty-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
 .chat-starters > li {
   padding: 0;
 }
@@ -1115,4 +1125,37 @@
 }
 .chat-question-answered span {
   color: var(--muted-foreground);
+}
+
+.chat-compute-title {
+  margin: 0 0 4px;
+  font-size: var(--fs-xs);
+}
+.chat-compute-value {
+  margin: 0;
+  font-size: var(--fs-lg, 1.1rem);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.chat-compute-scroll {
+  max-height: 280px;
+  overflow: auto;
+}
+.chat-compute-note {
+  margin: 2px 0 0;
+  font-size: var(--fs-2xs);
+}
+.chat-compute-details > summary {
+  cursor: pointer;
+  color: var(--muted-foreground);
+  font-size: var(--fs-2xs);
+}
+.chat-compute-code {
+  max-height: 260px;
+  margin: 4px 0;
+  overflow: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: var(--fs-2xs);
+  line-height: 1.45;
+  white-space: pre;
 }
