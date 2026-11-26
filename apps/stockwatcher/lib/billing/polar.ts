@@ -1,6 +1,6 @@
 import "server-only";
 import { createPolar, webhooks } from "@polar-sh/sdk/2026-10";
-import { adjustPaid, MC_PER_CREDIT, refundedFor } from "./credits";
+import { adjustPaid, MC_PER_CREDIT, reverseOrder } from "./credits";
 
 export const polarReady = () =>
   Boolean(process.env.POLAR_ACCESS_TOKEN && process.env.POLAR_WEBHOOK_SECRET);
@@ -152,19 +152,19 @@ export async function handleWebhook(
     return { status: 202, result: granted ? "granted" : "duplicate" };
   }
 
-  if (order.total_amount <= 0)
+  // Polar refunds the net amount and records refunded tax separately.
+  if (order.net_amount <= 0)
     return { status: 202, result: "nothing to refund" };
   const target = Math.round(
     (credits *
       MC_PER_CREDIT *
-      Math.min(order.refunded_amount, order.total_amount)) /
-      order.total_amount,
+      Math.min(order.refunded_amount, order.net_amount)) /
+      order.net_amount,
   );
-  const owed = target - (await refundedFor(order.id));
-  if (owed <= 0) return { status: 202, result: "duplicate" };
-  await adjustPaid({
+  const reversed = await reverseOrder({
     userId,
-    amountMc: -owed,
+    orderId: order.id,
+    targetMc: target,
     kind: "refund",
     ref: `polar:refund:${order.id}:${order.refunded_amount}`,
     meta: {
@@ -173,5 +173,5 @@ export async function handleWebhook(
       currency: order.currency,
     },
   });
-  return { status: 202, result: "reversed" };
+  return { status: 202, result: reversed ? "reversed" : "duplicate" };
 }

@@ -183,37 +183,39 @@ export default async function AccountPage({
             credits still work.
           </p>
         ) : packs.length ? (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Pack</th>
-                <th className="num">Credits</th>
-                <th className="num">Price</th>
-                <th className="num">Per 100 credits</th>
-                <th aria-label="Buy" />
-              </tr>
-            </thead>
-            <tbody>
-              {packs.map((pack) => (
-                <tr key={pack.id}>
-                  <td>{pack.name}</td>
-                  <td className="num">{creditFormat.format(pack.credits)}</td>
-                  <td className="num">
-                    {money(pack.priceAmount, pack.currency)}
-                  </td>
-                  <td className="num">
-                    {money(
-                      Math.round((pack.priceAmount * 100) / pack.credits),
-                      pack.currency,
-                    )}
-                  </td>
-                  <td className="num">
-                    <BuyButton productId={pack.id} />
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Pack</th>
+                  <th className="num">Credits</th>
+                  <th className="num">Price</th>
+                  <th className="num">Per 100 credits</th>
+                  <th aria-label="Buy" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {packs.map((pack) => (
+                  <tr key={pack.id}>
+                    <td>{pack.name}</td>
+                    <td className="num">{creditFormat.format(pack.credits)}</td>
+                    <td className="num">
+                      {money(pack.priceAmount, pack.currency)}
+                    </td>
+                    <td className="num">
+                      {money(
+                        Math.round((pack.priceAmount * 100) / pack.credits),
+                        pack.currency,
+                      )}
+                    </td>
+                    <td className="num">
+                      <BuyButton productId={pack.id} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <p className="empty">
             <strong>No packs are on sale right now.</strong> Try again later.
@@ -229,24 +231,28 @@ export default async function AccountPage({
           </div>
         </header>
         {days.length ? (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Day</th>
-                <th className="num">Requests</th>
-                <th className="num">Credits</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...days].reverse().map((day) => (
-                <tr key={day.day}>
-                  <td>{dayFormat.format(new Date(`${day.day}T00:00:00Z`))}</td>
-                  <td className="num">{day.runs}</td>
-                  <td className="num">{creditFormat.format(day.credits)}</td>
+          <div className="overflow-x-auto">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Day</th>
+                  <th className="num">Requests</th>
+                  <th className="num">Credits</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {[...days].reverse().map((day) => (
+                  <tr key={day.day}>
+                    <td>
+                      {dayFormat.format(new Date(`${day.day}T00:00:00Z`))}
+                    </td>
+                    <td className="num">{day.runs}</td>
+                    <td className="num">{creditFormat.format(day.credits)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <p className="empty">
             <strong>No usage yet.</strong> Ask the assistant something to see it
@@ -262,28 +268,30 @@ export default async function AccountPage({
             <p>Latest 100 entries · UTC</p>
           </div>
         </header>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>When</th>
-              <th>What</th>
-              <th className="num">Credits</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((entry) => (
-              <tr key={entry.id}>
-                <td>{stampFormat.format(new Date(entry.createdAt))}</td>
-                <td>{describe(entry, titles)}</td>
-                <td
-                  className={`num ${entry.credits > 0 ? "positive" : entry.credits < 0 ? "negative" : "neutral"}`}
-                >
-                  {signed(entry.credits)}
-                </td>
+        <div className="overflow-x-auto">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>What</th>
+                <th className="num">Credits</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {entries.map((entry) => (
+                <tr key={entry.id}>
+                  <td>{stampFormat.format(new Date(entry.createdAt))}</td>
+                  <td>{describe(entry, titles)}</td>
+                  <td
+                    className={`num ${entry.credits > 0 ? "positive" : entry.credits < 0 ? "negative" : "neutral"}`}
+                  >
+                    {signed(entry.credits)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
     </>
   );

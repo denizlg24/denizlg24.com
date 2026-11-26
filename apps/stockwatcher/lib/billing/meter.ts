@@ -8,10 +8,7 @@ import {
   settle,
   type Usage,
 } from "./credits";
-
-type MeteredStep = {
-  providerMetadata?: Record<string, Record<string, unknown>> | undefined;
-};
+import type { MeteredStep } from "./scope";
 
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
@@ -28,37 +25,50 @@ async function lookupCost(generationId: string) {
   return null;
 }
 
-/** USD cost of the steps: the cost the gateway attached, else a lookup by generation id. */
+/**
+ * USD cost of the steps: the cost the gateway attached, else a lookup by
+ * generation id. `unresolved` counts steps neither could price.
+ */
 export async function stepsCost(steps: ReadonlyArray<MeteredStep>) {
   const direct = gatewayCost(steps);
-  if (!direct.missing) return direct.costUsd;
-  let total = direct.costUsd;
+  if (!direct.missing) return { costUsd: direct.costUsd, unresolved: 0 };
+  let costUsd = direct.costUsd;
+  let unresolved = 0;
   for (const step of steps) {
-    const gatewayMeta = step.providerMetadata?.gateway;
-    if (Number.isFinite(Number(gatewayMeta?.cost))) continue;
-    const id = gatewayMeta?.generationId;
-    if (typeof id !== "string") continue;
-    const cost = await lookupCost(id);
-    if (cost !== null) total += cost;
+    const meta = step.providerMetadata?.gateway;
+    if (Number.isFinite(Number(meta?.cost))) continue;
+    const id = meta?.generationId;
+    const cost = typeof id === "string" ? await lookupCost(id) : null;
+    if (cost === null) unresolved++;
+    else costUsd += cost;
   }
-  return total;
+  return { costUsd, unresolved };
 }
 
-/** Settles a reservation for finished steps; never throws into the caller's stream. */
+/**
+ * Settles a reservation for finished steps; never throws into the caller's
+ * stream. Unpriced steps are recorded on the ledger entry (`meta.unresolved`)
+ * rather than retried: durable retry belongs to the worker queue (plan 035,
+ * phase 2).
+ */
 export async function meter(
   user: Pick<Identity, "id" | "demo">,
   reservation: Extract<Reservation, { ok: true }>,
   steps: ReadonlyArray<MeteredStep>,
-  usage: Omit<Usage, "costUsd">,
-  extraUsd = 0,
+  usage: Omit<Usage, "costUsd" | "unresolved">,
 ): Promise<number | null> {
   try {
-    const costUsd = (steps.length ? await stepsCost(steps) : 0) + extraUsd;
-    if (!costUsd && !steps.length) {
+    if (!steps.length) {
       await release(reservation);
       return 0;
     }
-    return await settle(user, reservation, { ...usage, costUsd });
+    const { costUsd, unresolved } = await stepsCost(steps);
+    if (unresolved)
+      console.error("Stockwatcher could not price model steps", {
+        ref: usage.ref,
+        unresolved,
+      });
+    return await settle(user, reservation, { ...usage, costUsd, unresolved });
   } catch (error) {
     console.error("Stockwatcher credit settlement failed", {
       ref: usage.ref,

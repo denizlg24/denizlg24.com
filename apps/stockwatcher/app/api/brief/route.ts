@@ -1,11 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { createTextStreamResponse, streamText, toTextStream } from "ai";
+import {
+  createTextStreamResponse,
+  type StepResult,
+  streamText,
+  type ToolSet,
+  toTextStream,
+} from "ai";
 import { z } from "zod";
 import { briefDataPack } from "@/lib/ai/brief";
 import { aiEnabled, briefModel } from "@/lib/ai/config";
 import { briefInstructions } from "@/lib/ai/prompt";
 import { currentUser, json, sameOrigin } from "@/lib/auth";
-import { reserve } from "@/lib/billing/credits";
+import { release, reserve } from "@/lib/billing/credits";
 import { meter } from "@/lib/billing/meter";
 import { readWorkspace } from "@/lib/db";
 import { getBrief, listMemories, saveBrief } from "@/lib/memory";
@@ -59,11 +65,31 @@ export async function POST(request: Request) {
       402,
     );
 
-  const [workspace, memories] = await Promise.all([
-    readWorkspace(user.id),
-    listMemories(user.id).catch(() => []),
-  ]);
-  const pack = await briefDataPack(workspace.data, memories);
+  let pack: string;
+  try {
+    const [workspace, memories] = await Promise.all([
+      readWorkspace(user.id),
+      listMemories(user.id).catch(() => []),
+    ]);
+    pack = await briefDataPack(workspace.data, memories);
+  } catch (error) {
+    await release(reservation).catch(() => undefined);
+    throw error;
+  }
+
+  const ref = `brief:${randomUUID()}`;
+  const finished: StepResult<ToolSet>[] = [];
+  let settled = false;
+  // onEnd, onAbort and a stream that dies without either all land here once.
+  const settleOnce = (steps: ReadonlyArray<StepResult<ToolSet>>) => {
+    if (settled) return;
+    settled = true;
+    void meter(user, reservation, steps, {
+      ref,
+      model: steps[0]?.model.modelId ?? null,
+      source: "brief",
+    });
+  };
 
   const result = streamText({
     model: briefModel(),
@@ -71,12 +97,12 @@ export async function POST(request: Request) {
     prompt: `Data pack (JSON):\n${pack}\n\nWrite the brief for ${date}.`,
     maxOutputTokens: 1200,
     timeout: { totalMs: 80_000 },
+    onStepEnd: (step) => {
+      finished.push(step);
+    },
+    onAbort: ({ steps }) => settleOnce(steps),
     onEnd: async ({ text, finishReason, steps }) => {
-      await meter(user, reservation, steps, {
-        ref: `brief:${randomUUID()}`,
-        model: steps[0]?.model.modelId ?? null,
-        source: "brief",
-      });
+      settleOnce(steps);
       const content = text.trim();
       if (!content || finishReason === "error") return;
       try {
@@ -97,7 +123,9 @@ export async function POST(request: Request) {
       });
     },
   });
-  result.consumeStream();
+  void Promise.resolve(result.consumeStream())
+    .catch(() => undefined)
+    .then(() => setTimeout(() => settleOnce(finished), 1_000));
 
   return createTextStreamResponse({
     headers: { "Cache-Control": "no-store" },

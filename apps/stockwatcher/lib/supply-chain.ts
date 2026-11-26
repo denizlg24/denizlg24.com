@@ -1,6 +1,6 @@
 import "server-only";
 import { generateText, Output } from "ai";
-import { addScopedCost } from "@/lib/billing/scope";
+import { addScopedStep } from "@/lib/billing/scope";
 import { briefModel } from "./ai/config";
 import { readExtract, writeExtract } from "./db";
 import { archive, sec, submission } from "./research";
@@ -201,7 +201,8 @@ export async function ownDisclosure(
   const context = excerpts(text, ownPatterns);
   let links: Link[] = [];
   if (context) {
-    const { output, steps } = await generateText({
+    const { output } = await generateText({
+      onStepEnd: addScopedStep,
       model: briefModel(),
       output: Output.object({ schema: extractionSchema }),
       prompt: `These are excerpts from ${filing.name}'s ${filing.form} filed ${filing.filed}.
@@ -210,7 +211,6 @@ Only use facts stated in the excerpts. For each one, copy the supporting sentenc
 
 ${context}`,
     });
-    addScopedCost(steps);
     links = output.relationships
       .filter((item) => grounded(item.quote, text))
       .map((item) => ({
@@ -341,7 +341,8 @@ export async function verify(ticker: string, cik: string): Promise<Verified> {
   const context = excerpts(text, [new RegExp(escaped, "i")], 600, 9_000);
   let link: Link | null = null;
   if (context) {
-    const { output, steps } = await generateText({
+    const { output } = await generateText({
+      onStepEnd: addScopedStep,
       model: briefModel(),
       output: Output.object({ schema: verificationSchema }),
       prompt: `FILER: ${filing.name}. TARGET: ${target.title}.
@@ -350,7 +351,6 @@ If the filer states what share of its revenue comes from the target, give it as 
 
 ${context}`,
     });
-    addScopedCost(steps);
     if (output.relation !== "mention" && grounded(output.quote, text)) {
       link = {
         counterparty: listed.title,

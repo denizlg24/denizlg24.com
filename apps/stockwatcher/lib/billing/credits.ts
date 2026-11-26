@@ -50,15 +50,17 @@ type AccountRow = {
 };
 
 async function lockAccount(sql: postgres.TransactionSql, userId: string) {
-  const now = new Date();
   const config = creditConfig();
   await sql`
     INSERT INTO stockwatcher_credit_accounts (user_id, free_mc, paid_mc, free_period, updated_at)
-    VALUES (${userId}, 0, 0, '', ${now})
+    VALUES (${userId}, 0, 0, '', ${new Date()})
     ON CONFLICT (user_id) DO NOTHING`;
   const [row] = await sql<AccountRow[]>`
     SELECT free_mc, paid_mc, free_period FROM stockwatcher_credit_accounts
     WHERE user_id = ${userId} FOR UPDATE`;
+  // Read the clock only once the lock is held, so a call that waited behind
+  // another container's month reset cannot reset the account to a stale month.
+  const now = new Date();
   let free = Number(row.free_mc);
   const paid = Number(row.paid_mc);
   const current = period(now);
@@ -138,6 +140,7 @@ export type Usage = {
   messageId?: string | null;
   model?: string | null;
   source: "chat" | "brief" | "supply-chain";
+  unresolved?: number;
 };
 
 /** Settles a reservation against the actual model cost. Returns credits charged. */
@@ -164,7 +167,12 @@ export async function settle(
       VALUES (${randomUUID()}, ${user.id}, 'usage', ${-(fromFree + fromPaid)},
         ${-fromFree}, ${-fromPaid}, ${usage.ref}, ${usage.threadId ?? null},
         ${usage.messageId ?? null}, ${usage.model ?? null}, ${usage.costUsd},
-        ${tx.json({ source: usage.source, metered, charge })}, ${now})
+        ${tx.json({
+          source: usage.source,
+          metered,
+          charge,
+          unresolved: usage.unresolved ?? 0,
+        })}, ${now})
       ON CONFLICT (ref) DO NOTHING`;
     if (inserted.count === 1 && metered)
       await tx`
@@ -182,39 +190,61 @@ export async function release(reservation: Extract<Reservation, { ok: true }>) {
   await sql`DELETE FROM stockwatcher_credit_holds WHERE id = ${reservation.holdId}`;
 }
 
-/** Adds (or with a negative amount, removes) paid credits once per ref. */
-export async function adjustPaid(input: {
+type PaidChange = {
   userId: string;
-  amountMc: number;
   kind: "purchase" | "refund" | "adjust";
   ref: string;
   meta: Record<string, string | number | boolean | null>;
-}) {
+};
+
+async function writePaid(
+  tx: postgres.TransactionSql,
+  change: PaidChange,
+  amountMc: number,
+) {
+  const now = new Date();
+  const inserted = await tx`
+    INSERT INTO stockwatcher_credit_ledger
+      (id, user_id, kind, amount_mc, free_mc, paid_mc, ref, meta, created_at)
+    VALUES (${randomUUID()}, ${change.userId}, ${change.kind}, ${amountMc},
+      0, ${amountMc}, ${change.ref}, ${tx.json(change.meta)}, ${now})
+    ON CONFLICT (ref) DO NOTHING`;
+  if (inserted.count !== 1) return false;
+  await tx`
+    UPDATE stockwatcher_credit_accounts
+    SET paid_mc = paid_mc + ${amountMc}, updated_at = ${now}
+    WHERE user_id = ${change.userId}`;
+  return true;
+}
+
+/** Adds (or with a negative amount, removes) paid credits once per ref. */
+export async function adjustPaid(input: PaidChange & { amountMc: number }) {
   const sql = await pg();
   return sql.begin(async (tx) => {
     await lockAccount(tx, input.userId);
-    const now = new Date();
-    const inserted = await tx`
-      INSERT INTO stockwatcher_credit_ledger
-        (id, user_id, kind, amount_mc, free_mc, paid_mc, ref, meta, created_at)
-      VALUES (${randomUUID()}, ${input.userId}, ${input.kind}, ${input.amountMc},
-        0, ${input.amountMc}, ${input.ref}, ${tx.json(input.meta)}, ${now})
-      ON CONFLICT (ref) DO NOTHING`;
-    if (inserted.count !== 1) return false;
-    await tx`
-      UPDATE stockwatcher_credit_accounts
-      SET paid_mc = paid_mc + ${input.amountMc}, updated_at = ${now}
-      WHERE user_id = ${input.userId}`;
-    return true;
+    return writePaid(tx, input, input.amountMc);
   });
 }
 
-export async function refundedFor(orderId: string) {
+/**
+ * Brings an order's reversed credits up to `targetMc` in total. The prior
+ * total is read under the account lock, so overlapping refund deliveries for
+ * one order cannot each reverse the same share.
+ */
+export async function reverseOrder(
+  input: PaidChange & { orderId: string; targetMc: number },
+) {
   const sql = await pg();
-  const [row] = await sql<{ total: string | null }[]>`
-    SELECT COALESCE(SUM(-amount_mc), 0) AS total FROM stockwatcher_credit_ledger
-    WHERE kind = 'refund' AND meta->>'orderId' = ${orderId}`;
-  return Number(row?.total ?? 0);
+  return sql.begin(async (tx) => {
+    await lockAccount(tx, input.userId);
+    const [row] = await tx<{ total: string | null }[]>`
+      SELECT COALESCE(SUM(-amount_mc), 0) AS total FROM stockwatcher_credit_ledger
+      WHERE user_id = ${input.userId} AND kind = 'refund'
+        AND meta->>'orderId' = ${input.orderId}`;
+    const owed = input.targetMc - Number(row?.total ?? 0);
+    if (owed <= 0) return false;
+    return writePaid(tx, input, -owed);
+  });
 }
 
 export type LedgerEntry = {

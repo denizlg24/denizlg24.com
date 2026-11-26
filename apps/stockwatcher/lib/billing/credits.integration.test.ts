@@ -43,6 +43,7 @@ describe.skipIf(!url)("credits ledger", () => {
   const order = (userId: string, orderId: string, refunded = 0) => ({
     id: orderId,
     total_amount: 1000,
+    net_amount: 1000,
     refunded_amount: refunded,
     currency: "eur",
     metadata: { user_id: userId, credits: 1200 },
@@ -173,10 +174,63 @@ describe.skipIf(!url)("credits ledger", () => {
     expect((await credits.balance(someone.id)).paid).toBe(0);
   });
 
+  test("a full refund of a taxed order reverses every credit", async () => {
+    process.env.POLAR_WEBHOOK_SECRET = secret;
+    const someone = user();
+    const orderId = randomUUID();
+    const taxed = (refunded: number) => ({
+      ...order(someone.id, orderId, refunded),
+      net_amount: 1000,
+      total_amount: 1200,
+    });
+    const paid = signed({
+      type: "order.paid",
+      timestamp: new Date().toISOString(),
+      data: taxed(0),
+    });
+    await polar.handleWebhook(paid.body, paid.headers);
+    const refund = signed({
+      type: "order.refunded",
+      timestamp: new Date().toISOString(),
+      data: taxed(1000),
+    });
+    await polar.handleWebhook(refund.body, refund.headers);
+    expect((await credits.balance(someone.id)).paid).toBe(0);
+  });
+
+  test("overlapping deliveries of growing refunds reverse only the total", async () => {
+    process.env.POLAR_WEBHOOK_SECRET = secret;
+    const someone = user();
+    const orderId = randomUUID();
+    const paid = signed({
+      type: "order.paid",
+      timestamp: new Date().toISOString(),
+      data: order(someone.id, orderId),
+    });
+    await polar.handleWebhook(paid.body, paid.headers);
+    const deliveries = [250, 500, 500, 250].map((refunded) =>
+      signed({
+        type: "order.refunded",
+        timestamp: new Date().toISOString(),
+        data: order(someone.id, orderId, refunded),
+      }),
+    );
+    await Promise.all(
+      deliveries.map((delivery) =>
+        polar.handleWebhook(delivery.body, delivery.headers),
+      ),
+    );
+    expect((await credits.balance(someone.id)).paid).toBe(600);
+  });
+
   test("an order fully covered by a promo code still grants the pack", async () => {
     process.env.POLAR_WEBHOOK_SECRET = secret;
     const someone = user();
-    const free = { ...order(someone.id, randomUUID()), total_amount: 0 };
+    const free = {
+      ...order(someone.id, randomUUID()),
+      total_amount: 0,
+      net_amount: 0,
+    };
     const paid = signed({
       type: "order.paid",
       timestamp: new Date().toISOString(),

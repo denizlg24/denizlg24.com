@@ -13,7 +13,12 @@ test.skip(
 type Billing = {
   enabled: boolean;
   balance: { available: number; free: number; paid: number; held: number };
-  ledger: Array<{ kind: string; credits: number; threadId: string | null }>;
+  ledger: Array<{
+    id: string;
+    kind: string;
+    credits: number;
+    threadId: string | null;
+  }>;
 };
 
 async function signIn(page: Page, name: "Alice" | "Bob") {
@@ -45,7 +50,8 @@ test("a chat reply is charged at gateway cost and shown on the reply", async ({
 }) => {
   test.setTimeout(180_000);
   await signIn(page, "Alice");
-  expect((await billing(page)).enabled).toBe(true);
+  const before = await billing(page);
+  expect(before.enabled).toBe(true);
 
   const threadId = randomUUID();
   const response = await ask(
@@ -77,10 +83,15 @@ test("a chat reply is charged at gateway cost and shown on the reply", async ({
   const after = await billing(page);
   const usage = after.ledger.find((entry) => entry.threadId === threadId);
   expect(usage?.credits).toBeCloseTo(-shown, 2);
-  const spent = after.ledger
-    .filter((entry) => entry.kind === "usage")
-    .reduce((sum, entry) => sum - entry.credits, 0);
-  expect(after.balance.available).toBeCloseTo(100 - spent, 2);
+  // Compare only this run's entries: the account is reused across runs.
+  const seen = new Set(before.ledger.map((entry) => entry.id));
+  const delta = after.ledger
+    .filter((entry) => !seen.has(entry.id))
+    .reduce((sum, entry) => sum + entry.credits, 0);
+  expect(after.balance.available).toBeCloseTo(
+    before.balance.available + delta,
+    2,
+  );
 
   await page.goto("/account");
   await expect(

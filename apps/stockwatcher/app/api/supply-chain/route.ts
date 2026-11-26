@@ -33,6 +33,11 @@ export async function GET(request: Request) {
         },
         503,
       );
+    // A billed read spends the signed-in user's credits, and the Lax session
+    // cookie rides along on a cross-site link; only this app may trigger it.
+    const site = request.headers.get("sec-fetch-site");
+    if (site && site !== "same-origin")
+      return json({ error: "Open filings from Stockwatcher itself." }, 403);
     const billed = async (run: () => Promise<Response>) => {
       const reservation = await reserve(user);
       if (!reservation.ok) return outOfCredits(reservation.balance);
@@ -40,18 +45,15 @@ export async function GET(request: Request) {
         try {
           return await run();
         } finally {
-          await meter(
-            user,
-            reservation,
-            [],
-            { ref: `supply:${randomUUID()}`, source: "supply-chain" },
-            scope.extraUsd,
-          );
+          await meter(user, reservation, scope.steps, {
+            ref: `supply:${randomUUID()}`,
+            source: "supply-chain",
+          });
         }
       });
     };
     if (part === "own") {
-      return billed(async () => {
+      return await billed(async () => {
         const result = await ownDisclosure(ticker);
         return result
           ? json(result)
@@ -63,7 +65,7 @@ export async function GET(request: Request) {
       const known = await candidates(ticker);
       if (!known.some((item) => item.cik === cik))
         return json({ error: "Unknown counterparty." }, 400);
-      return billed(async () => json(await verify(ticker, cik)));
+      return await billed(async () => json(await verify(ticker, cik)));
     }
     return json({ error: "Unknown request." }, 400);
   } catch (error) {

@@ -23,6 +23,7 @@ import {
   chargeFor,
   credits,
   gatewayCost,
+  release,
   reserve,
 } from "@/lib/billing/credits";
 import { meter } from "@/lib/billing/meter";
@@ -203,10 +204,33 @@ async function chat(request: Request, scope: CostScope) {
       402,
     );
 
-  const [workspace, memories] = await Promise.all([
-    readWorkspace(user.id),
-    listMemories(user.id).catch(() => []),
-  ]);
+  // Until the stream's callbacks own the hold, a failure here must give it back.
+  let setup: {
+    instructions: string;
+    modelMessages: Awaited<ReturnType<typeof convertToModelMessages>>;
+  };
+  try {
+    const [workspace, memories] = await Promise.all([
+      readWorkspace(user.id),
+      listMemories(user.id).catch(() => []),
+    ]);
+    setup = {
+      instructions: chatInstructions({
+        name: user.name,
+        now: new Date(),
+        workspace: workspace.data,
+        memories,
+        context: input.data.context,
+      }),
+      modelMessages: await convertToModelMessages(modelHistory(messages), {
+        tools,
+        ignoreIncompleteToolCalls: true,
+      }),
+    };
+  } catch (error) {
+    await release(reservation).catch(() => undefined);
+    throw error;
+  }
 
   const threadId = input.data.id;
   const responseId = last.role === "assistant" ? last.id : messageId();
@@ -227,19 +251,13 @@ async function chat(request: Request, scope: CostScope) {
     if (recorded) return;
     recorded = true;
     const runId = randomUUID();
-    void meter(
-      user,
-      reservation,
-      steps,
-      {
-        ref: `run:${runId}`,
-        threadId,
-        messageId: responseId,
-        model: steps[0]?.model.modelId ?? model.modelId,
-        source: "chat",
-      },
-      scope.extraUsd,
-    );
+    void meter(user, reservation, [...steps, ...scope.steps], {
+      ref: `run:${runId}`,
+      threadId,
+      messageId: responseId,
+      model: steps[0]?.model.modelId ?? model.modelId,
+      source: "chat",
+    });
     const usage = outcome.usage ?? sumUsage(steps);
     const reply = steps
       .map((step) => step.text.trim())
@@ -271,17 +289,8 @@ async function chat(request: Request, scope: CostScope) {
 
   const result = streamText({
     model,
-    instructions: chatInstructions({
-      name: user.name,
-      now: new Date(),
-      workspace: workspace.data,
-      memories,
-      context: input.data.context,
-    }),
-    messages: await convertToModelMessages(modelHistory(messages), {
-      tools,
-      ignoreIncompleteToolCalls: true,
-    }),
+    instructions: setup.instructions,
+    messages: setup.modelMessages,
     tools,
     stopWhen: isStepCount(14),
     timeout: { totalMs: 110_000 },
@@ -335,14 +344,15 @@ async function chat(request: Request, scope: CostScope) {
       tools,
       originalMessages: messages,
       generateMessageId: () => responseId,
-      messageMetadata: ({ part }) =>
-        part.type === "finish" && reservation.metered
-          ? {
-              credits: credits(
-                chargeFor(gatewayCost(finishedSteps).costUsd + scope.extraUsd),
-              ),
-            }
-          : undefined,
+      messageMetadata: ({ part }) => {
+        if (part.type !== "finish" || !reservation.metered) return undefined;
+        // Shown only when every step carried its cost inline; otherwise the
+        // settled charge comes from a lookup and appears on /account.
+        const cost = gatewayCost([...finishedSteps, ...scope.steps]);
+        return cost.missing
+          ? undefined
+          : { credits: credits(chargeFor(cost.costUsd)) };
+      },
       sendSources: true,
       redactToolErrors: false,
       onError: () =>
