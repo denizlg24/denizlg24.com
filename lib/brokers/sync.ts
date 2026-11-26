@@ -9,6 +9,7 @@ import {
   type BrokerStatement,
 } from "./ibkr";
 import { dueLinks, markLink, readLink } from "./link";
+import { resolveListings } from "./listing";
 
 function stableId(seed: string) {
   const bytes = createHash("sha256").update(seed).digest().subarray(0, 16);
@@ -115,8 +116,8 @@ async function runSync(userId: string): Promise<SyncResult> {
     return { ok: false, error: link.error ?? "Connect again.", relink: true };
   let statement: BrokerStatement;
   try {
-    statement = parseFlexStatement(
-      await fetchFlexStatement(link.token, link.queryId),
+    statement = await resolveListings(
+      parseFlexStatement(await fetchFlexStatement(link.token, link.queryId)),
     );
   } catch (error) {
     const relink = error instanceof FlexError && error.credentials;
