@@ -1,5 +1,6 @@
 "use client";
 
+import { clearViewQueryCache } from "@repo/admin/workspace/views/query-cache";
 import { usePathname, useRouter } from "next/navigation";
 import {
   createContext,
@@ -151,6 +152,10 @@ export function UserSettingsProvider({
     void hydrateAuth();
     loadSettings().then(setSettingsState);
   }, []);
+
+  useEffect(() => {
+    if (status === "signed-out") clearViewQueryCache();
+  }, [status]);
 
   const gate = gateFor(pathname, settings, status);
 

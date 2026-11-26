@@ -377,6 +377,35 @@ export async function updateCard(
   return serializeCard(card);
 }
 
+export class NoDoneColumnError extends Error {
+  constructor() {
+    super("The card's board has no Done column");
+    this.name = "NoDoneColumnError";
+  }
+}
+
+/** Moves a card to the end of its board's Done column; null when the card is gone. */
+export async function completeCard(id: string) {
+  await connectDB();
+  const card = await KanbanCard.findById(id).select({ boardId: 1 }).lean();
+  if (!card) return null;
+  const done = await KanbanColumn.findOne({
+    boardId: card.boardId,
+    isDoneColumn: true,
+  })
+    .select({ _id: 1 })
+    .lean();
+  if (!done) throw new NoDoneColumnError();
+  const last = await KanbanCard.findOne({ columnId: done._id })
+    .sort({ order: -1 })
+    .select({ order: 1 })
+    .lean();
+  return updateCard(id, {
+    columnId: String(done._id),
+    order: last ? last.order + 1 : 0,
+  });
+}
+
 export async function linkCardEntity(
   cardId: string,
   entityType: CardEntityType,

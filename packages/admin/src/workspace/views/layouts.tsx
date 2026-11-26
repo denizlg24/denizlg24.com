@@ -39,6 +39,8 @@ export interface LayoutProps {
   /** Visible fields, title first. */
   fields: string[];
   rowHref: (row: ViewRow) => string | undefined;
+  /** A control beside each row, outside its link; list and table only. */
+  rowAction?: (row: ViewRow) => ReactNode;
 }
 
 function RowLink({
@@ -128,7 +130,8 @@ function moneyFields(
 // --- table ------------------------------------------------------------------
 
 export function TableLayout(props: LayoutProps) {
-  const { descriptor, fields, rowHref, result } = props;
+  const { descriptor, fields, rowHref, result, rowAction } = props;
+  const columns = fields.length + (rowAction ? 1 : 0);
   const group = props.config.group
     ? viewGroupField(descriptor, props.config)
     : null;
@@ -175,6 +178,9 @@ export function TableLayout(props: LayoutProps) {
           </td>
         );
       })}
+      {rowAction ? (
+        <td className="px-1 py-1 text-right">{rowAction(row)}</td>
+      ) : null}
     </tr>
   );
   return (
@@ -198,6 +204,9 @@ export function TableLayout(props: LayoutProps) {
                 </th>
               );
             })}
+            {rowAction ? (
+              <th aria-label="Actions" className="w-8 px-1" />
+            ) : null}
           </tr>
         </thead>
         <tbody>
@@ -205,7 +214,7 @@ export function TableLayout(props: LayoutProps) {
             group
               ? [
                   <tr key={`group:${section.key}`} data-group={section.key}>
-                    <td colSpan={fields.length} className="px-2 pt-3 pb-1">
+                    <td colSpan={columns} className="px-2 pt-3 pb-1">
                       <span className="flex items-baseline gap-2">
                         <span className={LABEL}>
                           {groupLabel(descriptor.fields[group], section.key)}
@@ -242,6 +251,7 @@ export function TableLayout(props: LayoutProps) {
                   ) : null}
                 </td>
               ))}
+              {rowAction ? <td /> : null}
             </tr>
           </tfoot>
         ) : null}
@@ -253,33 +263,43 @@ export function TableLayout(props: LayoutProps) {
 // --- list -------------------------------------------------------------------
 
 export function ListLayout(props: LayoutProps) {
-  const { descriptor, fields, rowHref } = props;
+  const { descriptor, fields, rowHref, rowAction } = props;
   const secondary = fields.filter((f) => f !== descriptor.titleField);
+  const line = (row: ViewRow, className: string) => (
+    <RowLink
+      key={row.id}
+      href={rowHref(row)}
+      className={cn(
+        "flex items-baseline gap-3 py-1.5 text-sm hover:bg-surface/70",
+        className,
+      )}
+    >
+      <span data-row={row.id} className="min-w-0 truncate text-accent-strong">
+        {titleOf(descriptor, row)}
+      </span>
+      <span className="ml-auto flex shrink-0 gap-3 text-xs text-muted-foreground tabular-nums">
+        {secondary.map((field) => {
+          const text = formatValue(descriptor.fields[field], row.values[field]);
+          return text ? <span key={field}>{text}</span> : null;
+        })}
+      </span>
+    </RowLink>
+  );
   return (
     <div data-layout="list" className="flex flex-col">
-      {props.rows.map((row) => (
-        <RowLink
-          key={row.id}
-          href={rowHref(row)}
-          className="flex items-baseline gap-3 border-b py-1.5 text-sm hover:bg-surface/70"
-        >
-          <span
-            data-row={row.id}
-            className="min-w-0 truncate text-accent-strong"
+      {props.rows.map((row) =>
+        rowAction ? (
+          <div
+            key={row.id}
+            className="flex min-w-0 items-center gap-2 border-b"
           >
-            {titleOf(descriptor, row)}
-          </span>
-          <span className="ml-auto flex shrink-0 gap-3 text-xs text-muted-foreground tabular-nums">
-            {secondary.map((field) => {
-              const text = formatValue(
-                descriptor.fields[field],
-                row.values[field],
-              );
-              return text ? <span key={field}>{text}</span> : null;
-            })}
-          </span>
-        </RowLink>
-      ))}
+            {line(row, "min-w-0 flex-1")}
+            {rowAction(row)}
+          </div>
+        ) : (
+          line(row, "border-b")
+        ),
+      )}
     </div>
   );
 }

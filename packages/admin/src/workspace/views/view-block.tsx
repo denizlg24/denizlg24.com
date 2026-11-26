@@ -6,19 +6,29 @@ import {
   VIEW_SOURCES,
   type ViewConfig,
   type ViewFilter,
-  type ViewQueryResult,
   type ViewRow,
   type ViewSourceId,
   viewDateField,
+  viewGroupField,
   viewQueryResultSchema,
 } from "@repo/schemas";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
 import { Skeleton } from "@repo/ui/skeleton";
 import { cn } from "@repo/ui/utils";
 import { format, startOfMonth } from "date-fns";
-import { ArrowUpRight, SlidersHorizontal } from "lucide-react";
+import { ArrowUpRight, Check, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { toast } from "sonner";
+import type { AdminClient } from "../../client";
 import { useAdmin } from "../../provider";
 import type { ModuleId } from "../modules";
 import { recordHref } from "../records";
@@ -34,6 +44,15 @@ import {
   monthWindow,
   TableLayout,
 } from "./layouts";
+import {
+  getViewQueryEntry,
+  optimisticallyRemoveViewRow,
+  setViewQueryError,
+  setViewQueryLoading,
+  setViewQueryResult,
+  subscribeViewQuery,
+  viewQueryIsFresh,
+} from "./query-cache";
 
 const LABEL =
   "text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground";
@@ -79,27 +98,64 @@ export function viewConfigOf(block: BlockOf<"view">): ViewConfig {
   return config;
 }
 
-type QueryState = {
-  result: ViewQueryResult | null;
-  rows: ViewRow[];
-  error: string | null;
-  loading: boolean;
+type RowAction = {
+  label: string;
+  run: (client: AdminClient, row: ViewRow) => Promise<unknown>;
 };
 
-/** One view's rows: the first page on every config change, more on demand. */
+const filtersOn = (
+  config: ViewConfig,
+  field: string,
+  value: ViewFilter["value"],
+) =>
+  config.filters.some(
+    (filter) =>
+      filter.field === field && filter.op === "is" && filter.value === value,
+  );
+
+/**
+ * A one-click action for views whose filter the action takes the row out of,
+ * so hiding the row at once is exactly what the server will confirm.
+ */
+function rowActionFor(config: ViewConfig): RowAction | null {
+  if (config.layout !== "list" && config.layout !== "table") return null;
+  if (config.group) return null;
+  if (config.source === "kanban-cards" && filtersOn(config, "done", false))
+    return {
+      label: "Complete task",
+      run: (client, row) =>
+        client.post(`kanban/cards/${encodeURIComponent(row.id)}/complete`, {}),
+    };
+  if (config.source === "triage" && filtersOn(config, "status", "pending"))
+    return {
+      label: "Mark reviewed",
+      run: (client, row) =>
+        client.patch(`triage/${encodeURIComponent(row.id)}`, {
+          userStatus: "reviewed",
+        }),
+    };
+  return null;
+}
+
+/** One view's rows: shared stale-while-revalidate cache, more on demand. */
 export function useViewQuery(
   config: ViewConfig,
   extra: ViewFilter[],
   limit?: number,
 ) {
   const { client } = useAdmin();
-  const key = JSON.stringify({ config, extra, limit });
-  const [state, setState] = useState<QueryState>({
-    result: null,
-    rows: [],
-    error: null,
-    loading: true,
-  });
+  const today = format(new Date(), "yyyy-MM-dd");
+  const key = JSON.stringify({ config, extra, limit, today });
+  const descriptor = VIEW_SOURCES[config.source];
+  const groupField = viewGroupField(descriptor, config);
+  const entry = getViewQueryEntry(client, key, groupField);
+
+  const subscribe = useCallback(
+    (listener: () => void) => subscribeViewQuery(entry, listener),
+    [entry],
+  );
+  const snapshot = useCallback(() => entry.state, [entry]);
+  const state = useSyncExternalStore(subscribe, snapshot, snapshot);
 
   const fetchPage = useCallback(
     async (cursor?: string) => {
@@ -110,60 +166,66 @@ export function useViewQuery(
       return viewQueryResultSchema.parse(
         await client.post("workspace/views/query", {
           view,
-          today: format(new Date(), "yyyy-MM-dd"),
+          today,
           ...(cursor ? { cursor } : {}),
           ...(limit ? { limit } : {}),
         }),
       );
     },
-    // `key` stands for config, extra and limit, which are rebuilt each render.
+    // `key` captures config, filters, limit and today's local date.
     [client, key],
   );
 
+  const refresh = useCallback(
+    (force = false): Promise<void> => {
+      if (entry.inflight) {
+        return force
+          ? entry.inflight.then(() => refresh(true))
+          : entry.inflight;
+      }
+      if (!force && viewQueryIsFresh(entry)) return Promise.resolve();
+      // A cached result stays visible while a stale query refreshes.
+      setViewQueryLoading(entry, entry.result === null);
+      const request = fetchPage()
+        .then((result) => setViewQueryResult(entry, result))
+        .catch((error: unknown) => setViewQueryError(entry, error))
+        .finally(() => {
+          entry.inflight = null;
+        });
+      entry.inflight = request;
+      return request;
+    },
+    [entry, fetchPage],
+  );
+
   useEffect(() => {
-    let live = true;
-    setState((s) => ({ ...s, loading: true, error: null }));
-    fetchPage()
-      .then((result) => {
-        if (live)
-          setState({ result, rows: result.rows, error: null, loading: false });
-      })
-      .catch((error: Error) => {
-        if (live)
-          setState({
-            result: null,
-            rows: [],
-            error: error.message,
-            loading: false,
-          });
-      });
-    return () => {
-      live = false;
-    };
-  }, [fetchPage]);
+    void refresh();
+    const onFocus = () => void refresh(true);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [refresh]);
 
   const loadMore = useCallback(async () => {
-    const cursor = state.result?.nextCursor;
-    if (!cursor) return;
-    setState((s) => ({ ...s, loading: true }));
-    try {
-      const next = await fetchPage(cursor);
-      setState((s) => ({
-        result: s.result ? { ...s.result, nextCursor: next.nextCursor } : next,
-        rows: [...s.rows, ...next.rows],
-        error: null,
-        loading: false,
-      }));
-    } catch (error) {
-      setState((s) => ({
-        ...s,
-        loading: false,
-        error: error instanceof Error ? error.message : "Failed",
-      }));
-    }
-  }, [fetchPage, state.result?.nextCursor]);
+    const cursor = entry.state.result?.nextCursor;
+    if (!cursor || entry.inflight) return;
+    setViewQueryLoading(entry, true);
+    const request = fetchPage(cursor)
+      .then((result) => setViewQueryResult(entry, result, true))
+      .catch((error: unknown) => setViewQueryError(entry, error))
+      .finally(() => {
+        entry.inflight = null;
+      });
+    entry.inflight = request;
+    await request;
+  }, [entry, fetchPage]);
 
-  return { ...state, loadMore };
+  const reload = useCallback(() => refresh(true), [refresh]);
+  const optimisticRemove = useCallback(
+    (row: ViewRow) => optimisticallyRemoveViewRow(entry, row),
+    [entry],
+  );
+
+  return { ...state, loadMore, reload, optimisticRemove };
 }
 
 export function ViewBlock({
@@ -178,6 +240,7 @@ export function ViewBlock({
   onChange: (block: BlockOf<"view">) => void;
 }) {
   const nav = useWorkspaceNav();
+  const { client } = useAdmin();
   const config = useMemo(() => viewConfigOf(block), [block]);
   const descriptor = VIEW_SOURCES[config.source];
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
@@ -197,15 +260,16 @@ export function ViewBlock({
     dateField ? VIEW_LIMIT_MAX : undefined,
   );
   const [configOpen, setConfigOpen] = useState(false);
+  const pendingRef = useRef(new Set<string>());
 
   const fields = useMemo(() => {
     const shown = (config.fields ?? [...descriptor.defaultFields]).filter(
-      (f) => f in descriptor.fields,
+      (field) => field in descriptor.fields,
     );
     return shown.includes(descriptor.titleField)
       ? [
           descriptor.titleField,
-          ...shown.filter((f) => f !== descriptor.titleField),
+          ...shown.filter((field) => field !== descriptor.titleField),
         ]
       : [descriptor.titleField, ...shown];
   }, [config.fields, descriptor]);
@@ -216,9 +280,48 @@ export function ViewBlock({
   );
   const label = block.title ?? descriptor.label;
   const href = nav.moduleHref(SOURCE_MODULE[config.source]);
+  const action = useMemo(() => rowActionFor(config), [config]);
+
+  const actOnRow = useCallback(
+    async (row: ViewRow) => {
+      if (!action || pendingRef.current.has(row.id)) return;
+      const optimistic = query.optimisticRemove(row);
+      if (!optimistic) return;
+      pendingRef.current.add(row.id);
+      try {
+        await action.run(client, row);
+        await query.reload();
+        optimistic.commit();
+      } catch (error) {
+        optimistic.rollback();
+        toast.error(error instanceof Error ? error.message : "Update failed");
+      } finally {
+        pendingRef.current.delete(row.id);
+      }
+    },
+    [client, action, query.optimisticRemove, query.reload],
+  );
+
+  const rowAction = action
+    ? (row: ViewRow): ReactNode => (
+        <button
+          type="button"
+          aria-label={`${action.label}: ${String(row.values[descriptor.titleField] ?? "")}`}
+          title={action.label}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void actOnRow(row);
+          }}
+          className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-surface hover:text-accent-strong"
+        >
+          <Check className="size-3.5" />
+        </button>
+      )
+    : undefined;
 
   let body: React.ReactNode;
-  if (query.error) {
+  if (!query.result && query.error) {
     body = <span className="text-xs text-destructive">{query.error}</span>;
   } else if (!query.result) {
     body = (
@@ -236,6 +339,7 @@ export function ViewBlock({
       rows: query.rows,
       fields,
       rowHref,
+      rowAction,
     };
     if (query.result.total === 0 && config.layout !== "calendar") {
       body = <span className="text-xs text-muted-foreground">—</span>;
