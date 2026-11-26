@@ -35,6 +35,7 @@ import {
 } from "./shared";
 import { useQuotes } from "./market-widgets";
 import { AlertEditor, type AlertDraft } from "./alerts/alert-editor";
+import { SignalsPanel } from "./alerts/signals-panel";
 import { ChannelGuide, channelMeta } from "./alerts/channel-guide";
 import { useChannels } from "./alerts/use-channels";
 import { useBrowserAlerts } from "./alerts/browser-alerts";
@@ -43,6 +44,7 @@ import {
   type AlertEvent,
   type AlertRule,
   type ChannelKind,
+  type Signal,
 } from "@/lib/models";
 import type { Channel } from "@/lib/notify/types";
 import { describeRule, expired, formatTarget, gap, reading } from "@/lib/alerts";
@@ -311,10 +313,16 @@ function Activity({
               </time>
               <div>
                 <p className="activity-head">
-                  <SymbolLink symbol={event.symbol} select={select} />
-                  <span>
-                    at {amount(event.price)} {event.currency}
-                  </span>
+                  {event.symbol ? (
+                    <SymbolLink symbol={event.symbol} select={select} />
+                  ) : (
+                    <strong>{event.label}</strong>
+                  )}
+                  {event.price != null ? (
+                    <span>
+                      at {amount(event.price)} {event.currency}
+                    </span>
+                  ) : null}
                 </p>
                 <p className="activity-body">{event.message}</p>
                 <p className="activity-deliveries">
@@ -351,6 +359,7 @@ function Activity({
 
 export function Alerts({
   alerts,
+  signals,
   log,
   ticker,
   save,
@@ -364,6 +373,7 @@ export function Alerts({
   notify,
 }: {
   alerts: AlertRule[];
+  signals: Signal[];
   log: AlertEvent[];
   ticker: string;
   save: Save;
@@ -575,6 +585,13 @@ export function Alerts({
           </Empty>
         )}
       </section>
+      <SignalsPanel
+        signals={signals}
+        channels={channelData.channels}
+        save={save}
+        notify={notify}
+        monitoring={monitoring && !demo}
+      />
       <Channels
         demo={demo}
         notify={notify}

@@ -33,6 +33,9 @@
   gap: 6px;
   color: var(--muted-foreground);
 }
+.status[data-status="errored"]::before {
+  background: var(--loss);
+}
 .status[data-status="waiting"]::before,
 .status[data-status="expired"]::before {
   background: var(--strong-border);

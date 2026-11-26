@@ -23,6 +23,7 @@ import {
   Check,
   Copy,
   History,
+  Paperclip,
   Plus,
   RotateCcw,
   Square,
@@ -44,6 +45,9 @@ import {
 import { ThreadDrawer, threadsKey } from "./thread-drawer";
 import { memoriesKey } from "./memory-panel";
 import { errorMessage } from "./format";
+import { UploadList } from "./upload-list";
+import { useDocumentUpload } from "./use-document-upload";
+import { documentExtensions } from "@/lib/documents/types";
 
 const alertChannelsKey = "/api/alerts/channels";
 
@@ -168,6 +172,18 @@ export function AssistantPanel({
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const input = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const attachments = useDocumentUpload((document) => {
+    setDraft((current) => {
+      const reference = `(document: "${document.name}", id: ${document.id}) `;
+      return current.trim() ? `${current.trimEnd()} ${reference}` : reference;
+    });
+    requestAnimationFrame(() => {
+      input.current?.focus();
+      resize();
+    });
+  });
 
   const {
     messages,
@@ -222,6 +238,7 @@ export function AssistantPanel({
           case "tool-updateDesk":
           case "tool-manageWatchlists":
           case "tool-manageAlerts":
+          case "tool-manageSignals":
           case "tool-manageNotes":
           case "tool-managePortfolios":
           case "tool-manageDrawings":
@@ -233,7 +250,7 @@ export function AssistantPanel({
             handled.current.add(part.toolCallId);
             if (!("error" in part.output)) {
               onWorkspaceChanged();
-              if (part.type === "tool-manageAlerts")
+              if (part.type === "tool-manageAlerts" || part.type === "tool-manageSignals")
                 void mutate(alertChannelsKey);
             }
             break;
@@ -359,6 +376,23 @@ export function AssistantPanel({
       <section
         className={["chat-panel", className].filter(Boolean).join(" ")}
         aria-label="Research assistant"
+        data-dragging={dragging || undefined}
+        onDragOver={(event) => {
+          if (unavailable || !event.dataTransfer.types.includes("Files")) return;
+          event.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={(event) => {
+          const next = event.relatedTarget;
+          if (!(next instanceof Node && event.currentTarget.contains(next)))
+            setDragging(false);
+        }}
+        onDrop={(event) => {
+          setDragging(false);
+          if (unavailable || !event.dataTransfer.files.length) return;
+          event.preventDefault();
+          void attachments.upload(event.dataTransfer.files);
+        }}
       >
         <header className="chat-head">
           <div className="chat-head-title">
@@ -480,6 +514,10 @@ export function AssistantPanel({
             </div>
 
             <form className="chat-composer" onSubmit={submit}>
+              <UploadList
+                items={attachments.items}
+                onDismiss={attachments.dismiss}
+              />
               <textarea
                 ref={input}
                 className="chat-input"
@@ -495,7 +533,29 @@ export function AssistantPanel({
                 onKeyDown={onKeyDown}
               />
               <div className="chat-composer-bar">
-                <span className="meta chat-truncate">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Attach a document"
+                  title="Attach a PDF, DOCX, text, CSV or HTML file"
+                  onClick={() => picker.current?.click()}
+                >
+                  <Paperclip />
+                </Button>
+                <input
+                  ref={picker}
+                  type="file"
+                  multiple
+                  hidden
+                  accept={documentExtensions}
+                  onChange={(event) => {
+                    if (event.target.files?.length)
+                      void attachments.upload(event.target.files);
+                    event.target.value = "";
+                  }}
+                />
+                <span className="meta chat-truncate chat-composer-scope">
                   {scope
                     ? `Context: ${scope}`
                     : "Enter to send · Shift+Enter for a new line"}

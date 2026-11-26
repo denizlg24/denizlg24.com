@@ -42,6 +42,16 @@ import type { AlertMetric } from "@/lib/models";
 import { Sparkline } from "./sparkline";
 import { ago, hostOf, listSymbols, stamp, useNow } from "./format";
 import { memoriesKey } from "./memory-panel";
+import {
+  ActivistStakesView,
+  InsiderBuyingView,
+  PortfolioRiskView,
+} from "./risk-parts";
+import {
+  DocumentHits,
+  DocumentList,
+  DocumentRead,
+} from "./document-parts";
 import { ChartView } from "@/components/reports/chart";
 import { ShareControl } from "@/components/reports/share-control";
 import type { PublishedDoc } from "@/lib/reports/types";
@@ -130,8 +140,12 @@ const toolNames: Record<ToolPart["type"], string> = {
   "tool-getSecurityData": "Security data",
   "tool-getWorkspace": "Workspace",
   "tool-getNote": "Note",
+  "tool-listDocuments": "Documents",
+  "tool-searchDocuments": "Documents",
+  "tool-readDocument": "Documents",
   "tool-manageWatchlists": "Watchlists",
   "tool-manageAlerts": "Alerts",
+  "tool-manageSignals": "Signals",
   "tool-manageNotes": "Notes",
   "tool-managePortfolios": "Portfolios",
   "tool-manageDrawings": "Drawings",
@@ -149,6 +163,12 @@ const toolNames: Record<ToolPart["type"], string> = {
   "tool-getNewsWire": "News wire",
   "tool-backtestStrategy": "Backtest",
   "tool-compute": "Compute",
+  "tool-getPortfolioRisk": "Portfolio risk",
+  "tool-getInsiderBuying": "Insider buying",
+  "tool-getActivistStakes": "Activist stakes",
+  "tool-getYieldCurve": "Yield curve",
+  "tool-readFiling": "Filing",
+  "tool-getOptions": "Options",
 };
 
 export function runningLabel(part: ToolPart): string {
@@ -230,12 +250,22 @@ export function runningLabel(part: ToolPart): string {
       return "Reading your workspace";
     case "tool-getNote":
       return "Reading note";
+    case "tool-listDocuments":
+      return "Listing your documents";
+    case "tool-searchDocuments":
+      return "Searching your documents";
+    case "tool-readDocument":
+      return "Reading document";
     case "tool-manageWatchlists":
       return "Updating watchlist";
     case "tool-manageAlerts":
       return part.input?.symbol
         ? `Updating ${part.input.symbol} alert`
         : "Updating alerts";
+    case "tool-manageSignals":
+      return part.input?.action === "test"
+        ? "Testing signal"
+        : "Updating signals";
     case "tool-manageNotes":
       return part.input?.title
         ? `Saving note “${part.input.title}”`
@@ -280,6 +310,24 @@ export function runningLabel(part: ToolPart): string {
         : "Backtesting strategy";
     case "tool-compute":
       return part.input?.description ?? "Computing";
+    case "tool-getPortfolioRisk":
+      return part.input?.analysis
+        ? `Running ${{ factors: "factor exposure", attribution: "attribution", stress: "stress tests", var: "VaR" }[part.input.analysis]} on your book`
+        : "Measuring portfolio risk";
+    case "tool-getInsiderBuying":
+      return "Screening SEC Form 4 insider purchases";
+    case "tool-getActivistStakes":
+      return "Scanning SEC 13D filings";
+    case "tool-getYieldCurve":
+      return "Loading the Treasury yield curve";
+    case "tool-readFiling":
+      return part.input?.symbol
+        ? `Reading ${part.input.symbol} ${part.input.form ?? "filing"}${part.input.section ? ` · ${part.input.section}` : ""}`
+        : "Reading filing";
+    case "tool-getOptions":
+      return part.input?.symbol
+        ? `Reading ${part.input.symbol} options chain`
+        : "Reading options chain";
   }
 }
 
@@ -414,6 +462,10 @@ function ToolOutput({ part }: { part: DonePart }) {
       const output = part.output;
       return isFailure(output) ? failed(output) : <Portfolio data={output} />;
     }
+    case "tool-getOptions": {
+      const output = part.output;
+      return isFailure(output) ? failed(output) : <OptionsSummary data={output} />;
+    }
     case "tool-getWatchlists": {
       const output = part.output;
       return isFailure(output) ? failed(output) : <Watchlists data={output} />;
@@ -477,6 +529,7 @@ function ToolOutput({ part }: { part: DonePart }) {
     }
     case "tool-manageWatchlists":
     case "tool-manageAlerts":
+    case "tool-manageSignals":
     case "tool-manageNotes":
     case "tool-managePortfolios":
     case "tool-manageDrawings":
@@ -500,6 +553,34 @@ function ToolOutput({ part }: { part: DonePart }) {
         <Chip
           icon={<Database aria-hidden />}
           text={`Read workspace: ${read.join(", ")}`}
+        />
+      );
+    }
+    case "tool-listDocuments": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <DocumentList count={output.documents.length} />
+      );
+    }
+    case "tool-searchDocuments": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <DocumentHits query={output.query} results={output.results} />
+      );
+    }
+    case "tool-readDocument": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <DocumentRead
+          name={output.name}
+          fromPage={output.fromPage}
+          toPage={output.toPage}
         />
       );
     }
@@ -597,6 +678,38 @@ function ToolOutput({ part }: { part: DonePart }) {
           icon={<Newspaper aria-hidden />}
           text={`News wire · ${output.scope} · ${output.items.length} headlines`}
         />
+      );
+    }
+    case "tool-getYieldCurve": {
+      const output = part.output;
+      return isFailure(output) ? failed(output) : <YieldCurve data={output} />;
+    }
+    case "tool-readFiling": {
+      const output = part.output;
+      return isFailure(output) ? failed(output) : <FilingRead data={output} />;
+    }
+    case "tool-getPortfolioRisk": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <PortfolioRiskView data={output} />
+      );
+    }
+    case "tool-getInsiderBuying": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <InsiderBuyingView data={output} />
+      );
+    }
+    case "tool-getActivistStakes": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <ActivistStakesView data={output} />
       );
     }
     case "tool-compute": {
@@ -1290,6 +1403,7 @@ function Mentions({ items }: { items: Success<"getSocialMentions"> }) {
 function Portfolio({ data }: { data: Success<"getPortfolio"> }) {
   const [all, setAll] = useState(false);
   const shown = all ? data.positions : data.positions.slice(0, 12);
+  const fxAsOf = data.base.fx.find((fx) => fx.asOf)?.asOf;
   if (!data.positions.length)
     return <p className="chat-quiet">No open positions in {data.scope}.</p>;
   return (
@@ -1310,6 +1424,24 @@ function Portfolio({ data }: { data: Success<"getPortfolio"> }) {
           </div>
         ))}
       </div>
+      {data.base.marketValue ? (
+        <div className="stat-row chat-totals">
+          <div className="figure">
+            <span className="figure-label">
+              Net value · {data.base.currency}
+              {data.base.excludedNoFxRate.length ? " · partial" : ""}
+            </span>
+            <strong className="figure-value">
+              {amount(data.base.marketValue)}
+            </strong>
+            <span className="figure-sub">
+              Day <Signed value={data.base.dayChangePercent} /> · Unrl{" "}
+              <Signed value={data.base.unrealizedPercent} />
+              {fxAsOf ? ` · FX ${stamp(fxAsOf)}` : ""}
+            </span>
+          </div>
+        </div>
+      ) : null}
       <table className="data-table chat-table">
         <thead>
           <tr>
@@ -1348,7 +1480,7 @@ function Portfolio({ data }: { data: Success<"getPortfolio"> }) {
         </tbody>
       </table>
       <div className="chat-tool-foot">
-        <span>Weights within currency · totals never converted</span>
+        <span>Weights within currency · net value converted at listed FX only</span>
         {data.positions.length > shown.length ? (
           <button
             type="button"
@@ -1550,5 +1682,145 @@ export function SourceList({
         ))}
       </ol>
     </div>
+  );
+}
+
+function OptionsSummary({ data }: { data: Success<"getOptions"> }) {
+  const move = data.earningsImpliedMove;
+  return (
+    <Block
+      title={`${data.symbol} options`}
+      meta={`${data.source} · ${stamp(data.asOf)}`}
+    >
+      <div className="stat-row chat-totals">
+        <div className="figure">
+          <span className="figure-label">Spot</span>
+          <strong className="figure-value">{amount(data.spot)}</strong>
+          <span className="figure-sub">{data.currency}</span>
+        </div>
+        {move ? (
+          <div className="figure">
+            <span className="figure-label">Earnings {move.date}</span>
+            <strong className="figure-value">
+              ±{amount(move.eventMovePercent ?? move.straddleMovePercent)}%
+            </strong>
+            <span className="figure-sub">
+              {move.eventMovePercent == null ? "straddle" : "event est."} ·
+              exp {move.expiry}
+            </span>
+          </div>
+        ) : null}
+      </div>
+      <table className="data-table chat-table">
+        <thead>
+          <tr>
+            <th>Expiry</th>
+            <th className="num">ATM IV</th>
+            <th className="num">Move</th>
+            <th className="num chat-col-wide">25Δ skew</th>
+            <th className="num">P/C vol</th>
+            <th className="num chat-col-wide">P/C OI</th>
+            <th className="num chat-col-wide">Pain</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.analyses.map((row) => (
+            <tr key={row.expiry}>
+              <td>{row.expiry}</td>
+              <td className="num">
+                {row.atmIvPercent == null ? "—" : `${amount(row.atmIvPercent)}%`}
+              </td>
+              <td className="num">
+                {row.impliedMovePercent == null
+                  ? "—"
+                  : `±${amount(row.impliedMovePercent)}%`}
+              </td>
+              <td className="num chat-col-wide">
+                {row.riskReversal25Points == null
+                  ? "—"
+                  : amount(row.riskReversal25Points)}
+              </td>
+              <td className="num">{amount(row.putCallRatioVolume)}</td>
+              <td className="num chat-col-wide">
+                {amount(row.putCallRatioOpenInterest)}
+              </td>
+              <td className="num chat-col-wide">{amount(row.maxPain)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Block>
+  );
+}
+
+function YieldCurve({ data }: { data: Success<"getYieldCurve"> }) {
+  return (
+    <Block title="US Treasury yield curve" meta={`${data.source} · as of ${data.asOf}`}>
+      <div className="chat-compute-scroll">
+        <table className="data-table chat-table">
+          <thead>
+            <tr>
+              <th>Tenor</th>
+              {data.curves.map((curve) => (
+                <th key={curve.label} className="num">
+                  {curve.label === "latest" ? curve.date : `${curve.label} · ${curve.date}`}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.tenors.map((tenor, row) => (
+              <tr key={tenor}>
+                <td>{tenor}</td>
+                {data.curves.map((curve) => {
+                  const value = curve.yields[row];
+                  return (
+                    <td key={curve.label} className="num">
+                      {value === null ? "n/a" : `${value.toFixed(2)}%`}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Block>
+  );
+}
+
+function FilingRead({ data }: { data: Success<"readFiling"> }) {
+  const range = data.text
+    ? `${compact(data.offset)}–${compact(data.offset + data.text.length)} of ${compact(data.section?.chars ?? data.totalChars)} chars`
+    : data.passages
+      ? `${data.passages.length} matching passages`
+      : null;
+  return (
+    <Block
+      title={`${data.symbol} ${data.form}`}
+      meta={
+        <a href={data.url} target="_blank" rel="noopener noreferrer">
+          SEC EDGAR · filed {data.filed}
+          {data.period ? ` · period ${data.period}` : ""}
+        </a>
+      }
+    >
+      <p className="chat-chip-line">
+        {data.section
+          ? [/^(\d+[A-E]?|I{1,3}-.+|IV-.+|\d\.\d+)$/.test(data.section.id) && !data.section.id.includes("99.") ? `Item ${data.section.id}` : null, data.section.title]
+              .filter(Boolean)
+              .join(" · ")
+          : "Whole filing"}
+        {range ? ` · ${range}` : ""}
+        {data.exhibitUrl ? (
+          <>
+            {" · "}
+            <a href={data.exhibitUrl} target="_blank" rel="noopener noreferrer">
+              Exhibit 99.1
+            </a>
+          </>
+        ) : null}
+      </p>
+    </Block>
   );
 }

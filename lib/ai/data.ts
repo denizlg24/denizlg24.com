@@ -1,6 +1,8 @@
 import "server-only";
 import { describeRule } from "../alerts";
 import { quotes, search, series } from "@/lib/market";
+import { fxRates } from "@/lib/fx";
+import { baseValuation } from "@/lib/fx-rates";
 import { positionsFor, valuePosition, type Position } from "@/lib/portfolio";
 import type { News, Quote, Workspace } from "@/lib/models";
 import type { Range } from "@/lib/universes";
@@ -185,10 +187,37 @@ export async function portfolioSnapshot(workspace: Workspace, bookId?: string) {
     entry.unrealized += value.unrealized ?? 0;
     entry.dayChange += value.dayChange ?? 0;
   }
+  const baseCurrency = workspace.settings.baseCurrency;
+  const rates = await fxRates([...totals.keys()], baseCurrency);
+  const valuation = baseValuation(
+    [...totals.values()].map((entry) => ({
+      currency: entry.currency,
+      positions: entry.positions,
+      unpriced: entry.unpriced,
+      marketValue: entry.marketValue,
+      cost: entry.cost,
+      unrealized: entry.unrealized,
+      dayChange: entry.dayChange,
+    })),
+    rates,
+    baseCurrency,
+  );
+  const baseTotal = valuation.block.marketValue;
+  const baseWeight = (currency: string, marketValue: number | null) => {
+    const fx = valuation.rates.get(currency);
+    return fx && marketValue != null && baseTotal
+      ? round(((marketValue * fx.rate) / baseTotal) * 100)
+      : null;
+  };
   return {
     scope: bookId ? books[0].name : "All portfolios",
     books: workspace.books.map((book) => ({ id: book.id, name: book.name })),
-    positions: positions.slice(0, 60),
+    positions: positions
+      .map((position) => ({
+        ...position,
+        weightInBasePercent: baseWeight(position.currency, position.marketValue),
+      }))
+      .slice(0, 60),
     omittedPositions: Math.max(0, positions.length - 60),
     totalsByCurrency: [...totals.values()].map((entry) => ({
       currency: entry.currency,
@@ -209,7 +238,8 @@ export async function portfolioSnapshot(workspace: Workspace, bookId?: string) {
       realized: round(entry.realized),
       unpricedPositions: entry.unpriced,
     })),
-    note: "Totals are per currency and are never converted or summed across currencies.",
+    base: valuation.block,
+    note: "totalsByCurrency are in each position's own currency. Only the base block is converted, and only with the FX rates it lists.",
     source: marketSource(open.map((item) => item.symbol)),
     asOf: new Date().toISOString(),
   };

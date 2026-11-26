@@ -89,6 +89,73 @@ async function yahoo<T>(
   throw new Error("Yahoo Finance is temporarily unavailable");
 }
 
+const CRUMB_TTL_MS = 6 * 3_600_000;
+type YahooSession = { cookie: string; crumb: string; at: number };
+let yahooSession: YahooSession | null = null;
+let yahooSessionPending: Promise<YahooSession> | null = null;
+
+async function openYahooSession(): Promise<YahooSession> {
+  const seed = await fetch("https://fc.yahoo.com", {
+    headers: { "User-Agent": "Mozilla/5.0" },
+    redirect: "manual",
+    cache: "no-store",
+    signal: AbortSignal.timeout(4500),
+  });
+  const cookie = seed.headers
+    .getSetCookie()
+    .map((line) => line.split(";")[0])
+    .join("; ");
+  if (!cookie) throw new Error("Yahoo Finance is temporarily unavailable");
+  const response = await fetch(
+    "https://query1.finance.yahoo.com/v1/test/getcrumb",
+    {
+      headers: { "User-Agent": "Mozilla/5.0", Cookie: cookie },
+      cache: "no-store",
+      signal: AbortSignal.timeout(4500),
+    },
+  );
+  const crumb = (await response.text()).trim();
+  if (!response.ok || !crumb || crumb.includes("<"))
+    throw new Error("Yahoo Finance is temporarily unavailable");
+  return { cookie, crumb, at: Date.now() };
+}
+
+function ensureYahooSession(refresh: boolean): Promise<YahooSession> {
+  if (!refresh && yahooSession && Date.now() - yahooSession.at < CRUMB_TTL_MS)
+    return Promise.resolve(yahooSession);
+  yahooSessionPending ??= openYahooSession()
+    .then((session) => {
+      yahooSession = session;
+      return session;
+    })
+    .finally(() => {
+      yahooSessionPending = null;
+    });
+  return yahooSessionPending;
+}
+
+/** Like `yahoo`, for endpoints that require a cookie and crumb (v7 options, quoteSummary). */
+export async function yahooAuthed<T>(
+  path: string,
+  query: Record<string, string>,
+  seconds: number,
+): Promise<T> {
+  for (const refresh of [false, true]) {
+    const session = await ensureYahooSession(refresh);
+    const url = new URL(path, "https://query2.finance.yahoo.com");
+    url.search = new URLSearchParams({ ...query, crumb: session.crumb }).toString();
+    const result = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0", Cookie: session.cookie },
+      next: { revalidate: seconds },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (result.status === 404) throw new Error("Symbol not found");
+    if (result.ok) return (await result.json()) as T;
+    if (result.status !== 401 && result.status !== 403) break;
+  }
+  throw new Error("Yahoo Finance is temporarily unavailable");
+}
+
 function makeQuote(
   symbol: string,
   bars: SourceBars,

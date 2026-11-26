@@ -46,6 +46,7 @@ export function Settings({
           theme: value(fields, "theme") as Workspace["settings"]["theme"],
           home: value(fields, "home") as Workspace["settings"]["home"],
           refresh: fields.has("refresh"),
+          baseCurrency: value(fields, "baseCurrency").toUpperCase(),
           chart: {
             ...current.settings.chart,
             style: chartStyles.find((item) => item === value(fields, "style")) ?? "area",
@@ -111,6 +112,16 @@ export function Settings({
                 </option>
               ))}
             </select>
+          </Field>
+          <Field label="Base currency">
+            <input
+              name="baseCurrency"
+              defaultValue={workspace.settings.baseCurrency}
+              maxLength={3}
+              pattern="[A-Za-z]{3}"
+              title="Three-letter ISO currency code, e.g. USD, EUR, GBP"
+              required
+            />
           </Field>
           <label className="check-field">
             <input

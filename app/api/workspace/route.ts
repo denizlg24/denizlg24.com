@@ -1,6 +1,14 @@
 import { z } from "zod";
 import { currentUser, json, sameOrigin } from "@/lib/auth";
-import { readWorkspace, saveWorkspace } from "@/lib/db";
+import {
+  clearSignalErrors,
+  deleteSignalRuntime,
+  readWorkspace,
+  readWorkspaceView,
+  saveWorkspace,
+  withRuntimeState,
+  readSignalRuntime,
+} from "@/lib/db";
 import { workspaceSchema } from "@/lib/models";
 import { checkTrades } from "@/lib/portfolio";
 
@@ -12,7 +20,7 @@ const update = z.object({
 export async function GET() {
   const user = await currentUser();
   if (!user) return json({ error: "Sign in to open your workspace." }, 401);
-  return json(await readWorkspace(user.id));
+  return json(await readWorkspaceView(user.id));
 }
 
 export async function PUT(request: Request) {
@@ -70,6 +78,7 @@ export async function PUT(request: Request) {
       data.trades,
       data.notes,
       data.alerts,
+      data.signals,
       data.requests,
     ]) {
       if (new Set(collection.map((item) => item.id)).size !== collection.length)
@@ -103,7 +112,24 @@ export async function PUT(request: Request) {
       primed: sameRule && alert.enabled === prior.enabled ? prior.primed : true,
     };
   });
+  // Signals are created by the assistant; here they can only be toggled or removed.
+  data.signals = current.data.signals.flatMap((prior) => {
+    const sent = data.signals.find((item) => item.id === prior.id);
+    if (!sent) return [];
+    if (sent.enabled === prior.enabled) return [prior];
+    return [
+      sent.enabled
+        ? { ...prior, enabled: true, primed: true }
+        : { ...prior, enabled: false },
+    ];
+  });
   data.alertLog = current.data.alertLog;
+  const removed = current.data.signals
+    .filter((prior) => !data.signals.some((item) => item.id === prior.id))
+    .map((prior) => prior.id);
+  const rearmed = data.signals
+    .filter((item) => current.data.signals.some((prior) => prior.id === item.id && !prior.enabled && item.enabled))
+    .map((item) => item.id);
   if (!(await saveWorkspace(user.id, revision, data)))
     return json(
       {
@@ -112,5 +138,9 @@ export async function PUT(request: Request) {
       },
       409,
     );
-  return json({ revision: revision + 1, data });
+  await deleteSignalRuntime(user.id, removed);
+  await clearSignalErrors(user.id, rearmed);
+  return json(
+    withRuntimeState({ revision: revision + 1, data }, await readSignalRuntime(user.id)),
+  );
 }

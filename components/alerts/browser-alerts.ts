@@ -67,12 +67,12 @@ export function useAlertAnnouncer(
     const first = fresh[0]!;
     announce(
       fresh.length === 1
-        ? `Alert · ${first.symbol}: ${first.message.split("\n")[0]}`
-        : `${fresh.length} alerts fired: ${fresh.map((event) => event.symbol).join(", ")}`,
+        ? `Alert · ${first.symbol || first.label}: ${first.message.split("\n")[0]}`
+        : `${fresh.length} alerts fired: ${fresh.map((event) => event.symbol || event.label).join(", ")}`,
     );
     if (read() !== "on") return;
     for (const event of fresh.slice(0, 4))
-      new Notification(`${event.symbol} alert`, {
+      new Notification(`${event.symbol || event.label} alert`, {
         body: event.message,
         tag: event.id,
       });

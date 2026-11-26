@@ -1,5 +1,7 @@
 import "server-only";
-import { alertWorkspaces, readWorkspace, saveWorkspace } from "./db";
+import { alertWorkspaces } from "./db";
+import { channelsFor, deliverTo, persist } from "./alert-delivery";
+import { monitorSignals } from "./signal-monitor";
 import { quotes } from "./market";
 import {
   conditionMet,
@@ -9,9 +11,8 @@ import {
   reading,
 } from "./alerts";
 import type { AlertEvent, AlertRule, Quote, Workspace } from "./models";
-import { listChannels, markChannel } from "./notify/store";
-import { deliver, type Message } from "./notify/send";
-import { appUrl, reason } from "./notify/channel-api";
+import type { Message } from "./notify/send";
+import { appUrl } from "./notify/channel-api";
 import { amount, percent } from "./utils";
 
 let running = false;
@@ -80,54 +81,25 @@ function message({ rule, quote }: Fired): Message {
   };
 }
 
-async function persist(
-  userId: string,
-  update: (workspace: Workspace) => boolean,
-) {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const current = await readWorkspace(userId);
-    if (!update(current.data)) return true;
-    if (await saveWorkspace(userId, current.revision, current.data))
-      return true;
-  }
-  return false;
-}
-
 async function notify(userId: string, fired: Fired[]) {
-  const wanted = new Set(fired.flatMap(({ rule }) => rule.channels));
-  const channels = wanted.size
-    ? (await listChannels(userId)).filter((item) => wanted.has(item.id))
-    : [];
+  const channels = await channelsFor(
+    userId,
+    new Set(fired.flatMap(({ rule }) => rule.channels)),
+  );
   const events = await Promise.all(
     fired.map(async (item): Promise<AlertEvent> => {
       const content = message(item);
-      const targets = channels.filter((channel) =>
-        item.rule.channels.includes(channel.id),
-      );
-      const deliveries = await Promise.all(
-        targets.map(async (channel) => {
-          let error: string | null = null;
-          try {
-            if (!channel.config)
-              throw new Error(channel.error ?? "Unreadable.");
-            await deliver(channel.config, content);
-          } catch (cause) {
-            error = reason(cause);
-          }
-          await markChannel(userId, channel.id, error).catch(() => undefined);
-          return {
-            channel: channel.id,
-            kind: channel.kind,
-            label: channel.label,
-            ok: error === null,
-            error,
-          };
-        }),
+      const deliveries = await deliverTo(
+        userId,
+        channels,
+        item.rule.channels,
+        content,
       );
       return {
         id: crypto.randomUUID(),
         alertId: item.rule.id,
         symbol: item.rule.symbol,
+        label: "",
         time: item.rule.lastTriggered ?? new Date().toISOString(),
         price: item.quote.price,
         currency: item.quote.currency.slice(0, 8),
@@ -147,6 +119,9 @@ export async function monitorAlerts() {
   running = true;
   try {
     const workspaces = await alertWorkspaces();
+    void monitorSignals(workspaces).catch(() =>
+      console.error("Signal check failed"),
+    );
     const symbols = [
       ...new Set(
         workspaces.flatMap(({ data }) =>

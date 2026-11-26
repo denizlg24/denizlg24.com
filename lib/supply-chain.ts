@@ -2,7 +2,8 @@ import "server-only";
 import { generateText, Output } from "ai";
 import { briefModel } from "./ai/config";
 import { readExtract, writeExtract } from "./db";
-import { archive, sec, secHeaders, submission } from "./research";
+import { archive, sec, submission } from "./research";
+import { secHeaders, takeSlot } from "./sec-data";
 import {
   cachedLinks,
   cachedVerification,
@@ -101,6 +102,7 @@ const entities: Record<string, string> = {
 };
 
 async function filingText(url: string) {
+  await takeSlot();
   const response = await fetch(url, {
     headers: secHeaders(),
     cache: "no-store",
@@ -233,6 +235,7 @@ async function fullText(query: string) {
     startdt: start.toISOString().slice(0, 10),
     enddt: new Date().toISOString().slice(0, 10),
   }).toString();
+  await takeSlot();
   const response = await fetch(url, {
     headers: secHeaders(),
     next: { revalidate: 86400 },
