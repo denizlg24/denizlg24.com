@@ -1952,6 +1952,18 @@ Things worth knowing before touching this:
 - **The equity curve runs to today, not to the last cached bar.** A daily bar for today does not exist until after the close, so a curve built from bars alone stops at the previous session while positions are already live — and a portfolio opened today has no curve at all. `performanceDates()` adds inception and today; today's point is priced from the live quote.
 - **The intraday curve is observed, not reconstructed.** `MarketPortfolioValuePoint` records what the book was worth whenever something priced it against live quotes, bucketed to the minute and expiring after 30 days. Rebuilding it from intraday bars would cost one relay request per holding per minute; `getPerformance` has already paid for the quotes. The series is therefore dense while something is watching and sparse otherwise, and carries no per-symbol breakdown — nothing prices a single holding minute by minute.
 
+### Brokerage holdings
+
+`GET /api/admin/brokerage` → `getBrokerageOverview` (`apps/web/lib/brokerage/`). The Flex statement is the source of truth; Yahoo quotes only reprice the latest snapshot on read.
+
+Things worth knowing before touching this:
+
+- **The Yahoo line is resolved at sync time, not on read.** `runBrokerageSync` stamps `quoteTicker`/`quoteCurrency`/`quoteScale` on the newest snapshot's positions (`resolve-quote-lines.ts`); history days and snapshots from before this existed have none and render at statement prices. Resolution never throws and never fails the sync.
+- **A mapped ticker can be a dead line.** Yahoo keys secondary-currency Euronext lines as `BASE-CCY.SUFFIX`: IBKR `GOLD`/SBF/EUR maps to `GOLD.PA`, a USD line last traded in 2023, while the live EUR line is `GOLD-EUR.PA`. If the default line's quote currency differs from the position's, or its last trade is over 14 days old, `BASE-CCY.SUFFIX` is probed and used only if it is live in the right currency. An inconclusive probe (relay down, ticker skipped from a partial batch) keeps the default. Minor-unit lines (LSE GBp, JSE ZAc, TASE ILA) never use the `-CCY` form; they are quoted in pence, so `quoteScale` is 100 and the price is divided back to major units.
+- **A live price is used only when the quote's currency equals `quoteCurrency` and `last` is set**; otherwise that holding stays at its statement price (`pricing: "statement"`). Quote failures or an unconfigured relay fall back to the statement silently.
+- **Live NAV is the statement NAV plus the sum of live repricing deltas**, not cash plus positions, so accruals the statement carries survive. Live day P&L is the move since `prevClose` across live holdings; cumulative return stays IBKR's TWR as of the statement.
+- **`getLatestBrokerageValuation` (finance net worth) still reads the statement NAV.**
+
 ### Study space (notebooks, knowledge chunks, study agent)
 
 `/api/admin/knowledge/*` (retrieve, coverage, reindex, sources/{key}/chunks,

@@ -33,6 +33,12 @@ export const brokeragePositionSchema = z.object({
   unrealizedPnl: z.number(),
   unrealizedPnlBase: z.number(),
   percentOfNav: z.number(),
+  /** Yahoo line resolved at sync time; absent on old snapshots and unmapped venues. */
+  quoteTicker: z.string().optional(),
+  /** What that line is quoted in: `currency`, or its minor unit (GBp, ZAc, ILA). */
+  quoteCurrency: z.string().optional(),
+  /** Quote units per major unit of `currency`: 100 for a minor-unit line. */
+  quoteScale: z.number().positive().optional(),
 });
 export type BrokeragePosition = z.infer<typeof brokeragePositionSchema>;
 
@@ -95,6 +101,10 @@ export type BrokerageActivity = z.infer<typeof brokerageActivitySchema>;
 export const brokerageHoldingSchema = brokeragePositionSchema.extend({
   /** Price change since the previous stored snapshot, as a fraction. */
   dayChange: z.number().nullable(),
+  /** `live` when `markPrice` and the figures derived from it come from a Yahoo quote. */
+  pricing: z.enum(["live", "statement"]),
+  /** Time of the quote behind a live price. */
+  quotedAt: isoDateTimeSchema.nullable(),
 });
 export type BrokerageHolding = z.infer<typeof brokerageHoldingSchema>;
 
@@ -121,7 +131,10 @@ export const brokerageOverviewSchema = z.object({
     lastSyncedAt: isoDateTimeSchema.optional(),
     lastError: z.string().optional(),
   }),
+  /** The statement day the figures start from. */
   asOf: isoDateSchema.nullable(),
+  /** Newest quote time when any holding is live-priced; null means statement prices. */
+  pricedAt: isoDateTimeSchema.nullable(),
   totals: z
     .object({
       nav: z.number(),

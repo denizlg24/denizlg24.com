@@ -1,4 +1,8 @@
-import type { BrokerageSyncInput, BrokerageSyncResult } from "@repo/schemas";
+import type {
+  BrokerageSnapshot,
+  BrokerageSyncInput,
+  BrokerageSyncResult,
+} from "@repo/schemas";
 import { connectDB } from "@/lib/mongodb";
 import {
   BrokerageActivityModel,
@@ -6,6 +10,7 @@ import {
   BrokerageSyncState,
 } from "@/models/Brokerage";
 import { FlexError, parseFlexStatements, pullFlexStatement } from "./flex";
+import { attachQuoteLines } from "./resolve-quote-lines";
 
 export const BROKERAGE_STATE_ID = "ibkr";
 
@@ -20,6 +25,33 @@ function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new BrokerageNotConfiguredError(name);
   return value;
+}
+
+/**
+ * Only each account's newest day is priced live, so only it needs a quote
+ * line; resolving a year of history would probe the same tickers 365 times.
+ */
+async function withQuoteLines(
+  snapshots: BrokerageSnapshot[],
+): Promise<BrokerageSnapshot[]> {
+  const newest = new Map<string, string>();
+  for (const { accountId, reportDate } of snapshots)
+    if (reportDate > (newest.get(accountId) ?? ""))
+      newest.set(accountId, reportDate);
+  return Promise.all(
+    snapshots.map(async (snapshot) => {
+      if (newest.get(snapshot.accountId) !== snapshot.reportDate)
+        return snapshot;
+      try {
+        return {
+          ...snapshot,
+          positions: await attachQuoteLines(snapshot.positions),
+        };
+      } catch {
+        return snapshot;
+      }
+    }),
+  );
 }
 
 /**
@@ -52,8 +84,10 @@ export async function runBrokerageSync(
       throw new FlexError("Flex statement contained no account statements");
     }
 
-    const snapshots = statements.flatMap((statement) =>
-      statement.snapshot ? [statement.snapshot] : [],
+    const snapshots = await withQuoteLines(
+      statements.flatMap((statement) =>
+        statement.snapshot ? [statement.snapshot] : [],
+      ),
     );
     if (snapshots.length > 0) {
       await BrokerageSnapshotModel.bulkWrite(
