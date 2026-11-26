@@ -9,7 +9,6 @@ type Billing =
   | { enabled: false }
   | {
       enabled: true;
-      unmetered: boolean;
       balance: { available: number };
     };
 
@@ -24,7 +23,7 @@ export function useCredits() {
   const { data } = useSWR(creditsKey, (url: string) => api<Billing>(url), {
     revalidateOnFocus: true,
   });
-  if (!data?.enabled || data.unmetered) return null;
+  if (!data?.enabled) return null;
   return data.balance.available;
 }
 

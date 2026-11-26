@@ -73,7 +73,6 @@ Set these production runtime values in Forge.
 | `MARKETS_DATA_URL`, `MARKETS_DATA_TOKEN`  | Optional HTTP origin and bearer token for the relay data API behind the security functions and monitors. Default to the relay URL and signing secret. |
 | `BILLING`                                          | `1` meters AI work against per-user credits (Postgres only). See **Credits**. |
 | `CREDIT_MARKUP`, `FREE_CREDITS_MONTHLY`            | Charge multiplier over gateway cost (default 2) and the monthly free allowance (default 100). |
-| `STOCKWATCHER_UNMETERED_SUBJECTS`                  | Deniz Cloud user ids whose usage is recorded but never charged. |
 | `POLAR_ACCESS_TOKEN`, `POLAR_WEBHOOK_SECRET`, `POLAR_ENVIRONMENT` | Polar organization token, webhook secret and `sandbox` or `production`. Enables buying credit packs. |
 
 Forge replaces app containers during deploys. PostgreSQL keeps workspaces, alerts, and sessions across those replacements. The app creates its own prefixed tables on first connection. Grant the database role permission to create tables and indexes in its schema.

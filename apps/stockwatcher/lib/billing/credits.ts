@@ -24,22 +24,6 @@ export const creditConfig = () => ({
 export const billingEnabled = () =>
   process.env.BILLING === "1" && Boolean(process.env.DATABASE_URL);
 
-const listEnv = (name: string) =>
-  new Set(
-    (process.env[name] ?? "")
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean),
-  );
-
-export function unmetered(identity: Pick<Identity, "id">) {
-  const subjects = listEnv("STOCKWATCHER_UNMETERED_SUBJECTS");
-  if (!subjects.size) return false;
-  if (subjects.has(identity.id)) return true;
-  const split = identity.id.lastIndexOf("|");
-  return split >= 0 && subjects.has(identity.id.slice(split + 1));
-}
-
 export const credits = (mc: number) => mc / MC_PER_CREDIT;
 
 export const chargeFor = (costUsd: number, markup = creditConfig().markup) =>
@@ -132,7 +116,6 @@ export async function reserve(
 ): Promise<Reservation> {
   if (!billingEnabled() || user.demo)
     return { ok: true, holdId: null, metered: false };
-  if (unmetered(user)) return { ok: true, holdId: null, metered: false };
   const sql = await pg();
   return sql.begin(async (tx): Promise<Reservation> => {
     const state = await lockAccount(tx, user.id);

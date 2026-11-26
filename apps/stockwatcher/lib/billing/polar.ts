@@ -80,6 +80,7 @@ export async function createCheckout(input: {
     ...(input.email ? { customer_email: input.email } : {}),
     success_url: `${input.origin}/account?checkout={CHECKOUT_ID}`,
     return_url: `${input.origin}/account`,
+    allow_discount_codes: true,
     metadata: { user_id: input.userId, credits: pack.credits },
   });
   return checkout.url;

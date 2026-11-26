@@ -3,7 +3,6 @@ import {
   balance,
   billingEnabled,
   ledger,
-  unmetered,
   usageByDay,
 } from "@/lib/billing/credits";
 import { creditPacks, polarReady } from "@/lib/billing/polar";
@@ -11,8 +10,7 @@ import { creditPacks, polarReady } from "@/lib/billing/polar";
 export async function GET() {
   const user = await currentUser();
   if (!user) return json({ error: "Sign in to view credits." }, 401);
-  if (!billingEnabled() || user.demo)
-    return json({ enabled: false, unmetered: true });
+  if (!billingEnabled() || user.demo) return json({ enabled: false });
   try {
     const [current, entries, days, packs] = await Promise.all([
       balance(user.id),
@@ -29,7 +27,6 @@ export async function GET() {
     ]);
     return json({
       enabled: true,
-      unmetered: unmetered(user),
       purchasable: polarReady(),
       balance: current,
       ledger: entries,

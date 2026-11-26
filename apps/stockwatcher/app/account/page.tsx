@@ -6,7 +6,6 @@ import {
   billingEnabled,
   type LedgerEntry,
   ledger,
-  unmetered,
   usageByDay,
 } from "@/lib/billing/credits";
 import { creditPacks, polarReady } from "@/lib/billing/polar";
@@ -94,7 +93,6 @@ export default async function AccountPage({
   ]);
   const titles = new Map(threads.map((thread) => [thread.id, thread.title]));
   const spent30 = days.reduce((sum, day) => sum + day.credits, 0);
-  const isUnmetered = unmetered(user);
 
   return (
     <>
@@ -118,9 +116,7 @@ export default async function AccountPage({
           <div>
             <h2 id="balance">Balance</h2>
             <p>
-              {isUnmetered
-                ? "This account is unmetered. Usage is recorded but not charged."
-                : `Free credits reset to ${creditFormat.format(current.freeMonthly)} on ${dayFormat.format(new Date(current.resetsAt))}. Purchased credits do not expire.`}
+              {`Free credits reset to ${creditFormat.format(current.freeMonthly)} on ${dayFormat.format(new Date(current.resetsAt))}. Purchased credits do not expire.`}
             </p>
           </div>
         </header>

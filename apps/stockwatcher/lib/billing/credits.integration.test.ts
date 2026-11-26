@@ -15,7 +15,6 @@ describe.skipIf(!url)("credits ledger", () => {
     process.env.CREDIT_FLOOR = "1";
     process.env.CHAT_RESERVE_CREDITS = "5";
     process.env.CREDIT_MARKUP = "2";
-    process.env.STOCKWATCHER_UNMETERED_SUBJECTS = "family-sub";
     mock.module("server-only", () => ({}));
     credits = await import("./credits");
     polar = await import("./polar");
@@ -134,25 +133,6 @@ describe.skipIf(!url)("credits ledger", () => {
     expect((await credits.balance(someone.id)).held).toBe(0);
   });
 
-  test("unmetered subjects are recorded but never charged or refused", async () => {
-    const family = { id: `https://${randomUUID()}|family-sub`, demo: false };
-    for (let index = 0; index < 3; index++) {
-      const hold = await credits.reserve(family);
-      expect(hold.ok).toBe(true);
-      if (hold.ok)
-        await credits.settle(family, hold, {
-          ref: `run:${randomUUID()}`,
-          costUsd: 1,
-          source: "chat",
-        });
-    }
-    const entries = await credits.ledger(family.id);
-    expect(entries.filter((entry) => entry.kind === "usage")).toHaveLength(3);
-    expect(
-      entries.every((entry) => entry.kind !== "usage" || entry.credits === 0),
-    ).toBe(true);
-  });
-
   test("a signed order.paid grants its credits once", async () => {
     process.env.POLAR_WEBHOOK_SECRET = secret;
     const someone = user();
@@ -191,6 +171,22 @@ describe.skipIf(!url)("credits ledger", () => {
     await polar.handleWebhook(full.body, full.headers);
     await polar.handleWebhook(full.body, full.headers);
     expect((await credits.balance(someone.id)).paid).toBe(0);
+  });
+
+  test("an order fully covered by a promo code still grants the pack", async () => {
+    process.env.POLAR_WEBHOOK_SECRET = secret;
+    const someone = user();
+    const free = { ...order(someone.id, randomUUID()), total_amount: 0 };
+    const paid = signed({
+      type: "order.paid",
+      timestamp: new Date().toISOString(),
+      data: free,
+    });
+    expect(await polar.handleWebhook(paid.body, paid.headers)).toEqual({
+      status: 202,
+      result: "granted",
+    });
+    expect((await credits.balance(someone.id)).paid).toBe(1200);
   });
 
   test("a forged webhook is refused and grants nothing", async () => {
