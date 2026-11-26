@@ -1,22 +1,18 @@
+/** The Stockwatcher mark: a W drawn as one price line, closing on the last print. */
 export function BrandGlyph({ size = 16 }: { size?: number }) {
   return (
     <svg
       width={size}
       height={size}
-      viewBox="8 12 48 40"
+      viewBox="4 10 56 44"
       fill="none"
       stroke="currentColor"
       strokeLinecap="round"
       strokeLinejoin="round"
-      strokeWidth={3.6}
       aria-hidden
     >
-      <path d="M13 18C22 18 23 34 30 37" opacity={0.5} />
-      <path d="M13 30C21 30 24 36 30 37" opacity={0.72} />
-      <path d="M13 46C22 46 24 39 30 37" opacity={0.5} />
-      <path d="M30 37L38 30L43 34L51 21" strokeWidth={5} />
-      <circle cx={30} cy={37} r={3.6} fill="currentColor" stroke="none" />
-      <circle cx={51} cy={21} r={3.6} fill="currentColor" stroke="none" />
+      <path d="M10 21L18.5 45L31 27L43.5 45L52 21" strokeWidth={7} />
+      <circle cx={52} cy={21} r={5.2} fill="currentColor" stroke="none" />
     </svg>
   );
 }
