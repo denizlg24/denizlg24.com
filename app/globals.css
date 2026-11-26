@@ -9,6 +9,7 @@
 @import "./styles/channel-guide.css";
 @import "./styles/alerts.css";
 @import "./styles/admin.css";
+@import "./styles/landing.css";
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, [data-theme="terminal"], [data-theme="terminal"] *));
 
 @theme inline {
@@ -1545,101 +1546,6 @@ a.chip:hover {
   margin-top: 6px;
 }
 
-/* ── Sign-in ────────────────────────────────────────────────── */
-
-.sign-in {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  max-width: 1180px;
-  min-height: 100dvh;
-  margin: 0 auto;
-  padding: 20px 40px 18px;
-}
-.sign-in-masthead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-3);
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--rule-strong);
-}
-.sign-in-masthead .brand {
-  margin: 0;
-}
-.sign-in-masthead p {
-  display: flex;
-  gap: var(--sp-4);
-  color: var(--muted-foreground);
-  font-size: var(--fs-2xs);
-  letter-spacing: 0.02em;
-}
-.sign-in-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 1fr);
-  align-items: end;
-  gap: 40px 72px;
-  padding: clamp(48px, 13vh, 150px) 0 56px;
-}
-.sign-in h1 {
-  max-width: 9ch;
-  font: 500 clamp(3.25rem, 7.2vw, 5.75rem) / 0.94 var(--display);
-  letter-spacing: -0.035em;
-  text-wrap: balance;
-}
-.sign-in-lede {
-  max-width: 38ch;
-  margin-top: 22px;
-  color: var(--muted-foreground);
-  font-size: var(--fs-lg);
-  line-height: 1.45;
-}
-.sign-in .notice {
-  margin-top: 16px;
-  color: var(--loss);
-  font-size: var(--fs-sm);
-}
-.sign-in-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--sp-2);
-  margin-top: 28px;
-}
-.sign-in-index {
-  border-top: 1px solid var(--rule-strong);
-}
-.sign-in-index h2 {
-  padding: 8px 0 6px;
-  font-size: var(--fs-2xs);
-  font-weight: 650;
-  letter-spacing: 0.075em;
-  text-transform: uppercase;
-}
-.sign-in-index dl > div {
-  display: grid;
-  grid-template-columns: 88px minmax(0, 1fr);
-  gap: var(--sp-3);
-  padding: 9px 0;
-  border-top: 1px solid var(--rule);
-  font-size: var(--fs-sm);
-  line-height: 1.4;
-}
-.sign-in-index dt {
-  font-weight: 650;
-}
-.sign-in-index dd {
-  color: var(--muted-foreground);
-}
-.sign-in-foot {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 4px var(--sp-4);
-  padding-top: 10px;
-  border-top: 1px solid var(--rule);
-  color: var(--muted-foreground);
-  font-size: var(--fs-2xs);
-}
 .app-loading {
   display: grid;
   min-height: 100dvh;
@@ -1960,20 +1866,6 @@ a.chip:hover {
   }
   .filing-list {
     grid-template-columns: 1fr;
-  }
-  .sign-in {
-    padding: 14px 16px 16px;
-  }
-  .sign-in-body {
-    grid-template-columns: 1fr;
-    align-items: start;
-    padding: 40px 0 36px;
-  }
-  .sign-in h1 {
-    font-size: 3.25rem;
-  }
-  .sign-in-masthead p > span {
-    display: none;
   }
   .chart-readout .readout-unit {
     display: none;

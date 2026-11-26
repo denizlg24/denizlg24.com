@@ -4,9 +4,15 @@ import { ArrowRight, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { dashboardReturn } from "@/lib/assistant-types";
 
-export function DenizSignIn() {
+export function DenizSignIn({
+  label,
+  size = "lg",
+}: {
+  label?: string;
+  size?: "default" | "lg";
+}) {
   return (
-    <Button asChild size="lg">
+    <Button asChild size={size}>
       <a
         href="/auth/login"
         onClick={(event) => {
@@ -15,13 +21,21 @@ export function DenizSignIn() {
           event.currentTarget.href = `/auth/login?${new URLSearchParams({ from })}`;
         }}
       >
-        <ShieldCheck /> Continue with Deniz Cloud <ArrowRight />
+        {label ? (
+          <>
+            {label} <ArrowRight />
+          </>
+        ) : (
+          <>
+            <ShieldCheck /> Continue with Deniz Cloud <ArrowRight />
+          </>
+        )}
       </a>
     </Button>
   );
 }
 
-export function PreviewSignIn() {
+export function PreviewSignIn({ size = "lg" }: { size?: "default" | "lg" }) {
   return (
     <form
       action="/auth/demo"
@@ -33,7 +47,7 @@ export function PreviewSignIn() {
       }}
     >
       <input type="hidden" name="from" />
-      <Button type="submit" variant="outline" size="lg">
+      <Button type="submit" variant="outline" size={size}>
         Open preview <ArrowRight />
       </Button>
     </form>
