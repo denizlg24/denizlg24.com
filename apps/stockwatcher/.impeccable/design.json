@@ -1,0 +1,22 @@
+{
+  "surfaces": {
+    "background": "#f7f8f4",
+    "sidebar": "#eff1eb",
+    "panel": "#ffffff",
+    "border": "#dfe5dc"
+  },
+  "text": {
+    "foreground": "#17231c",
+    "muted": "#59665e"
+  },
+  "semantic": {
+    "primary": "#174e3a",
+    "gain": "#23744f",
+    "loss": "#ad403c"
+  },
+  "type": {
+    "display": "Newsreader Variable",
+    "interface": "Inter Variable"
+  },
+  "spacing": { "panelGap": "18px", "panelRadius": "14px" }
+}
