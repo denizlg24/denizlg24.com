@@ -7,6 +7,18 @@ under `### Added`, `### Changed`, `### Fixed`; inside a release only bullets,
 paragraphs, **bold**, `code` and links are understood. `bun run bump:desktop
 <patch|minor|major>` opens the entry for the next version.
 
+## 3.8.2 — 2026-11-26
+
+### Added
+- Holdings are priced live from market quotes and refresh every minute while open; the header says whether prices are live or from the last IBKR statement.
+- Task and mail views filtered to open cards or pending mail get a one-click complete or mark-reviewed button. The row disappears at once and comes back if the change fails.
+
+### Changed
+- Views on Home and other pages show their last rows instantly when you come back and refresh in the background, instead of loading from scratch each time.
+
+### Fixed
+- Holdings listed on Euronext in a second currency (Amundi Physical Gold as GOLD in EUR) are quoted on the right line instead of a dead USD one.
+
 ## 3.8.1 — 2026-11-24
 
 ### Fixed
