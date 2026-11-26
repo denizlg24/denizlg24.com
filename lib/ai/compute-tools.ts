@@ -4,6 +4,7 @@ import { z } from "zod";
 import { attempt, isoTime, ticker } from "./shared";
 import { extraShape, loadExtra } from "./compute-extra";
 import { runSandbox, sandboxLimits } from "./sandbox";
+import { marketSource } from "./data";
 import type { Bar } from "@/lib/indicators";
 import {
   history,
@@ -14,11 +15,7 @@ import {
   type HistoryInterval,
 } from "@/lib/market";
 import type { ChartPoint, Quote } from "@/lib/models";
-import {
-  rangeKeys,
-  universeKeys,
-  type Range,
-} from "@/lib/universes";
+import { rangeKeys, universeKeys, type Range } from "@/lib/universes";
 
 const MAX_SYMBOLS = 600;
 const MAX_BARS = 200_000;
@@ -191,7 +188,10 @@ async function loadData(request: DataRequest) {
       }
     });
     for (const symbol of skipped) missing.add(symbol);
-    const total = Object.values(bars).reduce((sum, list) => sum + list.length, 0);
+    const total = Object.values(bars).reduce(
+      (sum, list) => sum + list.length,
+      0,
+    );
     if (total > MAX_BARS)
       throw new Error(
         `${total.toLocaleString("en-US")} bars exceed the ${MAX_BARS.toLocaleString("en-US")} limit. Use fewer symbols, a shorter range, or interval "1wk".`,
@@ -212,7 +212,8 @@ async function loadData(request: DataRequest) {
         quoteMap[quote.symbol] = quote;
       }
     for (const symbol of symbols)
-      if (!quoteMap[symbol] && !(barRequest && bars[symbol])) missing.add(symbol);
+      if (!quoteMap[symbol] && !(barRequest && bars[symbol]))
+        missing.add(symbol);
   }
 
   const extra = await extraLoad;
@@ -288,7 +289,9 @@ export async function runCompute(
         ok: false,
         error: error.issues
           .slice(0, 3)
-          .map((issue) => [issue.path.join("."), issue.message].filter(Boolean).join(": "))
+          .map((issue) =>
+            [issue.path.join("."), issue.message].filter(Boolean).join(": "),
+          )
           .join("; "),
       };
     return {
@@ -320,7 +323,10 @@ export function computeTools() {
           const started = Date.now();
           const request = dataRequest.parse(data ?? {});
           const loaded = await loadData(request);
-          const outcome = await runSandbox(code, JSON.stringify(loaded.payload));
+          const outcome = await runSandbox(
+            code,
+            JSON.stringify(loaded.payload),
+          );
           if (!outcome.ok) return { error: outcome.error };
           const usesBars =
             request.quotes ||
@@ -328,7 +334,12 @@ export function computeTools() {
             Object.keys(loaded.payload.quotes).length > 0;
           const sources = [
             ...(usesBars || (!request.fundamentals && !request.macro)
-              ? ["Yahoo Finance / Moscow Exchange"]
+              ? [
+                  marketSource([
+                    ...Object.keys(loaded.payload.bars),
+                    ...Object.keys(loaded.payload.quotes),
+                  ]),
+                ]
               : []),
             ...(request.fundamentals ? ["SEC EDGAR XBRL"] : []),
             ...(request.macro ? ["FRED"] : []),
@@ -341,7 +352,10 @@ export function computeTools() {
             symbols: loaded.symbols,
             missing: loaded.missing.slice(0, MAX_MISSING_LISTED),
             missingCount: loaded.missing.length,
-            missingFundamentals: loaded.missingFundamentals.slice(0, MAX_MISSING_LISTED),
+            missingFundamentals: loaded.missingFundamentals.slice(
+              0,
+              MAX_MISSING_LISTED,
+            ),
             missingMacro: loaded.missingMacro,
             ms: Date.now() - started,
           };
