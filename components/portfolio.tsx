@@ -23,6 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { amount, number, percent, today, tone } from "@/lib/utils";
 import { workspaceSchema, type Trade, type Workspace } from "@/lib/models";
 import { positionsFor, valuePosition, type Position } from "@/lib/portfolio";
+import { baseValuation, fxSymbols, resolveFxRates } from "@/lib/fx-rates";
 import {
   Empty,
   Failure,
@@ -202,6 +203,41 @@ export function Portfolio({
   const totalByCurrency = new Map(
     totals.map((total) => [total.currency, total]),
   );
+  const baseCurrency = workspace.settings.baseCurrency;
+  const fxNeeded = totals.length > 1 || totals[0]?.currency !== baseCurrency;
+  const { data: fxData } = useQuotes(
+    fxNeeded ? fxSymbols(totals.map((item) => item.currency), baseCurrency) : [],
+    refresh,
+  );
+  const nav = fxNeeded && fxData
+    ? (() => {
+        const rates = resolveFxRates(
+          fxData.quotes,
+          totals.map((item) => item.currency),
+          baseCurrency,
+        );
+        const valuation = baseValuation(
+          totals.map((item) => ({
+            currency: item.currency,
+            positions: item.count,
+            unpriced: item.missing,
+            marketValue: item.value,
+            cost: item.value - item.unrealized,
+            unrealized: item.unrealized,
+            dayChange: item.day,
+          })),
+          rates,
+          baseCurrency,
+        );
+        const stamps = [...rates.values()]
+          .map((fx) => fx.time)
+          .filter((time) => time > 0);
+        return {
+          ...valuation.block,
+          asOf: stamps.length ? Math.min(...stamps) : null,
+        };
+      })()
+    : null;
   const rows: PositionRow[] = open.map((item) => {
     const quote = quoteBySymbol.get(item.symbol);
     const valued = valuePosition(item, quote);
@@ -319,6 +355,47 @@ export function Portfolio({
               </div>
             ) : null}
           </PanelHeading>
+          {nav ? (
+            <div className="book-summary">
+              <div className="stat-row">
+                <div className="figure figure-lg">
+                  <span className="figure-label">
+                    Net value · {nav.currency}
+                    {nav.excludedNoFxRate.length ? " · partial" : ""}
+                  </span>
+                  <strong className="figure-value">
+                    {amount(nav.marketValue)}
+                  </strong>
+                  <span className="figure-sub">
+                    {nav.asOf != null
+                      ? `FX as of ${quoteTime(nav.asOf)}`
+                      : "Single currency"}
+                    {nav.excludedNoFxRate.length
+                      ? ` · excludes ${nav.excludedNoFxRate
+                          .map((item) => `${item.positions} ${item.currency}`)
+                          .join(", ")} (no FX rate)`
+                      : ""}
+                  </span>
+                </div>
+                <div className="figure">
+                  <span className="figure-label">Day P/L</span>
+                  <strong className={`figure-value ${tone(nav.dayChange)}`}>
+                    {signed(nav.dayChange)}
+                  </strong>
+                  <span className={`figure-sub ${tone(nav.dayChangePercent)}`}>
+                    {percent(nav.dayChangePercent)}
+                  </span>
+                </div>
+                <div className="figure">
+                  <span className="figure-label">Unrealized P/L</span>
+                  <strong className={`figure-value ${tone(nav.unrealized)}`}>
+                    {signed(nav.unrealized)}
+                  </strong>
+                  <span className="figure-sub">At current FX</span>
+                </div>
+              </div>
+            </div>
+          ) : null}
           {totals.length ? (
             <div className="book-summary">
               {totals.map((item) => {

@@ -1159,3 +1159,112 @@
   line-height: 1.45;
   white-space: pre;
 }
+
+/* Documents */
+.documents-panel {
+  margin-top: var(--sp-4);
+}
+.documents-panel[data-dragging],
+.chat-panel[data-dragging] {
+  outline: 1px dashed var(--ring);
+  outline-offset: 2px;
+}
+.doc-options {
+  display: grid;
+  gap: 4px;
+  padding-bottom: var(--sp-2);
+}
+.doc-options .meta {
+  font-size: var(--fs-2xs);
+}
+.doc-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-uploads {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 var(--sp-2);
+  padding: 0;
+  list-style: none;
+}
+.doc-uploads li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--fs-xs);
+}
+.doc-uploads li svg {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  color: var(--muted-foreground);
+}
+.doc-uploads li[data-status="error"] svg,
+.doc-uploads li[data-status="error"] .doc-upload-state {
+  color: var(--loss);
+}
+.doc-upload-name {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.doc-upload-state {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-2xs);
+}
+.doc-progress {
+  flex: 0 0 64px;
+  height: 3px;
+  appearance: none;
+  border: 0;
+  border-radius: 2px;
+  background: var(--rule);
+  accent-color: var(--foreground);
+  overflow: hidden;
+}
+.doc-progress::-webkit-progress-bar {
+  background: var(--rule);
+}
+.doc-progress::-webkit-progress-value {
+  background: var(--foreground);
+}
+.doc-progress::-moz-progress-bar {
+  background: var(--foreground);
+}
+.doc-spin {
+  animation: doc-spin 900ms linear infinite;
+}
+@keyframes doc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .doc-spin {
+    animation: none;
+  }
+}
+.doc-hit-list {
+  margin: 0;
+}
+.doc-hit-list li {
+  display: grid;
+  gap: 2px;
+}
+.doc-hit-list .meta {
+  font-size: var(--fs-2xs);
+}
+.doc-hit-list p {
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.chat-composer-scope {
+  flex: 1 1 auto;
+  min-width: 0;
+}

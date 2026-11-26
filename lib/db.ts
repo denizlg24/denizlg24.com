@@ -6,9 +6,12 @@ import { createHash, randomBytes } from "node:crypto";
 import postgres from "postgres";
 import {
   defaultChartPreferences,
+  signalRuntimeSchema,
   workspaceSchema,
+  type SignalRuntime,
   type Workspace,
 } from "./models";
+import { withRuntime } from "./signals";
 
 export type Identity = {
   id: string;
@@ -95,6 +98,36 @@ function sqlite() {
     CREATE INDEX IF NOT EXISTS chat_runs_user ON chat_runs(user_id, started_at);
     CREATE INDEX IF NOT EXISTS chat_runs_started ON chat_runs(started_at);
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS documents (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL,
+      mime TEXT NOT NULL, size INTEGER NOT NULL, kind TEXT NOT NULL,
+      pages INTEGER, chunks INTEGER NOT NULL, chars INTEGER NOT NULL,
+      symbols TEXT NOT NULL, tags TEXT NOT NULL, uploaded_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS documents_user ON documents(user_id, uploaded_at);
+    CREATE TABLE IF NOT EXISTS document_chunks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, doc_id TEXT NOT NULL,
+      user_id TEXT NOT NULL, seq INTEGER NOT NULL, page INTEGER,
+      content TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS document_chunks_doc ON document_chunks(doc_id, seq);
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS signal_runtime (
+      user_id TEXT NOT NULL, signal_id TEXT NOT NULL,
+      last_checked TEXT, last_value REAL, last_message TEXT,
+      last_error TEXT, error_count INTEGER NOT NULL,
+      PRIMARY KEY (user_id, signal_id)
+    );
+  `);
+  try {
+    db.exec(
+      "CREATE VIRTUAL TABLE IF NOT EXISTS document_chunks_fts USING fts5(content, tokenize = 'porter unicode61')",
+    );
+  } catch {
+    // FTS5 is optional in custom SQLite builds; document search falls back to LIKE.
+  }
   globals.stockwatcherDb = db;
   return db;
 }
@@ -170,6 +203,28 @@ function pg(url: string) {
       )`;
       await sql`CREATE INDEX IF NOT EXISTS stockwatcher_chat_runs_user ON stockwatcher_chat_runs(user_id, started_at)`;
       await sql`CREATE INDEX IF NOT EXISTS stockwatcher_chat_runs_started ON stockwatcher_chat_runs(started_at)`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_documents (
+        id UUID PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL,
+        mime TEXT NOT NULL, size INTEGER NOT NULL, kind TEXT NOT NULL,
+        pages INTEGER, chunks INTEGER NOT NULL, chars INTEGER NOT NULL,
+        symbols JSONB NOT NULL, tags JSONB NOT NULL, uploaded_at TIMESTAMPTZ NOT NULL
+      )`;
+      await sql`CREATE INDEX IF NOT EXISTS stockwatcher_documents_user ON stockwatcher_documents(user_id, uploaded_at)`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_document_chunks (
+        doc_id UUID NOT NULL REFERENCES stockwatcher_documents(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL, seq INTEGER NOT NULL, page INTEGER,
+        content TEXT NOT NULL,
+        tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('english', content)) STORED,
+        PRIMARY KEY (doc_id, seq)
+      )`;
+      await sql`CREATE INDEX IF NOT EXISTS stockwatcher_document_chunks_tsv ON stockwatcher_document_chunks USING GIN (tsv)`;
+      await sql`CREATE INDEX IF NOT EXISTS stockwatcher_document_chunks_user ON stockwatcher_document_chunks(user_id)`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_signal_runtime (
+        user_id TEXT NOT NULL, signal_id TEXT NOT NULL,
+        last_checked TIMESTAMPTZ, last_value DOUBLE PRECISION, last_message TEXT,
+        last_error TEXT, error_count INTEGER NOT NULL,
+        PRIMARY KEY (user_id, signal_id)
+      )`;
     });
     return db;
   })().catch(async (error) => {
@@ -304,11 +359,13 @@ function initialWorkspace(): Workspace {
     notes: [],
     alerts: [],
     alertLog: [],
+    signals: [],
     requests: [],
     settings: {
       theme: "system",
       home: "overview",
       refresh: true,
+      baseCurrency: "USD",
       chart: defaultChartPreferences,
     },
     overlays: [],
@@ -390,19 +447,152 @@ export async function alertWorkspaces(): Promise<
     const sql = await pg(url);
     const rows = await sql<({ user_id: string } & WorkspaceRow)[]>`
       SELECT user_id, revision, data FROM stockwatcher_workspaces
-      WHERE user_id NOT LIKE 'demo:%' AND data->'alerts' @> '[{"enabled":true}]'::jsonb
+      WHERE user_id NOT LIKE 'demo:%' AND (data->'alerts' @> '[{"enabled":true}]'::jsonb OR data->'signals' @> '[{"enabled":true}]'::jsonb)
     `;
     return rows.map((row) => ({ id: row.user_id, ...decode(row) }));
   }
   return sqlite()
     .prepare(
-      "SELECT user_id, revision, data FROM workspaces WHERE user_id NOT LIKE 'demo:%' AND EXISTS (SELECT 1 FROM json_each(data, '$.alerts') WHERE json_extract(value, '$.enabled') = 1)",
+      "SELECT user_id, revision, data FROM workspaces WHERE user_id NOT LIKE 'demo:%' AND (EXISTS (SELECT 1 FROM json_each(data, '$.alerts') WHERE json_extract(value, '$.enabled') = 1) OR EXISTS (SELECT 1 FROM json_each(data, '$.signals') WHERE json_extract(value, '$.enabled') = 1))",
     )
     .all()
     .map((row) => ({
       id: String(row.user_id),
       ...decode({ revision: Number(row.revision), data: row.data }),
     }));
+}
+
+type RuntimeRow = {
+  signal_id: string;
+  last_checked: string | Date | null;
+  last_value: number | null;
+  last_message: string | null;
+  last_error: string | null;
+  error_count: number;
+};
+
+export async function readSignalRuntime(
+  userId: string,
+): Promise<Map<string, SignalRuntime>> {
+  const db = await store();
+  const rows: RuntimeRow[] =
+    db.kind === "pg"
+      ? await db.sql<RuntimeRow[]>`
+          SELECT signal_id, last_checked, last_value, last_message, last_error, error_count
+          FROM stockwatcher_signal_runtime WHERE user_id = ${userId}`
+      : db.db
+          .prepare(
+            "SELECT signal_id, last_checked, last_value, last_message, last_error, error_count FROM signal_runtime WHERE user_id = ?",
+          )
+          .all(userId)
+          .map((row) => ({
+            signal_id: String(row.signal_id),
+            last_checked: row.last_checked === null ? null : String(row.last_checked),
+            last_value: row.last_value === null ? null : Number(row.last_value),
+            last_message: row.last_message === null ? null : String(row.last_message),
+            last_error: row.last_error === null ? null : String(row.last_error),
+            error_count: Number(row.error_count),
+          }));
+  return new Map(
+    rows.map((row) => [
+      row.signal_id,
+      signalRuntimeSchema.parse({
+        lastChecked:
+          row.last_checked === null ? null : new Date(row.last_checked).toISOString(),
+        lastValue: row.last_value,
+        lastMessage: row.last_message,
+        lastError: row.last_error,
+        errorCount: row.error_count,
+      }),
+    ]),
+  );
+}
+
+export async function writeSignalRuntime(
+  userId: string,
+  signalId: string,
+  runtime: SignalRuntime,
+) {
+  const db = await store();
+  if (db.kind === "pg") {
+    await db.sql`
+      INSERT INTO stockwatcher_signal_runtime
+        (user_id, signal_id, last_checked, last_value, last_message, last_error, error_count)
+      VALUES (${userId}, ${signalId}, ${runtime.lastChecked}, ${runtime.lastValue},
+        ${runtime.lastMessage}, ${runtime.lastError}, ${runtime.errorCount})
+      ON CONFLICT (user_id, signal_id) DO UPDATE SET
+        last_checked = EXCLUDED.last_checked, last_value = EXCLUDED.last_value,
+        last_message = EXCLUDED.last_message, last_error = EXCLUDED.last_error,
+        error_count = EXCLUDED.error_count`;
+    return;
+  }
+  db.db
+    .prepare(
+      `INSERT INTO signal_runtime
+        (user_id, signal_id, last_checked, last_value, last_message, last_error, error_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (user_id, signal_id) DO UPDATE SET
+        last_checked = excluded.last_checked, last_value = excluded.last_value,
+        last_message = excluded.last_message, last_error = excluded.last_error,
+        error_count = excluded.error_count`,
+    )
+    .run(
+      userId,
+      signalId,
+      runtime.lastChecked,
+      runtime.lastValue,
+      runtime.lastMessage,
+      runtime.lastError,
+      runtime.errorCount,
+    );
+}
+
+export async function deleteSignalRuntime(userId: string, signalIds: string[]) {
+  if (!signalIds.length) return;
+  const db = await store();
+  if (db.kind === "pg") {
+    await db.sql`DELETE FROM stockwatcher_signal_runtime WHERE user_id = ${userId} AND signal_id IN ${db.sql(signalIds)}`;
+    return;
+  }
+  const remove = db.db.prepare(
+    "DELETE FROM signal_runtime WHERE user_id = ? AND signal_id = ?",
+  );
+  for (const id of signalIds) remove.run(userId, id);
+}
+
+export async function clearSignalErrors(userId: string, signalIds: string[]) {
+  if (!signalIds.length) return;
+  const db = await store();
+  if (db.kind === "pg") {
+    await db.sql`UPDATE stockwatcher_signal_runtime SET error_count = 0, last_error = NULL WHERE user_id = ${userId} AND signal_id IN ${db.sql(signalIds)}`;
+    return;
+  }
+  const clear = db.db.prepare(
+    "UPDATE signal_runtime SET error_count = 0, last_error = NULL WHERE user_id = ? AND signal_id = ?",
+  );
+  for (const id of signalIds) clear.run(userId, id);
+}
+
+/** The workspace with each signal's runtime state merged in, for display. */
+export async function readWorkspaceView(userId: string): Promise<WorkspaceRecord> {
+  const [record, runtime] = await Promise.all([
+    readWorkspace(userId),
+    readSignalRuntime(userId),
+  ]);
+  return withRuntimeState(record, runtime);
+}
+
+export function withRuntimeState(
+  record: WorkspaceRecord,
+  runtime: Map<string, SignalRuntime>,
+): WorkspaceRecord {
+  return {
+    revision: record.revision,
+    data: {
+      ...record.data,
+      signals: withRuntime(record.data.signals, runtime),
+    },
+  };
 }
 
 /** Cached model extractions from public filings, keyed by accession. */

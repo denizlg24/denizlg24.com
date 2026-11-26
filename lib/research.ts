@@ -6,13 +6,10 @@ import type {
   HoldingsReport,
   Mention,
 } from "./research-types";
+import { secHeaders, takeSlot } from "./sec-data";
 
-export const secHeaders = () => ({
-  "User-Agent":
-    process.env.SEC_USER_AGENT ||
-    "Stockwatcher research contact research@denizlg24.com",
-});
 export async function sec<T>(host: string, path: string, ttl = 3600): Promise<T> {
+  await takeSlot();
   const response = await fetch(`https://${host}${path}`, {
     headers: secHeaders(),
     next: { revalidate: ttl },

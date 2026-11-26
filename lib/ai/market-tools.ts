@@ -16,6 +16,7 @@ import { readWorkspace, type Identity } from "@/lib/db";
 import { computeStudies, studyKeySchema, type StudyRow } from "@/lib/indicators";
 import { history, members, newsWire, quotes, series, trending } from "@/lib/market";
 import { positionsFor } from "@/lib/portfolio";
+import { fredSeries } from "@/lib/fred";
 import { relay } from "@/lib/relay-data";
 import { moverListSchema } from "@/lib/security-types";
 import { universeKeys } from "@/lib/universes";
@@ -341,7 +342,7 @@ export function marketTools({ user }: { user: Identity }) {
     }),
     getMacroCalendar: tool({
       description:
-        "Upcoming FOMC meeting dates (decision day) and, optionally, a FRED macro series history (e.g. DGS10, DGS2, T10Y2Y, DFF, CPIAUCSL, UNRATE, M2SL). Use series 'catalog' to list the available series.",
+        "Upcoming FOMC meeting dates (decision day) and, optionally, the history of any FRED series by id (e.g. DGS10, DGS2, T10Y2Y, DFF, CPIAUCSL, UNRATE, M2SL, BAMLH0A0HYM2, ICSA, WALCL, VIXCLS). Returns latest value, recent observations, range high and low. Use series 'catalog' to list a curated subset of common series; any other valid FRED id also works. For long histories or cross-sectional work use compute with data.macro.",
       inputSchema: z.object({
         series: z
           .string()
@@ -370,23 +371,24 @@ export function marketTools({ user }: { user: Identity }) {
               })),
             };
           }
-          const data = await relay.macro(id.toUpperCase(), from);
+          const data = await fredSeries(id, from, true);
           const values = data.observations;
+          if (values.length === 0) throw new Error(`FRED series ${data.id} has no observations.`);
           const latest = lastValue(values);
           return {
             ...base,
             series: {
-              id: data.series.id,
-              name: data.series.name,
-              units: data.series.units,
-              frequency: data.series.frequency,
+              id: data.id,
+              name: data.title ?? data.id,
+              units: data.units,
+              frequency: data.frequency,
               latest,
               observations: values.length,
               recent: values.slice(-12),
               high: values.length ? Math.max(...values.map((item) => item.value)) : null,
               low: values.length ? Math.min(...values.map((item) => item.value)) : null,
             },
-            source: "FRED via markets relay",
+            source: data.source === "FRED API" ? "FRED API (St. Louis Fed)" : "FRED (St. Louis Fed)",
           };
         }, "Macro data is temporarily unavailable."),
     }),

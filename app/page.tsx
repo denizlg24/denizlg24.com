@@ -4,7 +4,7 @@ import { DenizSignIn, PreviewSignIn } from "@/components/sign-in-actions";
 import { Dashboard } from "@/components/dashboard";
 import { authReady, currentUser, demoEnabled, isAdmin } from "@/lib/auth";
 import { aiEnabled } from "@/lib/ai/config";
-import { readWorkspace } from "@/lib/db";
+import { readWorkspaceView } from "@/lib/db";
 
 const messages: Record<string, string> = {
   retry:
@@ -43,7 +43,7 @@ async function Home({ searchParams }: PageProps<"/">) {
       <Dashboard
         aiEnabled={aiEnabled(user)}
         monitoring={process.env.ALERT_MONITOR === "1"}
-        initial={await readWorkspace(user.id)}
+        initial={await readWorkspaceView(user.id)}
         account={{
           name: user.name,
           email: user.email,

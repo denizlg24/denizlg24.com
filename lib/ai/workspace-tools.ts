@@ -344,6 +344,7 @@ export function workspaceTools({ user }: { user: Identity }) {
                 id: event.id,
                 alertId: event.alertId,
                 symbol: event.symbol,
+                label: event.label,
                 time: event.time,
                 price: event.price,
                 currency: event.currency,
@@ -1174,11 +1175,17 @@ export function workspaceTools({ user }: { user: Identity }) {
     }),
     updateSettings: tool({
       description:
-        "Change the user's app settings; only the fields you pass change. theme: light|dark|system|terminal. home: landing view overview|markets|portfolio|research. refresh: live auto-refresh on/off. chart: default chart preferences (style, range, studies, log, scale, averages, panes, appearance flags/colors).",
+        "Change the user's app settings; only the fields you pass change. theme: light|dark|system|terminal. home: landing view overview|markets|portfolio|research. refresh: live auto-refresh on/off. baseCurrency: 3-letter ISO code the portfolio NAV is converted into (default USD). chart: default chart preferences (style, range, studies, log, scale, averages, panes, appearance flags/colors).",
       inputSchema: z.object({
         theme: z.enum(["light", "dark", "system", "terminal"]).optional(),
         home: z.enum(["overview", "markets", "portfolio", "research"]).optional(),
         refresh: z.boolean().optional(),
+        baseCurrency: z
+          .string()
+          .trim()
+          .toUpperCase()
+          .regex(/^[A-Z]{3}$/)
+          .optional(),
         chart: z
           .object({
             style: z.enum(chartStyles).optional(),
@@ -1192,7 +1199,7 @@ export function workspaceTools({ user }: { user: Identity }) {
           })
           .optional(),
       }),
-      execute: ({ theme, home, refresh, chart }) =>
+      execute: ({ theme, home, refresh, baseCurrency, chart }) =>
         attempt(
           () =>
             write(userId, (workspace) => {
@@ -1209,12 +1216,14 @@ export function workspaceTools({ user }: { user: Identity }) {
                 theme: theme ?? settings.theme,
                 home: home ?? settings.home,
                 refresh: refresh ?? settings.refresh,
+                baseCurrency: baseCurrency ?? settings.baseCurrency,
                 chart: nextChart,
               };
               const parts = [
                 theme && `theme ${theme}`,
                 home && `home ${home}`,
                 refresh !== undefined && `auto-refresh ${refresh ? "on" : "off"}`,
+                baseCurrency && `base currency ${baseCurrency}`,
                 chart && "chart defaults",
               ].filter(Boolean);
               if (!parts.length) throw new Error("Pass at least one setting to change.");

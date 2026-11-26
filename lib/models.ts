@@ -221,9 +221,11 @@ export type AlertRule = z.infer<typeof alertSchema>;
 export const alertEventSchema = z.object({
   id,
   alertId: id,
-  symbol: symbolSchema,
+  /** Empty for signal events, which carry a `label` instead. */
+  symbol: z.union([z.literal(""), symbolSchema]),
+  label: z.string().max(120).default(""),
   time: z.iso.datetime(),
-  price: z.number().positive(),
+  price: z.number().positive().nullable(),
   currency: z.string().max(8).default(""),
   message: z.string().max(400),
   deliveries: z
@@ -240,6 +242,46 @@ export const alertEventSchema = z.object({
     .default([]),
 });
 export type AlertEvent = z.infer<typeof alertEventSchema>;
+
+export const signalCadences = ["tick", "hourly", "daily"] as const;
+export type SignalCadence = (typeof signalCadences)[number];
+export const maxSignals = 10;
+export const signalCodeLimit = 20_000;
+
+/** A saved compute script that alerts when it returns true (or `{ trigger: true }`). */
+export const signalSchema = z.object({
+  id,
+  name: title,
+  /** The `compute` tool's data request; validated against it when the signal runs. */
+  data: z.record(z.string(), z.json()).default({}),
+  code: z.string().min(1).max(signalCodeLimit),
+  cadence: z.enum(signalCadences).default("daily"),
+  repeat: z.enum(["once", "rearm"]).default("once"),
+  /** False after a `rearm` signal fires, until it returns false again. */
+  primed: z.boolean().default(true),
+  enabled: z.boolean(),
+  note: z.string().trim().max(280).default(""),
+  channels: z.array(z.string().uuid()).max(10).default([]),
+  lastValue: z.number().finite().nullable().default(null),
+  lastMessage: z.string().max(300).nullable().default(null),
+  lastChecked: z.iso.datetime().nullable().default(null),
+  lastError: z.string().max(300).nullable().default(null),
+  /** Consecutive failed runs; the signal is disabled when it reaches the limit. */
+  errorCount: z.number().int().min(0).default(0),
+  lastTriggered: z.iso.datetime().nullable().default(null),
+  triggerCount: z.number().int().min(0).default(0),
+});
+export type Signal = z.infer<typeof signalSchema>;
+
+/** Per-run bookkeeping, stored outside the workspace so checks never bump its revision. */
+export const signalRuntimeSchema = signalSchema.pick({
+  lastValue: true,
+  lastMessage: true,
+  lastChecked: true,
+  lastError: true,
+  errorCount: true,
+});
+export type SignalRuntime = z.infer<typeof signalRuntimeSchema>;
 
 export const workspaceSchema = z.object({
   watchlists: z
@@ -284,6 +326,7 @@ export const workspaceSchema = z.object({
     .max(150),
   alerts: z.array(alertSchema).max(60),
   alertLog: z.array(alertEventSchema).max(120).default([]),
+  signals: z.array(signalSchema).max(maxSignals).default([]),
   dashboard: dashboardSchema.optional(),
   desk: deskSchema.optional(),
   overlays: z
@@ -327,6 +370,10 @@ export const workspaceSchema = z.object({
     theme: z.enum(["light", "dark", "system", "terminal"]),
     home: z.enum(["overview", "markets", "portfolio", "research"]),
     refresh: z.boolean(),
+    baseCurrency: z
+      .string()
+      .regex(/^[A-Z]{3}$/)
+      .default("USD"),
     chart: chartPreferencesSchema.default(defaultChartPreferences),
   }),
 });

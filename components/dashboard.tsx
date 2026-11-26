@@ -96,6 +96,13 @@ const MemoryPanel = dynamic(
   () => import("./assistant/memory-panel").then((module) => module.MemoryPanel),
   { loading: () => <Loading /> },
 );
+const DocumentsPanel = dynamic(
+  () =>
+    import("./assistant/documents-panel").then(
+      (module) => module.DocumentsPanel,
+    ),
+  { loading: () => <Loading /> },
+);
 
 const mobileQuery = "(max-width: 980px)";
 const securityFn = (value?: string): SecurityFunction =>
@@ -740,6 +747,7 @@ export function Dashboard({
           {view === "alerts" ? (
             <Alerts
               alerts={workspace.alerts}
+              signals={workspace.signals}
               log={workspace.alertLog}
               ticker={ticker}
               save={save}
@@ -756,7 +764,12 @@ export function Dashboard({
           {view === "reports" ? (
             <ReportsLibrary onAsk={useAI ? ask : undefined} />
           ) : null}
-          {view === "memory" ? <MemoryPanel /> : null}
+          {view === "memory" ? (
+            <>
+              <MemoryPanel />
+              <DocumentsPanel />
+            </>
+          ) : null}
           {view === "settings" ? (
             <Settings workspace={workspace} account={account} save={save} />
           ) : null}
