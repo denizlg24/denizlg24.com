@@ -294,7 +294,12 @@ export function createTools(ctx: { user: Identity; origin: string }) {
         "The user's portfolio rebuilt day by day from their trades, in their base currency: each day's value, change (excluding money moved in by trades) and % for any past window, period P&L and time-weighted return, best and worst day, each position's contribution, FX-inclusive cost basis (priceEffect vs fxEffect since purchase), and with `date` a position-by-position breakdown of that one day (e.g. yesterday). Use it for any question about a past day, a period's performance, or currency effects; getPortfolio only knows today.",
       inputSchema: z.object({
         bookId: z.uuid().optional(),
-        from: z.iso.date().optional().describe("Default 30 days before `to`"),
+        from: z.iso
+          .date()
+          .optional()
+          .describe(
+            "Default: 10 days before `date` when `date` is set, otherwise 30 days before `to`. Pass it explicitly for a specific window.",
+          ),
         to: z.iso.date().optional().describe("Default today"),
         date: z.iso
           .date()

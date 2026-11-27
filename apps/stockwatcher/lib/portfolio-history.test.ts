@@ -94,23 +94,115 @@ describe("buildPortfolioHistory", () => {
     expect(result.period.pnl).toBe(138);
     expect(result.period.netFlows).toBe(500);
     expect(result.period.bestDay?.date).toBe("2026-11-03");
-    expect(result.positions.map((p) => p.symbol)).toEqual(["AAA", "BBB"]);
+    expect(result.positions.map((p) => [p.symbol, p.pnl])).toEqual([
+      ["AAA", 88],
+      ["BBB", 50],
+    ]);
+    expect(result.positions.reduce((sum, p) => sum + p.pnl, 0)).toBe(
+      result.period.pnl,
+    );
   });
 });
 
-test("fxInclusiveCost converts each buy at its own trade-date rate", () => {
-  const { lots } = fxInclusiveCost(
-    [
-      trade({}),
-      trade({ side: "sell", quantity: 5, price: 99, date: "2026-11-04" }),
+describe("fxInclusiveCost", () => {
+  test("converts each buy at its own trade-date rate", () => {
+    const { lots } = fxInclusiveCost(
+      [
+        trade({}),
+        trade({ date: "2026-11-04", price: 99 }),
+        trade({ side: "sell", quantity: 10, price: 99, date: "2026-11-05" }),
+      ],
+      fx,
+      "USD",
+    );
+    const lot = lots.get("AAA:EUR");
+    expect(lot?.quantity).toBe(10);
+    expect(lot?.costBase).toBeCloseTo((1100 + 1188) / 2, 6);
+    expect(lot?.costLocal).toBeCloseTo(995, 6);
+  });
+
+  test("averages cost within each book before combining books", () => {
+    const { lots } = fxInclusiveCost(
+      [
+        trade({ bookId: "a", quantity: 1, price: 100, currency: "USD" }),
+        trade({ bookId: "b", quantity: 1, price: 300, currency: "USD" }),
+        trade({
+          bookId: "b",
+          side: "sell",
+          quantity: 1,
+          price: 300,
+          currency: "USD",
+          date: "2026-11-03",
+        }),
+      ],
+      new Map(),
+      "USD",
+    );
+    expect(lots.get("AAA:USD")?.costBase).toBe(100);
+  });
+
+  test("keeps the quantity of a buy with no trade-date FX and flags the cost", () => {
+    const { lots, missing } = fxInclusiveCost(
+      [
+        trade({ date: "2026-10-01" }),
+        trade({ date: "2026-11-02" }),
+        trade({ side: "sell", date: "2026-11-03" }),
+      ],
+      fx,
+      "USD",
+    );
+    expect(lots.get("AAA:EUR")?.quantity).toBe(10);
+    expect(lots.get("AAA:EUR")?.incomplete).toBe(true);
+    expect(missing).toEqual(["EUR"]);
+  });
+});
+
+test("a window with no earlier close still reports its first valuation", () => {
+  const result = buildPortfolioHistory({
+    base: "EUR",
+    trades: [trade({ date: "2026-11-01" })],
+    prices: new Map([["AAA:EUR", [bar("2026-11-02", 100)]]]),
+    fx: new Map(),
+    from: parseDay("2026-11-01"),
+    to: parseDay("2026-11-02"),
+    focus: parseDay("2026-11-02"),
+  });
+  expect(result.days).toEqual([
+    {
+      date: "2026-11-02",
+      value: 1000,
+      flows: 1000,
+      change: null,
+      changePercent: null,
+    },
+  ]);
+  expect(result.focus?.value).toBe(1000);
+  expect(result.focus?.change).toBeNull();
+});
+
+test("the daily % base leaves out positions left out of the change", () => {
+  const result = buildPortfolioHistory({
+    base: "USD",
+    trades: [
+      trade({ currency: "USD", quantity: 1, price: 100, date: "2026-11-02" }),
+      trade({
+        symbol: "GAP",
+        currency: "USD",
+        quantity: 9,
+        price: 100,
+        date: "2026-11-03",
+      }),
     ],
-    fx,
-    "USD",
-  );
-  const lot = lots.get("AAA:EUR");
-  expect(lot?.quantity).toBe(5);
-  expect(lot?.costLocal).toBe(500);
-  expect(lot?.costBase).toBeCloseTo(550, 6);
+    prices: new Map([
+      ["AAA:USD", [bar("2026-11-02", 100), bar("2026-11-03", 110)]],
+      ["GAP:USD", []],
+    ]),
+    fx: new Map(),
+    from: parseDay("2026-11-03"),
+    to: parseDay("2026-11-03"),
+  });
+  expect(result.days[0].change).toBe(10);
+  expect(result.days[0].changePercent).toBe(10);
 });
 
 test("a position without a price on either side of a day is not a gain", () => {
