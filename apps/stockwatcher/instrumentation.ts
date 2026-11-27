@@ -7,6 +7,13 @@ export async function register() {
     setTimeout(sync, 30_000).unref();
     setInterval(sync, 30 * 60_000).unref();
   }
+  const { purgeExpiredRuns } = await import("./lib/admin");
+  const purge = () =>
+    void purgeExpiredRuns().catch(() =>
+      console.error("Chat run retention purge failed"),
+    );
+  setTimeout(purge, 60_000).unref();
+  setInterval(purge, 6 * 60 * 60_000).unref();
   if (process.env.ALERT_MONITOR !== "1") return;
   const { monitorAlerts } = await import("./lib/alert-monitor");
   const run = () =>

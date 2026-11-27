@@ -280,6 +280,7 @@ async function chat(request: Request, scope: CostScope) {
       prompt: lastUser ? textOf(lastUser) || null : null,
       reply: reply || null,
       context: input.data.context ?? null,
+      subject: { name: user.name, email: user.email },
     }).catch((error: unknown) => {
       console.warn("Stockwatcher chat run record failed", {
         name: error instanceof Error ? error.name : "UnknownError",
