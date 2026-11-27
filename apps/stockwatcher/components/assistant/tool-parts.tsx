@@ -141,6 +141,7 @@ const toolNames: Record<ToolPart["type"], string> = {
   "tool-getInstitutionalHoldings": "13F holdings",
   "tool-getSocialMentions": "Social mentions",
   "tool-getPortfolio": "Portfolio",
+  "tool-getPortfolioHistory": "Portfolio history",
   "tool-getWatchlists": "Watchlists",
   "tool-remember": "Memory",
   "tool-forget": "Memory",
@@ -219,6 +220,10 @@ export function runningLabel(part: ToolPart): string {
       return "Checking WallStreetBets mentions";
     case "tool-getPortfolio":
       return "Valuing your book at live prices";
+    case "tool-getPortfolioHistory":
+      return part.input?.date
+        ? `Rebuilding your book on ${part.input.date}`
+        : "Rebuilding your book day by day";
     case "tool-getWatchlists":
       return "Loading watchlists";
     case "tool-remember":
@@ -446,6 +451,14 @@ function ToolOutput({ part }: { part: DonePart }) {
     case "tool-getPortfolio": {
       const output = part.output;
       return isFailure(output) ? failed(output) : <Portfolio data={output} />;
+    }
+    case "tool-getPortfolioHistory": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <PortfolioHistory data={output} />
+      );
     }
     case "tool-getOptions": {
       const output = part.output;
@@ -1403,6 +1416,138 @@ function Mentions({ items }: { items: Success<"getSocialMentions"> }) {
         >
           Show all {items.length}
         </button>
+      ) : null}
+    </Block>
+  );
+}
+
+function PortfolioHistory({ data }: { data: Success<"getPortfolioHistory"> }) {
+  const [all, setAll] = useState(false);
+  const curve = [
+    ...data.days.map((day) => ({
+      t: Date.parse(`${day.date}T00:00:00Z`) / 1000,
+      c: day.value,
+    })),
+  ];
+  const listed = data.focus ? data.focus.positions : data.positions;
+  const limit = all ? listed.length : 12;
+  const rows = data.focus
+    ? data.focus.positions.slice(0, limit).map((position) => ({
+        symbol: position.symbol,
+        change: position.change,
+        sub: position.priceChangePercent,
+        stale: position.stale,
+      }))
+    : data.positions.slice(0, limit).map((position) => ({
+        symbol: position.symbol,
+        change: position.pnl,
+        sub: position.contributionPercent,
+        stale: false,
+      }));
+  return (
+    <Block
+      title={`Book · ${data.window.from} → ${data.window.to}`}
+      meta={`${data.base} · ${data.sampled ?? "daily"} · ${data.source} · as of ${data.asOf}`}
+    >
+      <div className="stat-row chat-totals">
+        <div className="figure">
+          <span className="figure-label">Period P&L · {data.base}</span>
+          <strong className={`figure-value ${tone(data.period.pnl)}`}>
+            {amount(data.period.pnl)}
+          </strong>
+          <span className="figure-sub">
+            TWR <Signed value={data.period.timeWeightedReturnPercent} />
+            {data.period.netFlows
+              ? ` · flows ${amount(data.period.netFlows)}`
+              : ""}
+          </span>
+        </div>
+        <div className="figure">
+          <span className="figure-label">
+            Unrealised incl. FX
+            {data.costBasis.unrealized != null && !data.costBasis.complete
+              ? " · partial"
+              : ""}
+          </span>
+          <strong className={`figure-value ${tone(data.costBasis.unrealized)}`}>
+            {data.costBasis.unrealized == null
+              ? "n/a"
+              : amount(data.costBasis.unrealized)}
+          </strong>
+          <span className="figure-sub">
+            {data.costBasis.unrealized == null
+              ? "no purchase dates"
+              : `price ${amount(data.costBasis.priceEffect)} · FX ${amount(data.costBasis.fxEffect)}`}
+          </span>
+        </div>
+        {data.focus ? (
+          <div className="figure">
+            <span className="figure-label">{data.focus.date}</span>
+            <strong className={`figure-value ${tone(data.focus.change)}`}>
+              {amount(data.focus.change)}
+            </strong>
+            <span className="figure-sub">
+              <Signed value={data.focus.changePercent} /> vs{" "}
+              {data.focus.previousDate}
+            </span>
+          </div>
+        ) : null}
+        <Sparkline points={curve} label={`Book value in ${data.base}`} />
+      </div>
+      {rows.length ? (
+        <table className="data-table chat-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th className="num">
+                {data.focus ? `P&L ${data.focus.date}` : "Period P&L"}
+              </th>
+              <th className="num">{data.focus ? "Price" : "Contrib."}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.symbol}>
+                <td>
+                  <Sym symbol={row.symbol} />
+                  {row.stale ? (
+                    <span className="chat-quiet"> no trade</span>
+                  ) : null}
+                </td>
+                <td className={`num ${tone(row.change)}`}>
+                  {amount(row.change)}
+                </td>
+                <td className="num">
+                  <Signed value={row.sub} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      {listed.length > 12 ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={() => setAll((open) => !open)}
+        >
+          {all ? "Show fewer" : `Show all ${listed.length}`}
+        </Button>
+      ) : null}
+      {data.costBasis.excluded.length ? (
+        <p className="chat-quiet">
+          Left out of the FX-inclusive figure:{" "}
+          {data.costBasis.excluded
+            .map((item) => `${item.symbol} (${item.reason})`)
+            .join(", ")}
+          .
+        </p>
+      ) : null}
+      {data.missing.length ? (
+        <p className="chat-quiet">
+          No price or FX for {data.missing.join(", ")}.
+        </p>
       ) : null}
     </Block>
   );

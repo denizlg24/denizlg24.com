@@ -420,6 +420,29 @@ export async function quotes(
     for (const result of results)
       if (result.status === "fulfilled") found.push(...result.value);
   }
+  // A thinly traded listing can return a single daily bar, which leaves no
+  // previous close; the intraday chart's previous close fills the day change,
+  // measured against the price this quote already reports.
+  const changeless = found
+    .filter((quote) => quote.previous == null)
+    .slice(0, 12);
+  if (changeless.length) {
+    const refilled = await Promise.allSettled(
+      changeless.map((quote) => series(quote.symbol, "1D")),
+    );
+    refilled.forEach((result, i) => {
+      const quote = changeless[i];
+      const fresh = result.status === "fulfilled" ? result.value.quote : null;
+      if (!fresh?.previous || fresh.currency !== quote.currency) return;
+      const change = quote.price - fresh.previous;
+      found[found.indexOf(quote)] = {
+        ...quote,
+        previous: fresh.previous,
+        change,
+        percent: (change / fresh.previous) * 100,
+      };
+    });
+  }
   if (found.length === 0 && ordered.length <= 8) {
     const fallback = await Promise.allSettled(
       ordered.map((symbol) => series(symbol, "1D", since)),
@@ -578,18 +601,23 @@ export type History = {
   name: string | null;
   currency: string | null;
   points: ChartPoint[];
+  /** Share splits in the window; factor 2 means one share became two. */
+  splits: { time: number; factor: number }[];
 };
 
 /**
  * Long daily, weekly or monthly history for analytics. Closes are adjusted
  * for splits and dividends when Yahoo provides an adjusted series, so
- * returns are total returns.
+ * returns are total returns; `adjusted: false` keeps the traded closes, for
+ * valuing a holding on a past date.
  */
 export async function history(
   symbol: string,
   years: number,
   interval: HistoryInterval,
+  options: { adjusted?: boolean } = {},
 ): Promise<History> {
+  const adjust = options.adjusted ?? true;
   const end = Math.floor(Date.now() / 1000);
   const result = await yahoo<{ chart?: { result?: SourceBars[] } }>(
     `/v8/finance/chart/${encodeURIComponent(symbol)}`,
@@ -602,7 +630,8 @@ export async function history(
     interval === "1d" ? 900 : 3600,
   );
   const bars = result.chart?.result?.[0];
-  if (!bars) return { symbol, name: null, currency: null, points: [] };
+  if (!bars)
+    return { symbol, name: null, currency: null, points: [], splits: [] };
   const values = bars.indicators?.quote?.[0];
   const adjusted = bars.indicators?.adjclose?.[0]?.adjclose;
   const points: ChartPoint[] = [];
@@ -613,7 +642,7 @@ export async function history(
       close = values?.close?.[i];
     if (finite(open) && finite(high) && finite(low) && finite(close)) {
       const adj = adjusted?.[i];
-      const adjustment = finite(adj) ? adj / close : 1;
+      const adjustment = adjust && finite(adj) ? adj / close : 1;
       points.push({
         time,
         open: open * adjustment,
@@ -629,6 +658,15 @@ export async function history(
     name: bars.meta?.longName ?? bars.meta?.shortName ?? null,
     currency: bars.meta?.currency ?? null,
     points,
+    splits: Object.values(bars.events?.splits ?? {}).flatMap((split) =>
+      finite(split.date) &&
+      finite(split.numerator) &&
+      finite(split.denominator) &&
+      split.numerator > 0 &&
+      split.denominator > 0
+        ? [{ time: split.date, factor: split.numerator / split.denominator }]
+        : [],
+    ),
   };
 }
 

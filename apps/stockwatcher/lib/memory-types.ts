@@ -27,6 +27,15 @@ export type ThreadSummary = {
   id: string;
   title: string;
   updatedAt: string;
+  groupId: string | null;
+  pinned: boolean;
+};
+
+export type ThreadGroup = { id: string; name: string; position: number };
+
+export type ThreadHit = ThreadSummary & {
+  /** Text around the first match, or null when only the title matched. */
+  snippet: string | null;
 };
 
 export type Brief = {

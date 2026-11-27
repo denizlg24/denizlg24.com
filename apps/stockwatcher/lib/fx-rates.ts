@@ -20,7 +20,11 @@ export type FxRate = {
 
 type Leg = { rate: number; previous: number | null; time: number };
 
-const pairOf = (from: string, to: string) => `${from}${to}=X`;
+export const pairOf = (from: string, to: string) => `${from}${to}=X`;
+
+/** GBp → { major: "GBP", divisor: 100 }; a major currency maps to itself. */
+export const majorOf = (code: string) =>
+  minorUnits[code] ?? { major: code, divisor: 1 };
 
 /** Yahoo FX symbols that could be needed to value `currencies` in `base`. */
 export function fxSymbols(currencies: string[], base: string) {

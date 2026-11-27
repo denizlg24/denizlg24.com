@@ -22,6 +22,7 @@ import { MarketClock } from "./market-clock";
 import type { Account } from "./settings";
 
 export function Topbar({
+  inert = false,
   account,
   ticker,
   refresh,
@@ -37,6 +38,7 @@ export function Topbar({
   security,
   onCommand,
 }: {
+  inert?: boolean;
   account: Account;
   ticker?: string;
   security?: string;
@@ -54,7 +56,7 @@ export function Topbar({
 }) {
   const logout = useRef<HTMLFormElement>(null);
   return (
-    <header className="topbar">
+    <header className="topbar" inert={inert}>
       <div className="topbar-lead">
         <Button
           variant="ghost"

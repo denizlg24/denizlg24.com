@@ -13,6 +13,7 @@ import { quotes, search } from "@/lib/market";
 import { addMemory, deleteMemory, updateWorkspace } from "@/lib/memory";
 import { memoryInputSchema } from "@/lib/memory-types";
 import { alertMetrics } from "@/lib/models";
+import { portfolioHistory } from "@/lib/portfolio-history-data";
 import { relay } from "@/lib/relay-data";
 import { type Chart, chartSpecSchema } from "@/lib/reports/chart";
 import { resolveChart } from "@/lib/reports/resolve";
@@ -279,13 +280,37 @@ export function createTools(ctx: { user: Identity; origin: string }) {
     }),
     getPortfolio: tool({
       description:
-        "The user's open positions valued at live quotes: unrealised P/L, day change, weight within currency, and totals PER CURRENCY (never summed across currencies). Optionally one portfolio by bookId.",
+        "The user's open positions valued at live quotes: unrealised P/L, day change, weight within currency, totals per currency and one base-currency total. Its unrealised P/L converts local P/L at today's FX rate, so it excludes currency gains or losses since purchase: use getPortfolioHistory's costBasis for FX-inclusive P/L. Optionally one portfolio by bookId.",
       inputSchema: z.object({ bookId: z.uuid().optional() }),
       execute: ({ bookId }) =>
         attempt(
           async () =>
             portfolioSnapshot((await readWorkspace(user.id)).data, bookId),
           "The portfolio could not be valued right now.",
+        ),
+    }),
+    getPortfolioHistory: tool({
+      description:
+        "The user's portfolio rebuilt day by day from their trades, in their base currency: each day's value, change (excluding money moved in by trades) and % for any past window, period P&L and time-weighted return, best and worst day, each position's contribution, FX-inclusive cost basis (priceEffect vs fxEffect since purchase), and with `date` a position-by-position breakdown of that one day (e.g. yesterday). Use it for any question about a past day, a period's performance, or currency effects; getPortfolio only knows today.",
+      inputSchema: z.object({
+        bookId: z.uuid().optional(),
+        from: z.iso
+          .date()
+          .optional()
+          .describe(
+            "Default: 10 days before `date` when `date` is set, otherwise 30 days before `to`. Pass it explicitly for a specific window.",
+          ),
+        to: z.iso.date().optional().describe("Default today"),
+        date: z.iso
+          .date()
+          .optional()
+          .describe("One trading day to explain position by position"),
+      }),
+      execute: (input) =>
+        attempt(
+          async () =>
+            portfolioHistory((await readWorkspace(user.id)).data, input),
+          "The portfolio history could not be rebuilt right now.",
         ),
     }),
     getWatchlists: tool({

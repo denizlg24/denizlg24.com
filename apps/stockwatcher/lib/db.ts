@@ -60,6 +60,11 @@ function sqlite() {
       PRIMARY KEY (user_id, id)
     );
     CREATE INDEX IF NOT EXISTS threads_user ON threads(user_id, updated_at);
+    CREATE TABLE IF NOT EXISTS thread_groups (
+      user_id TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL,
+      position INTEGER NOT NULL, created_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, id)
+    );
     CREATE TABLE IF NOT EXISTS briefs (
       user_id TEXT NOT NULL, date TEXT NOT NULL, content TEXT NOT NULL,
       generated_at TEXT NOT NULL, PRIMARY KEY (user_id, date)
@@ -133,6 +138,16 @@ function sqlite() {
   } catch {
     // FTS5 is optional in custom SQLite builds; document search falls back to LIKE.
   }
+  const threadColumns = new Set(
+    db
+      .prepare("PRAGMA table_info(threads)")
+      .all()
+      .map((row) => String(row.name)),
+  );
+  if (!threadColumns.has("group_id"))
+    db.exec("ALTER TABLE threads ADD COLUMN group_id TEXT");
+  if (!threadColumns.has("pinned"))
+    db.exec("ALTER TABLE threads ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
   globals.stockwatcherDb = db;
   return db;
 }
@@ -168,6 +183,14 @@ function pg(url: string) {
         PRIMARY KEY (user_id, id)
       )`;
       await sql`CREATE INDEX IF NOT EXISTS stockwatcher_threads_user ON stockwatcher_threads(user_id, updated_at)`;
+      await sql`ALTER TABLE stockwatcher_threads
+        ADD COLUMN IF NOT EXISTS group_id TEXT,
+        ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT false`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_thread_groups (
+        user_id TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL,
+        position INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY (user_id, id)
+      )`;
       await sql`CREATE TABLE IF NOT EXISTS stockwatcher_briefs (
         user_id TEXT NOT NULL, date TEXT NOT NULL, content TEXT NOT NULL,
         generated_at TIMESTAMPTZ NOT NULL, PRIMARY KEY (user_id, date)

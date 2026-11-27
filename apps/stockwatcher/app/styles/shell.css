@@ -594,3 +594,46 @@
     animation: none;
   }
 }
+
+/* Assistant dock: resize handle and full-screen mode */
+.dock {
+  position: relative;
+}
+.dock-resizer {
+  position: absolute;
+  inset: 0 auto 0 -5px;
+  z-index: 5;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.dock-resizer::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 4px;
+  width: 1px;
+  background: transparent;
+  transition: background-color 120ms;
+}
+.dock-resizer:hover::after,
+.dock-resizer:focus-visible::after,
+.dock-resizer[data-dragging]::after {
+  width: 2px;
+  background: var(--rule-strong);
+}
+.dock-resizer:focus-visible {
+  outline-offset: -2px;
+}
+.app-shell:has(.dock-resizer[data-dragging]) {
+  cursor: col-resize;
+  user-select: none;
+}
+.app-shell[data-assistant-full] .dock {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: flex;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  border: 0;
+}

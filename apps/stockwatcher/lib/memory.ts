@@ -26,7 +26,7 @@ export type StoredThread = {
 };
 
 const memoryLimit = 300;
-const threadLimit = 100;
+const threadLimit = 300;
 const threadByteCap = 1_500_000;
 export const threadIdSchema = z
   .string()
@@ -227,24 +227,36 @@ export async function deleteMemory(
 export async function listThreads(userId: string): Promise<ThreadSummary[]> {
   const s = await store();
   if (s.kind === "pg") {
-    const rows = await s.sql<{ id: string; title: string; updated_at: Date }[]>`
-      SELECT id, title, updated_at FROM stockwatcher_threads
+    const rows = await s.sql<
+      {
+        id: string;
+        title: string;
+        updated_at: Date;
+        group_id: string | null;
+        pinned: boolean;
+      }[]
+    >`
+      SELECT id, title, updated_at, group_id, pinned FROM stockwatcher_threads
       WHERE user_id = ${userId} ORDER BY updated_at DESC LIMIT ${threadLimit}`;
     return rows.map((row) => ({
       id: row.id,
       title: row.title,
       updatedAt: iso(row.updated_at),
+      groupId: row.group_id,
+      pinned: row.pinned,
     }));
   }
   return s.db
     .prepare(
-      "SELECT id, title, updated_at FROM threads WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?",
+      "SELECT id, title, updated_at, group_id, pinned FROM threads WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?",
     )
     .all(userId, threadLimit)
     .map((row) => ({
       id: String(row.id),
       title: String(row.title),
       updatedAt: String(row.updated_at),
+      groupId: row.group_id == null ? null : String(row.group_id),
+      pinned: Number(row.pinned) === 1,
     }));
 }
 

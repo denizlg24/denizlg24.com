@@ -110,6 +110,7 @@ export function mcpHandler(user: Identity, scope: TokenScope, origin: string) {
     register(server, "getSocialMentions", t.getSocialMentions);
     register(server, "getPortfolio", t.getPortfolio);
     register(server, "getPortfolioRisk", t.getPortfolioRisk);
+    register(server, "getPortfolioHistory", t.getPortfolioHistory);
     register(server, "getWatchlists", t.getWatchlists);
     register(server, "getWorkspace", t.getWorkspace);
     register(server, "getNote", t.getNote);
