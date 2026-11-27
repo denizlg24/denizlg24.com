@@ -16,7 +16,7 @@ export function MarketingNav({
 }: {
   signIn: boolean;
   signedIn?: boolean;
-  current?: "pricing" | "enquire";
+  current?: "pricing" | "enquire" | "privacy" | "terms";
 }) {
   return (
     <header className="mk-nav" data-tone="night">
@@ -65,6 +65,8 @@ export function MarketingFooter({ children }: { children?: ReactNode }) {
         <nav aria-label="Footer">
           <Link href="/pricing">Pricing</Link>
           <Link href="/enquire">Desk enquiry</Link>
+          <Link href="/privacy">Privacy</Link>
+          <Link href="/terms">Terms</Link>
         </nav>
       </div>
       <p className="mk-footer-meta">

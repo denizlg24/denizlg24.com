@@ -327,15 +327,20 @@ export async function deleteThread(
 ): Promise<boolean> {
   const s = await store();
   if (s.kind === "pg") {
-    const result = await s.sql`
-      DELETE FROM stockwatcher_threads WHERE user_id = ${userId} AND id = ${id}`;
+    const [result] = await s.sql.begin((sql) => [
+      sql`DELETE FROM stockwatcher_threads WHERE user_id = ${userId} AND id = ${id}`,
+      sql`DELETE FROM stockwatcher_chat_runs WHERE user_id = ${userId} AND thread_id = ${id}`,
+    ]);
     return result.count === 1;
   }
-  return (
+  const deleted =
     s.db
       .prepare("DELETE FROM threads WHERE user_id = ? AND id = ?")
-      .run(userId, id).changes === 1
-  );
+      .run(userId, id).changes === 1;
+  s.db
+    .prepare("DELETE FROM chat_runs WHERE user_id = ? AND thread_id = ?")
+    .run(userId, id);
+  return deleted;
 }
 
 export async function getBrief(

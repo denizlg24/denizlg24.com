@@ -158,9 +158,13 @@ export default async function AdminUser({
                 {threads.map((thread) => (
                   <tr key={thread.id}>
                     <td className="admin-prompt">
-                      <Link href={threadHref(userId, thread.id)}>
-                        {thread.title}
-                      </Link>
+                      {thread.runs ? (
+                        <Link href={threadHref(userId, thread.id)}>
+                          {thread.title}
+                        </Link>
+                      ) : (
+                        thread.title
+                      )}
                     </td>
                     <td className="num">{count(thread.messages)}</td>
                     <td className="num">{count(thread.runs)}</td>
@@ -180,7 +184,7 @@ export default async function AdminUser({
         ) : (
           <div className="empty">
             <strong>No saved threads.</strong>
-            <p>Deleted threads still show up under Runs below.</p>
+            <p>Deleting a thread deletes its runs.</p>
           </div>
         )}
       </section>
@@ -189,7 +193,7 @@ export default async function AdminUser({
         <header className="section-head">
           <div>
             <h2 id="admin-user-runs">Runs</h2>
-            <p>Every assistant request, including those in deleted threads</p>
+            <p>Every assistant request in the last 90 days, redacted</p>
           </div>
         </header>
         {runs.length ? (

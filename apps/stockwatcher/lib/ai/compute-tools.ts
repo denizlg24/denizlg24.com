@@ -1,7 +1,9 @@
 import "server-only";
 import { tool } from "ai";
 import { z } from "zod";
+import type { Identity } from "@/lib/db";
 import type { Bar } from "@/lib/indicators";
+import { computeJobTimeoutMs, jobsEnabled, runJob } from "@/lib/jobs/client";
 import {
   type HistoryInterval,
   history,
@@ -257,6 +259,21 @@ Use ta.last(series) for the latest value. Slice or aggregate before returning: a
 Charts: return series for createChart's inline form, e.g. { series: [{ name: "% above 50-day SMA", points: [{ x: "2026-03-02", y: 61.2 }] }] } with ISO date x (new Date(bar.time * 1000).toISOString().slice(0, 10)), finite or null y, at most 6 series and 400 points each (downsample first), then call createChart with kind line/area, x: { type: "time" }, those series, source "Yahoo Finance" and asOf.
 If the result is { error }, read the message and line number, fix the code, and retry.`;
 
+export const computeExecutionSchema = z.discriminatedUnion("ok", [
+  z.object({
+    ok: z.literal(true),
+    json: z.string(),
+    asOf: z.string(),
+    symbols: z.number(),
+    priced: z.array(z.string()),
+    missing: z.array(z.string()),
+    missingFundamentals: z.array(z.string()),
+    missingMacro: z.array(z.string()),
+  }),
+  z.object({ ok: z.literal(false), error: z.string() }),
+]);
+export type ComputeExecution = z.infer<typeof computeExecutionSchema>;
+
 export type ComputeRun =
   | {
       ok: true;
@@ -267,44 +284,100 @@ export type ComputeRun =
     }
   | { ok: false; error: string };
 
-/** Fetches the declared data and runs the script once; failures come back as `{ ok: false }`. */
-export async function runCompute(
+function failure(error: unknown): { ok: false; error: string } {
+  if (error instanceof z.ZodError)
+    return {
+      ok: false,
+      error: error.issues
+        .slice(0, 3)
+        .map((issue) =>
+          [issue.path.join("."), issue.message].filter(Boolean).join(": "),
+        )
+        .join("; "),
+    };
+  return {
+    ok: false,
+    error:
+      error instanceof Error && error.message.length < 300
+        ? error.message
+        : "The computation failed.",
+  };
+}
+
+/** Loads the declared data and runs the script in this process. */
+export async function executeCompute(
   request: unknown,
   code: string,
-): Promise<ComputeRun> {
+): Promise<ComputeExecution> {
   try {
     const loaded = await loadData(dataRequest.parse(request ?? {}));
     const outcome = await runSandbox(code, JSON.stringify(loaded.payload));
     if (!outcome.ok) return outcome;
     return {
       ok: true,
-      result: z.json().parse(JSON.parse(outcome.json)),
+      json: outcome.json,
       asOf: loaded.payload.asOf,
       symbols: loaded.symbols,
+      priced: [
+        ...Object.keys(loaded.payload.bars),
+        ...Object.keys(loaded.payload.quotes),
+      ],
       missing: loaded.missing,
+      missingFundamentals: loaded.missingFundamentals,
+      missingMacro: loaded.missingMacro,
     };
   } catch (error) {
-    if (error instanceof z.ZodError)
-      return {
-        ok: false,
-        error: error.issues
-          .slice(0, 3)
-          .map((issue) =>
-            [issue.path.join("."), issue.message].filter(Boolean).join(": "),
-          )
-          .join("; "),
-      };
-    return {
-      ok: false,
-      error:
-        error instanceof Error && error.message.length < 300
-          ? error.message
-          : "The computation failed.",
-    };
+    return failure(error);
   }
 }
 
-export function computeTools() {
+const computeRequestJson = (request: unknown) =>
+  z.json().parse(JSON.parse(JSON.stringify(request ?? {})));
+
+/** On the worker when one runs (queued per user), otherwise in this process. */
+async function dispatchCompute(
+  request: unknown,
+  code: string,
+  userId: string | undefined,
+): Promise<ComputeExecution> {
+  if (!userId || !jobsEnabled()) return executeCompute(request, code);
+  try {
+    return await runJob(
+      "compute",
+      { request: computeRequestJson(request), code },
+      {
+        userId,
+        timeoutMs: computeJobTimeoutMs,
+        result: computeExecutionSchema,
+      },
+    );
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+/** Fetches the declared data and runs the script once; failures come back as `{ ok: false }`. */
+export async function runCompute(
+  request: unknown,
+  code: string,
+  userId?: string,
+): Promise<ComputeRun> {
+  const outcome = await dispatchCompute(request, code, userId);
+  if (!outcome.ok) return outcome;
+  try {
+    return {
+      ok: true,
+      result: z.json().parse(JSON.parse(outcome.json)),
+      asOf: outcome.asOf,
+      symbols: outcome.symbols,
+      missing: outcome.missing,
+    };
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+export function computeTools({ user }: { user: Identity }) {
   return {
     compute: tool({
       description,
@@ -322,24 +395,12 @@ export function computeTools() {
         attempt(async () => {
           const started = Date.now();
           const request = dataRequest.parse(data ?? {});
-          const loaded = await loadData(request);
-          const outcome = await runSandbox(
-            code,
-            JSON.stringify(loaded.payload),
-          );
+          const outcome = await dispatchCompute(request, code, user.id);
           if (!outcome.ok) return { error: outcome.error };
-          const usesBars =
-            request.quotes ||
-            Object.keys(loaded.payload.bars).length > 0 ||
-            Object.keys(loaded.payload.quotes).length > 0;
+          const usesBars = request.quotes || outcome.priced.length > 0;
           const sources = [
             ...(usesBars || (!request.fundamentals && !request.macro)
-              ? [
-                  marketSource([
-                    ...Object.keys(loaded.payload.bars),
-                    ...Object.keys(loaded.payload.quotes),
-                  ]),
-                ]
+              ? [marketSource(outcome.priced)]
               : []),
             ...(request.fundamentals ? ["SEC EDGAR XBRL"] : []),
             ...(request.macro ? ["FRED"] : []),
@@ -347,16 +408,16 @@ export function computeTools() {
           return {
             description,
             result: z.json().parse(JSON.parse(outcome.json)),
-            asOf: loaded.payload.asOf,
+            asOf: outcome.asOf,
             source: sources.join("; "),
-            symbols: loaded.symbols,
-            missing: loaded.missing.slice(0, MAX_MISSING_LISTED),
-            missingCount: loaded.missing.length,
-            missingFundamentals: loaded.missingFundamentals.slice(
+            symbols: outcome.symbols,
+            missing: outcome.missing.slice(0, MAX_MISSING_LISTED),
+            missingCount: outcome.missing.length,
+            missingFundamentals: outcome.missingFundamentals.slice(
               0,
               MAX_MISSING_LISTED,
             ),
-            missingMacro: loaded.missingMacro,
+            missingMacro: outcome.missingMacro,
             ms: Date.now() - started,
           };
         }, "The computation failed."),

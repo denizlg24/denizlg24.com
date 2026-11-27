@@ -504,7 +504,7 @@ export function createTools(ctx: { user: Identity; origin: string }) {
     }),
     ...workspaceTools({ user }),
     ...marketTools({ user }),
-    ...computeTools(),
+    ...computeTools({ user }),
     ...riskTools({ user }),
     ...insiderTools({ user }),
     ...filingTools(),

@@ -1,5 +1,6 @@
 import "server-only";
 import { createHmac } from "node:crypto";
+import webpush from "web-push";
 import type { ChannelConfig } from "./config";
 import { publicPost } from "./public-post";
 
@@ -13,6 +14,19 @@ export type Message = {
 };
 
 export const emailReady = () => Boolean(process.env.RESEND_API_KEY);
+
+/** VAPID keys from `bunx web-push generate-vapid-keys`; the subject is a contact URL. */
+export function vapidKeys() {
+  const publicKey = process.env.VAPID_PUBLIC_KEY?.trim();
+  const privateKey = process.env.VAPID_PRIVATE_KEY?.trim();
+  if (!publicKey || !privateKey) return null;
+  return {
+    publicKey,
+    privateKey,
+    subject:
+      process.env.VAPID_SUBJECT?.trim() || "mailto:geral@oceaninformatix.com",
+  };
+}
 const emailFrom = () =>
   process.env.ALERT_EMAIL_FROM || "Stockwatcher <alerts@auth.denizlg24.com>";
 
@@ -206,6 +220,39 @@ export async function deliver(config: ChannelConfig, message: Message) {
       );
       if (status < 200 || status >= 300)
         throw new Error(`ntfy answered ${status}.`);
+      return;
+    }
+    case "push": {
+      const vapid = vapidKeys();
+      if (!vapid) throw new Error("Browser push is not configured.");
+      try {
+        await webpush.sendNotification(
+          {
+            endpoint: config.endpoint,
+            keys: { p256dh: config.p256dh, auth: config.auth },
+          },
+          JSON.stringify({
+            title: message.title,
+            body: message.body,
+            url: message.url,
+            tone: message.tone,
+          }),
+          {
+            vapidDetails: vapid,
+            TTL: 3600,
+            urgency: message.tone === "info" ? "normal" : "high",
+            timeout: 10_000,
+          },
+        );
+      } catch (error) {
+        if (error instanceof webpush.WebPushError)
+          throw new Error(
+            error.statusCode === 404 || error.statusCode === 410
+              ? "This browser unsubscribed. Turn browser push on again."
+              : `The push service answered ${error.statusCode}.`,
+          );
+        throw error;
+      }
       return;
     }
     case "webhook": {

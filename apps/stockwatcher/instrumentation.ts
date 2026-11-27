@@ -1,5 +1,7 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  const { jobsEnabled } = await import("./lib/jobs/client");
+  if (jobsEnabled()) return;
   if (process.env.BROKER_SYNC !== "0") {
     const { syncDueLinks } = await import("./lib/brokers/sync");
     const sync = () =>
@@ -7,6 +9,13 @@ export async function register() {
     setTimeout(sync, 30_000).unref();
     setInterval(sync, 30 * 60_000).unref();
   }
+  const { purgeExpiredRuns } = await import("./lib/run-retention");
+  const purge = () =>
+    void purgeExpiredRuns().catch(() =>
+      console.error("Chat run retention purge failed"),
+    );
+  setTimeout(purge, 60_000).unref();
+  setInterval(purge, 6 * 60 * 60_000).unref();
   if (process.env.ALERT_MONITOR !== "1") return;
   const { monitorAlerts } = await import("./lib/alert-monitor");
   const run = () =>

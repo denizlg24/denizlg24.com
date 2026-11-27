@@ -8,19 +8,16 @@ import {
   lastAssistantMessageIsCompleteWithToolCalls,
 } from "ai";
 import {
-  ArrowUp,
   Check,
   Copy,
   History,
   Paperclip,
   Plus,
   RotateCcw,
-  Square,
   X,
 } from "lucide-react";
 import {
-  type FormEvent,
-  type KeyboardEvent,
+  type ClipboardEvent,
   type Ref,
   useEffect,
   useImperativeHandle,
@@ -29,6 +26,45 @@ import {
   useState,
 } from "react";
 import { mutate } from "swr";
+import type { StickToBottomContext } from "use-stick-to-bottom";
+import {
+  Context,
+  ContextContent,
+  ContextContentBody,
+  ContextContentFooter,
+  ContextContentHeader,
+  ContextIcon,
+  ContextRow,
+  ContextTrigger,
+} from "@/components/ai-elements/context";
+import {
+  Conversation,
+  ConversationContent,
+  ConversationEmptyState,
+  ConversationScrollButton,
+} from "@/components/ai-elements/conversation";
+import {
+  Message,
+  MessageAction,
+  MessageActions,
+  MessageContent,
+} from "@/components/ai-elements/message";
+import {
+  PromptInput,
+  PromptInputBody,
+  PromptInputButton,
+  PromptInputFooter,
+  PromptInputSubmit,
+  PromptInputTextarea,
+  PromptInputTools,
+} from "@/components/ai-elements/prompt-input";
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from "@/components/ai-elements/reasoning";
+import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
+import { isToolRunning, Tool, ToolStatus } from "@/components/ai-elements/tool";
 import { api } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import type { StockwatcherMessage } from "@/lib/ai/tools";
@@ -48,7 +84,6 @@ import {
   type AlertProposal,
   isToolPart,
   SourceList,
-  Status,
   ToolActions,
   ToolPartView,
 } from "./tool-parts";
@@ -175,8 +210,7 @@ export function AssistantPanel({
   const unavailable = !available || rejected;
   const [draft, setDraft] = useState("");
   const handled = useRef(new Set<string>());
-  const scroller = useRef<HTMLDivElement>(null);
-  const stick = useRef(true);
+  const conversation = useRef<StickToBottomContext>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -223,6 +257,9 @@ export function AssistantPanel({
     (sum, message) => sum + (message.metadata?.credits ?? 0),
     0,
   );
+  const lastCredits = messages.findLast(
+    (message) => message.metadata?.credits !== undefined,
+  )?.metadata?.credits;
 
   useEffect(() => {
     for (const message of messages) {
@@ -279,11 +316,6 @@ export function AssistantPanel({
     }
   }, [messages, onOpenView, onProposeAlert, onWorkspaceChanged]);
 
-  useEffect(() => {
-    const element = scroller.current;
-    if (element && stick.current) element.scrollTop = element.scrollHeight;
-  }, [messages, status]);
-
   const actions = useMemo(
     () => ({
       openSymbol: onOpenSymbol,
@@ -308,7 +340,7 @@ export function AssistantPanel({
     if (!trimmed || busy || unavailable) return;
     if (error) clearError();
     setDrawer(false);
-    stick.current = true;
+    void conversation.current?.scrollToBottom();
     void sendMessage({ text: trimmed }, { body: requestBody(context) });
     setDraft("");
     requestAnimationFrame(resize);
@@ -323,25 +355,16 @@ export function AssistantPanel({
     focus: () => input.current?.focus(),
   }));
 
-  function submit(event: FormEvent) {
+  function onPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = [...event.clipboardData.files];
+    if (!files.length || unavailable) return;
     event.preventDefault();
-    send(draft);
-  }
-
-  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (
-      event.key !== "Enter" ||
-      event.shiftKey ||
-      event.nativeEvent.isComposing
-    )
-      return;
-    event.preventDefault();
-    send(draft);
+    void attachments.upload(files);
   }
 
   function retry() {
     clearError();
-    stick.current = true;
+    void conversation.current?.scrollToBottom();
     void regenerate({ body: requestBody(context) });
   }
 
@@ -360,7 +383,6 @@ export function AssistantPanel({
     if (busy) void stop();
     for (const callId of toolCallIds(thread.messages))
       handled.current.add(callId);
-    stick.current = true;
     setSession({ id: thread.id, messages: thread.messages });
     setDrawer(false);
   }
@@ -371,12 +393,13 @@ export function AssistantPanel({
 
   const last = messages.at(-1);
   const lastPart = last?.role === "assistant" ? last.parts.at(-1) : undefined;
-  const writing = lastPart?.type === "text" && lastPart.state === "streaming";
+  const writing =
+    (lastPart?.type === "text" || lastPart?.type === "reasoning") &&
+    lastPart.state === "streaming";
   const toolRunning =
     lastPart !== undefined &&
     isToolPart(lastPart) &&
-    (lastPart.state === "input-streaming" ||
-      lastPart.state === "input-available");
+    isToolRunning(lastPart.state);
   const working =
     status === "submitted" ||
     (status === "streaming" && !writing && !toolRunning);
@@ -474,154 +497,130 @@ export function AssistantPanel({
           />
         ) : (
           <>
-            <div
+            <Conversation
+              key={session.id}
               className="chat-scroll"
-              ref={scroller}
-              onScroll={(event) => {
-                const element = event.currentTarget;
-                stick.current =
-                  element.scrollHeight -
-                    element.scrollTop -
-                    element.clientHeight <
-                  48;
-              }}
+              contextRef={conversation}
             >
-              {messages.length ? (
-                <div className="chat-log" aria-live="polite">
-                  {messages.map((message, index) =>
-                    message.role === "user" ? (
-                      <Prompt key={message.id} text={textOf(message)} />
-                    ) : message.role === "assistant" ? (
-                      <Answer
-                        key={message.id}
-                        message={message}
-                        done={!busy || index < messages.length - 1}
-                        canRegenerate={!busy && index === messages.length - 1}
-                        latest={index === messages.length - 1}
-                        onRegenerate={retry}
+              <ConversationContent className="chat-log">
+                {messages.length ? (
+                  <>
+                    {messages.map((message, index) =>
+                      message.role === "user" ? (
+                        <Prompt key={message.id} text={textOf(message)} />
+                      ) : message.role === "assistant" ? (
+                        <Answer
+                          key={message.id}
+                          message={message}
+                          done={!busy || index < messages.length - 1}
+                          canRegenerate={!busy && index === messages.length - 1}
+                          latest={index === messages.length - 1}
+                          onRegenerate={retry}
+                        />
+                      ) : null,
+                    )}
+                    {working ? (
+                      <ToolStatus
+                        text={
+                          status === "submitted"
+                            ? "Thinking"
+                            : "Working through it"
+                        }
                       />
-                    ) : null,
-                  )}
-                  {working ? (
-                    <Status
-                      text={
-                        status === "submitted"
-                          ? "Thinking"
-                          : "Working through it"
-                      }
-                    />
-                  ) : null}
-                  {error && isOutOfCredits(error) ? (
-                    <div className="chat-error" role="alert">
-                      <span>
-                        You are out of credits. Free credits reset on the 1st of
-                        the month.
-                      </span>
-                      <Button variant="ghost" size="xs" asChild>
-                        <a href="/account">Buy credits</a>
-                      </Button>
-                    </div>
-                  ) : error ? (
-                    <div className="chat-error" role="alert">
-                      <span>{errorMessage(error)}</span>
-                      <Button variant="ghost" size="xs" onClick={retry}>
-                        <RotateCcw /> Retry
-                      </Button>
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <Starters
-                  hasBook={hasBook}
-                  onPick={send}
-                  onAddBook={() => onOpenView({ view: "portfolio" })}
-                />
-              )}
-            </div>
+                    ) : null}
+                    {error && isOutOfCredits(error) ? (
+                      <div className="chat-error" role="alert">
+                        <span>
+                          You are out of credits. Free credits reset on the 1st
+                          of the month.
+                        </span>
+                        <Button variant="ghost" size="xs" asChild>
+                          <a href="/account">Buy credits</a>
+                        </Button>
+                      </div>
+                    ) : error ? (
+                      <div className="chat-error" role="alert">
+                        <span>{errorMessage(error)}</span>
+                        <Button variant="ghost" size="xs" onClick={retry}>
+                          <RotateCcw /> Retry
+                        </Button>
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <Starters
+                    hasBook={hasBook}
+                    onPick={send}
+                    onAddBook={() => onOpenView({ view: "portfolio" })}
+                  />
+                )}
+              </ConversationContent>
+              <ConversationScrollButton />
+            </Conversation>
 
-            <form className="chat-composer" onSubmit={submit}>
+            <div className="chat-composer">
               <UploadList
                 items={attachments.items}
                 onDismiss={attachments.dismiss}
               />
-              <textarea
-                ref={input}
-                className="chat-input"
-                rows={1}
-                value={draft}
-                placeholder="Ask about your book, a ticker, a filing…"
-                aria-label="Message the assistant"
-                maxLength={8000}
-                onChange={(event) => {
-                  setDraft(event.target.value);
-                  resize();
-                }}
-                onKeyDown={onKeyDown}
-              />
-              <div className="chat-composer-bar">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Attach a document"
-                  title="Attach a PDF, DOCX, text, CSV or HTML file"
-                  onClick={() => picker.current?.click()}
-                >
-                  <Paperclip />
-                </Button>
-                <input
-                  ref={picker}
-                  type="file"
-                  multiple
-                  hidden
-                  accept={documentExtensions}
-                  onChange={(event) => {
-                    if (event.target.files?.length)
-                      void attachments.upload(event.target.files);
-                    event.target.value = "";
-                  }}
-                />
-                <span className="meta chat-truncate chat-composer-scope">
-                  {scope
-                    ? `Context: ${scope}`
-                    : "Enter to send · Shift+Enter for a new line"}
-                </span>
-                {creditsLeft !== null ? (
-                  <a
-                    href="/account"
-                    className={`meta chat-credit-balance${creditsLeft <= 0 ? " negative" : ""}`}
-                    title={
-                      threadCredits
-                        ? `This thread used ${formatCredits(threadCredits)}`
-                        : "Credits left"
-                    }
-                  >
-                    {threadCredits
-                      ? `${formatCredits(threadCredits)} · ${formatCredits(creditsLeft)} left`
-                      : `${formatCredits(creditsLeft)} left`}
-                  </a>
-                ) : null}
-                {busy ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void stop()}
-                  >
-                    <Square /> Stop
-                  </Button>
-                ) : (
-                  <Button
-                    type="submit"
-                    size="sm"
-                    disabled={!draft.trim()}
-                    aria-label="Send"
-                  >
-                    <ArrowUp /> Send
-                  </Button>
-                )}
-              </div>
-            </form>
+              <PromptInput onSubmit={() => send(draft)}>
+                <PromptInputBody>
+                  <PromptInputTextarea
+                    ref={input}
+                    rows={1}
+                    value={draft}
+                    placeholder="Ask about your book, a ticker, a filing…"
+                    aria-label="Message the assistant"
+                    maxLength={8000}
+                    onChange={(event) => {
+                      setDraft(event.target.value);
+                      resize();
+                    }}
+                    onPaste={onPaste}
+                  />
+                </PromptInputBody>
+                <PromptInputFooter>
+                  <PromptInputTools>
+                    <PromptInputButton
+                      aria-label="Attach a document"
+                      title="Attach a PDF, DOCX, text, CSV or HTML file"
+                      onClick={() => picker.current?.click()}
+                    >
+                      <Paperclip />
+                    </PromptInputButton>
+                    <input
+                      ref={picker}
+                      type="file"
+                      multiple
+                      hidden
+                      accept={documentExtensions}
+                      onChange={(event) => {
+                        if (event.target.files?.length)
+                          void attachments.upload(event.target.files);
+                        event.target.value = "";
+                      }}
+                    />
+                    <span className="meta chat-truncate chat-composer-scope">
+                      {scope
+                        ? `Context: ${scope}`
+                        : "Enter to send · Shift+Enter for a new line"}
+                    </span>
+                  </PromptInputTools>
+                  {creditsLeft !== null ? (
+                    <CreditMeter
+                      left={creditsLeft}
+                      thread={threadCredits}
+                      last={lastCredits}
+                    />
+                  ) : null}
+                  <PromptInputSubmit
+                    status={status}
+                    onStop={() => void stop()}
+                    disabled={!busy && !draft.trim()}
+                  />
+                </PromptInputFooter>
+              </PromptInput>
+            </div>
           </>
         )}
       </section>
@@ -631,9 +630,63 @@ export function AssistantPanel({
 
 function Prompt({ text }: { text: string }) {
   return (
-    <div className="chat-prompt">
-      <p>{text}</p>
-    </div>
+    <Message from="user" className="chat-prompt">
+      <MessageContent>
+        <p>{text}</p>
+      </MessageContent>
+    </Message>
+  );
+}
+
+function CreditMeter({
+  left,
+  thread,
+  last,
+}: {
+  left: number;
+  thread: number;
+  last: number | undefined;
+}) {
+  return (
+    <Context
+      used={thread}
+      max={thread + Math.max(left, 0)}
+      format={formatCredits}
+    >
+      <ContextTrigger asChild>
+        <a
+          href="/account"
+          className={`meta chat-credit-balance${left <= 0 ? " negative" : ""}`}
+        >
+          <ContextIcon />
+          {thread
+            ? `${formatCredits(thread)} · ${formatCredits(left)} left`
+            : `${formatCredits(left)} left`}
+        </a>
+      </ContextTrigger>
+      <ContextContent align="end" side="top">
+        <ContextContentHeader label="Thread" />
+        <ContextContentBody>
+          <ContextRow label="This thread" value={formatCredits(thread)} />
+          {last !== undefined ? (
+            <ContextRow label="Last answer" value={formatCredits(last)} />
+          ) : null}
+          <ContextRow
+            label="Balance"
+            value={
+              <span className={left <= 0 ? "negative" : undefined}>
+                {formatCredits(left)}
+              </span>
+            }
+          />
+        </ContextContentBody>
+        <ContextContentFooter className="justify-end">
+          <Button variant="link" size="xs" asChild>
+            <a href="/account">Buy credits</a>
+          </Button>
+        </ContextContentFooter>
+      </ContextContent>
+    </Context>
   );
 }
 
@@ -685,64 +738,75 @@ function Answer({
   }
 
   return (
-    <article className="chat-answer">
-      {message.parts.map((part, index) => {
-        if (part.type === "text")
-          return part.text ? (
-            <Markdown
-              key={index}
-              text={part.text}
-              streaming={part.state === "streaming"}
-            />
-          ) : null;
-        if (isToolPart(part))
-          return (
-            <ToolPartView
-              key={part.toolCallId}
-              part={part}
-              interactive={latest}
-            />
-          );
-        if (part.type === "dynamic-tool")
-          return part.state === "output-error" ? (
-            <p key={part.toolCallId} className="chat-tool-error" role="alert">
-              {part.toolName}: {part.errorText}
-            </p>
-          ) : part.state === "input-streaming" ||
-            part.state === "input-available" ? (
-            <Status key={part.toolCallId} text={`Running ${part.toolName}`} />
-          ) : null;
-        return null;
-      })}
+    <Message from="assistant" className="chat-answer">
+      <MessageContent>
+        {message.parts.map((part, index) => {
+          if (part.type === "text")
+            return part.text ? (
+              <Markdown
+                key={index}
+                text={part.text}
+                streaming={part.state === "streaming"}
+              />
+            ) : null;
+          if (part.type === "reasoning")
+            return part.text.trim() ? (
+              <Reasoning
+                key={index}
+                className="chat-reasoning"
+                isStreaming={part.state === "streaming"}
+              >
+                <ReasoningTrigger />
+                <ReasoningContent>
+                  <Markdown
+                    text={part.text}
+                    streaming={part.state === "streaming"}
+                  />
+                </ReasoningContent>
+              </Reasoning>
+            ) : null;
+          if (isToolPart(part))
+            return (
+              <ToolPartView
+                key={part.toolCallId}
+                part={part}
+                interactive={latest}
+              />
+            );
+          if (part.type === "dynamic-tool")
+            return (
+              <Tool key={part.toolCallId} state={part.state}>
+                {part.state === "output-error" ? (
+                  <p className="chat-tool-error" role="alert">
+                    {part.toolName}: {part.errorText}
+                  </p>
+                ) : isToolRunning(part.state) ? (
+                  <ToolStatus text={`Running ${part.toolName}`} />
+                ) : null}
+              </Tool>
+            );
+          return null;
+        })}
+      </MessageContent>
       <SourceList sources={sources} />
       {done && text ? (
-        <div className="chat-answer-actions">
+        <MessageActions className="chat-answer-actions">
           {message.metadata?.credits !== undefined ? (
             <span className="meta chat-answer-credits">
               {formatCredits(message.metadata.credits)}
             </span>
           ) : null}
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() => void copy()}
-            aria-label="Copy answer"
-          >
+          <MessageAction label="Copy answer" onClick={() => void copy()}>
             {copied ? <Check /> : <Copy />} {copied ? "Copied" : "Copy"}
-          </Button>
+          </MessageAction>
           {canRegenerate ? (
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={onRegenerate}
-              aria-label="Regenerate answer"
-            >
+            <MessageAction label="Regenerate answer" onClick={onRegenerate}>
               <RotateCcw /> Regenerate
-            </Button>
+            </MessageAction>
           ) : null}
-        </div>
+        </MessageActions>
       ) : null}
-    </article>
+    </Message>
   );
 }
 
@@ -756,7 +820,7 @@ function Starters({
   onAddBook: () => void;
 }) {
   return (
-    <div className="chat-empty">
+    <ConversationEmptyState className="chat-empty">
       <p className="chat-empty-lead">
         Reads your ledger, live quotes, SEC filings and the news, and computes
         any indicator or statistic from live prices. Every number comes back
@@ -771,15 +835,11 @@ function Starters({
           to ask about your book.
         </p>
       )}
-      <ul className="ruled-list flush-top chat-starters">
+      <Suggestions>
         {(hasBook ? bookStarters : marketStarters).map((starter) => (
-          <li key={starter}>
-            <button type="button" onClick={() => onPick(starter)}>
-              {starter}
-            </button>
-          </li>
+          <Suggestion key={starter} suggestion={starter} onClick={onPick} />
         ))}
-      </ul>
-    </div>
+      </Suggestions>
+    </ConversationEmptyState>
   );
 }

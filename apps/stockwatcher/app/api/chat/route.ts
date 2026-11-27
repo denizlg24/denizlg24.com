@@ -14,7 +14,7 @@ import {
 } from "ai";
 import { z } from "zod";
 import { recordRun, type ToolCallRecord } from "@/lib/admin";
-import { aiEnabled, chatModel } from "@/lib/ai/config";
+import { aiEnabled, gatewayOptions, modelsFor } from "@/lib/ai/config";
 import { chatInstructions } from "@/lib/ai/prompt";
 import { createTools, type StockwatcherMessage } from "@/lib/ai/tools";
 import { dashboardSchema } from "@/lib/assistant-types";
@@ -27,6 +27,7 @@ import {
   reserve,
 } from "@/lib/billing/credits";
 import { meter } from "@/lib/billing/meter";
+import { isQuotaExceeded } from "@/lib/billing/quota";
 import { type CostScope, withCostScope } from "@/lib/billing/scope";
 import { readWorkspace } from "@/lib/db";
 import { listMemories, saveThread, threadIdSchema } from "@/lib/memory";
@@ -235,7 +236,7 @@ async function chat(request: Request, scope: CostScope) {
   const threadId = input.data.id;
   const responseId = last.role === "assistant" ? last.id : messageId();
   const lastUser = messages.findLast((message) => message.role === "user");
-  const model = chatModel();
+  const model = (await modelsFor(user.id)).chat;
   const toolTimings = new Map<string, number>();
   const finishedSteps: StepResult<typeof tools>[] = [];
   let streamError: string | null = null;
@@ -280,6 +281,7 @@ async function chat(request: Request, scope: CostScope) {
       prompt: lastUser ? textOf(lastUser) || null : null,
       reply: reply || null,
       context: input.data.context ?? null,
+      subject: { name: user.name, email: user.email },
     }).catch((error: unknown) => {
       console.warn("Stockwatcher chat run record failed", {
         name: error instanceof Error ? error.name : "UnknownError",
@@ -289,6 +291,7 @@ async function chat(request: Request, scope: CostScope) {
 
   const result = streamText({
     model,
+    providerOptions: gatewayOptions(user.id),
     instructions: setup.instructions,
     messages: setup.modelMessages,
     tools,
@@ -353,10 +356,16 @@ async function chat(request: Request, scope: CostScope) {
           ? undefined
           : { credits: credits(chargeFor(cost.costUsd)) };
       },
+      sendReasoning: true,
       sendSources: true,
       redactToolErrors: false,
-      onError: () =>
-        "The assistant hit an error. Try again, or rephrase the request.",
+      onError: (error) =>
+        isQuotaExceeded(error)
+          ? JSON.stringify({
+              error: "You are out of credits.",
+              code: "out_of_credits",
+            })
+          : "The assistant hit an error. Try again, or rephrase the request.",
       onEnd: async ({ messages: finished }) => {
         try {
           await saveThread(user.id, threadId, titleFor(finished), finished);

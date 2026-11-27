@@ -31,9 +31,20 @@ its history (`git subtree`). Product truth is `PRODUCT.md`, the visual system
   `REQUIRE_DATABASE_URL=1`); the app creates its prefixed tables on first
   connection. SQLite under `/app/data` is container-local and only serves
   `DEMO_MODE` previews.
-- **Background work runs in-process** from `instrumentation.ts`: alert checks
-  every two minutes (`ALERT_MONITOR=1`) and the IBKR Flex sync every 30
-  minutes (`BROKER_SYNC`), in every container Forge runs.
+- **Background work runs on the worker when one is deployed.**
+  `STOCKWATCHER_WORKER=1` on web (with `DATABASE_URL`) sends compute runs —
+  the QuickJS sandbox and its data load — to the `stockwatcher_jobs` queue
+  (`lib/jobs`: `FOR UPDATE SKIP LOCKED`, 60 s leases, one running job and at
+  most five queued per user, dead-letter after two attempts) and turns off the
+  in-process schedulers. The worker (`Dockerfile.worker`, one bundled file
+  built by `scripts/build-worker.ts`, `/healthz`) runs the jobs plus the
+  schedules: alerts every two minutes (`ALERT_MONITOR=1`), IBKR Flex every 30
+  (`BROKER_SYNC`), run and job retention. A schedule fires once per period
+  across every worker through a `stockwatcher_schedules` row, not a lock.
+  Without the flag everything stays in-process in each web container, as
+  before. The worker bundle must not import Next (`lib/auth`, `lib/admin`):
+  the build fails if it does. Check it with `bun run worker:build && bun
+  --env-file=.env.local scripts/worker-e2e.ts`.
 - **Lint is Biome at the root.** The override in `biome.json` turns off the
   a11y, `!important` and control-character rules the app's old ESLint config
   never enforced; tighten it as components are touched.
@@ -50,3 +61,45 @@ its history (`git subtree`). Product truth is `PRODUCT.md`, the visual system
   below a request (a tool that calls `generateText`) is added with
   `addScopedCost` inside `withCostScope`. Plan:
   `docs/internal/plans/035-stockwatcher-multi-user.md`.
+- **Per-user gateway keys are a backstop, not the meter.** With
+  `VERCEL_API_TOKEN` and `AI_GATEWAY_TEAM_ID`, the Polar webhook creates a
+  user's own AI Gateway key on their first purchase (name is a hash of the
+  user id, team-attributed, sealed at rest) and re-fits its budget after every
+  purchase or refund to all credits ever granted at cost plus $0.50, refresh
+  `none`. Chat and the daily brief then run on that key (`modelsFor`); a 402
+  `quota_for_entity_exceeded` reaches the client as out-of-credits. Supply-chain
+  extraction stays on the app key: its results are cached and shared across
+  users.
+- **The news wire is `lib/news`, not Yahoo alone.** `companyNews` fans out to
+  SEC EDGAR submissions (8-K/6-K items, Form 4), PR Newswire and Business
+  Wire feeds (matched by `(NASDAQ: SYM)` tags), Finnhub (`FINNHUB_API_KEY`),
+  Yahoo, Google News RSS and GDELT, caches each source fetch in
+  `stockwatcher_news_cache` (in memory on SQLite), answers within 9 s with
+  what arrived, and merges one story per event (`dedupe`: canonical URL or
+  75% headline-word overlap; the filing or wire keeps the headline). A failing
+  source sits out five minutes. GlobeNewswire and Reddit refuse server
+  requests and are left out; GDELT allows one request per five seconds.
+- **One-click channels need their provider apps.** Telegram, Discord and
+  Slack connect through `lib/notify/connect.ts`: a one-time state in
+  `stockwatcher_connect_states` (15 minutes, consumed on use) ties the
+  approval back to the user, so the callbacks work without the session
+  cookie. Telegram uses one Stockwatcher-owned bot (`TELEGRAM_BOT_*`,
+  webhook at `/api/alerts/telegram/webhook` guarded by
+  `TELEGRAM_WEBHOOK_SECRET`, set once with `scripts/telegram-setup.ts`); its
+  token is copied into each channel's sealed config, so rotating the bot
+  token means reconnecting. Browser push is the `push` channel kind
+  (`web-push`, VAPID keys, `public/push-sw.js`). Each is hidden in the UI
+  while its env is missing; the manual paths stay.
+- **`/mcp` is the users' MCP server, authenticated by personal access
+  tokens.** `/account` creates `swk_…` tokens (sha256 at rest, shown once,
+  `read` or `write`, ten per user); `app/mcp/route.ts` resolves the bearer,
+  rate-limits 120 requests a minute per token and container, and serves
+  `lib/mcp/server.ts`, which re-exposes an allowlist of the assistant's own
+  tools through `@modelcontextprotocol/server` (stateless, one server per
+  request). Tools that run a model (the security profile's supply-chain read,
+  web search) or drive the app's UI are left out, because they would bypass
+  credits or mean nothing outside the app; add a tool to the allowlist only
+  if it is neither. `scripts/mcp-e2e.ts` checks it against a running app.
+  OAuth for claude.ai connectors needs a tenant MCP resource in `apps/api`
+  first.
+

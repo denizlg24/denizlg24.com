@@ -15,5 +15,9 @@ export type Channel = {
 export type ChannelsResponse = {
   channels: Channel[];
   email: { ready: boolean; address: string | null };
+  /** One-click connections whose app credentials are configured. */
+  connect: { telegram: boolean; discord: boolean; slack: boolean };
+  /** VAPID public key for browser push, or null when push is off. */
+  push: { publicKey: string | null };
   demo: boolean;
 };

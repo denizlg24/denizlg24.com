@@ -107,6 +107,62 @@
   color: var(--gain);
 }
 
+/* One-click connect */
+.cg-quick-steps {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  list-style: decimal;
+  padding-left: 1.4em;
+  max-width: 64ch;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.cg-quick-steps li::marker {
+  color: var(--muted-foreground);
+  font-weight: 650;
+}
+.guide-points .cg-quick-steps {
+  margin-top: var(--sp-2);
+  font-size: inherit;
+}
+.cg-quick-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.cg-quick-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-md);
+  color: var(--muted-foreground);
+}
+.cg-quick-status:empty {
+  display: none;
+}
+.cg-quick-done {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  font-size: 1rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.cg-quick-done svg {
+  flex: none;
+  color: var(--gain);
+}
+.cg-quick-manual {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
 /* ── Illustrations ──────────────────────────────────────────── */
 
 .cg-stage {
@@ -133,6 +189,18 @@
 .cg-nt {
   --cg-accent: #338574;
 }
+.cg-desk {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  min-height: 150px;
+  padding: 12px;
+  background: var(--background);
+}
+.cg-desk .cg-notice {
+  max-width: 260px;
+}
+
 .cg-mail,
 .cg-hook {
   --cg-accent: var(--primary);

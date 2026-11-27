@@ -14,7 +14,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -43,8 +43,10 @@ import { amount, cn, marketTime, percent } from "@/lib/utils";
 import { type AlertDraft, AlertEditor } from "./alerts/alert-editor";
 import { useBrowserAlerts } from "./alerts/browser-alerts";
 import { ChannelGuide, channelMeta } from "./alerts/channel-guide";
+import { isQuickKind } from "./alerts/quick-connect";
 import { SignalsPanel } from "./alerts/signals-panel";
 import { useChannels } from "./alerts/use-channels";
+import { type PushSupport, usePushSupport } from "./alerts/web-push";
 import { RemoveDialog, type Save } from "./forms";
 import { useQuotes } from "./market-widgets";
 import {
@@ -55,6 +57,79 @@ import {
   SymbolLink,
   Tick,
 } from "./shared";
+
+type Outcome = { ok: true; channel: string } | { ok: false; reason: string };
+
+/** Reads, then strips, the result Discord or Slack sent the browser back with. */
+function useConnectOutcome() {
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get("connect");
+    if (status !== "ok" && status !== "error") return;
+    setOutcome(
+      status === "ok"
+        ? { ok: true, channel: params.get("channel") || "The channel" }
+        : { ok: false, reason: params.get("reason") || "That didn’t work." },
+    );
+    for (const key of ["connect", "channel", "reason"]) params.delete(key);
+    const query = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`,
+    );
+  }, []);
+  return [outcome, () => setOutcome(null)] as const;
+}
+
+function ConnectOutcome({
+  outcome,
+  dismiss,
+}: {
+  outcome: Outcome;
+  dismiss: () => void;
+}) {
+  return (
+    <div
+      className="connect-outcome"
+      data-ok={outcome.ok}
+      role={outcome.ok ? "status" : "alert"}
+    >
+      {outcome.ok ? <Check size={16} /> : <CircleAlert size={16} />}
+      <span>
+        {outcome.ok ? (
+          <>
+            <b>{outcome.channel}</b> is connected. Press <b>Test</b> on it under
+            Where alerts reach you to check, then tick it under Notify on any
+            alert.
+          </>
+        ) : (
+          <>
+            <b>The channel wasn’t connected.</b> {outcome.reason} You can try
+            again under Where alerts reach you.
+          </>
+        )}
+      </span>
+      <Button
+        size="icon-xs"
+        variant="ghost"
+        aria-label="Dismiss"
+        onClick={dismiss}
+      >
+        <X />
+      </Button>
+    </div>
+  );
+}
+
+const pushHint: Record<PushSupport, string | null> = {
+  pending: null,
+  ready: null,
+  denied: "Blocked in browser settings",
+  "home-screen": "Add to Home Screen first",
+  unsupported: "Not supported in this browser",
+};
 
 const ago = (iso: string | null) => {
   if (!iso) return "never";
@@ -156,6 +231,7 @@ function Channels({
 }) {
   const { data, mutate } = useChannels();
   const browser = useBrowserAlerts();
+  const push = usePushSupport();
   const connected = new Set(data.channels.map((item) => item.kind));
   const changed = () => {
     void mutate();
@@ -186,9 +262,15 @@ function Channels({
       ) : null}
       <ul className="channel-tiles" aria-label="Add a channel">
         {channelKinds.map((kind) => {
+          if (kind === "push" && !data.push.publicKey) return null;
           const meta = channelMeta[kind];
           const Icon = meta.icon;
-          const unavailable = demo || (kind === "email" && !data.email.ready);
+          const unavailable =
+            demo ||
+            (kind === "email" && !data.email.ready) ||
+            (kind === "push" && push === "unsupported");
+          const quick = isQuickKind(kind) && data.connect[kind];
+          const hint = kind === "push" ? pushHint[push] : null;
           return (
             <li key={kind}>
               <button
@@ -212,13 +294,17 @@ function Channels({
                   </strong>
                   <span>{meta.blurb}</span>
                   <small>
-                    {unavailable
-                      ? demo
-                        ? "Not available in preview"
-                        : "Email isn’t configured on this server"
-                      : connected.has(kind)
-                        ? "Add another"
-                        : `Set up · ${meta.time}`}
+                    {demo
+                      ? "Not available in preview"
+                      : kind === "email" && !data.email.ready
+                        ? "Email isn’t configured on this server"
+                        : hint
+                          ? hint
+                          : connected.has(kind)
+                            ? "Add another"
+                            : quick
+                              ? "Connect in one click"
+                              : `Set up · ${meta.time}`}
                   </small>
                 </span>
                 <Plus className="channel-tile-plus" size={16} />
@@ -241,7 +327,7 @@ function Channels({
             </span>
             <span className="channel-tile-text">
               <strong>
-                This browser
+                This tab
                 {browser.state === "on" ? (
                   <em className="channel-on">
                     <Check size={11} /> On
@@ -249,7 +335,7 @@ function Channels({
                 ) : null}
               </strong>
               <span>
-                Desktop notifications while Stockwatcher is open in a tab.
+                Pop-up notifications while Stockwatcher is open in a tab.
               </span>
               <small>
                 {browser.state === "denied"
@@ -401,6 +487,7 @@ export function Alerts({
   } | null>(null);
   const [removing, setRemoving] = useState<AlertRule>();
   const [guide, setGuide] = useState<ChannelKind | null>(null);
+  const [outcome, dismissOutcome] = useConnectOutcome();
   const { data: channelData, mutate: refreshChannels } = useChannels();
   const { data } = useQuotes(
     alerts.map((item) => item.symbol),
@@ -425,6 +512,9 @@ export function Alerts({
 
   return (
     <div className="alerts-view">
+      {outcome ? (
+        <ConnectOutcome outcome={outcome} dismiss={dismissOutcome} />
+      ) : null}
       <section className="panel alerts-panel">
         <PanelHeading
           title="Alerts"
@@ -645,6 +735,8 @@ export function Alerts({
           }}
           emailReady={channelData.email.ready}
           defaultEmail={channelData.email.address}
+          connect={channelData.connect}
+          pushKey={channelData.push.publicKey}
         />
       ) : null}
       {removing ? (

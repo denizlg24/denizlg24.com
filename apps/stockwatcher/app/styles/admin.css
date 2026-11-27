@@ -469,6 +469,42 @@
   color: var(--loss);
   font-size: var(--fs-xs);
 }
+.access-tokens {
+  display: grid;
+  gap: var(--stack);
+}
+.access-token-command {
+  margin: var(--sp-2) 0;
+  padding: var(--sp-2);
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: var(--background);
+  font: var(--fs-xs) / 1.5 var(--font-mono, ui-monospace, monospace);
+  white-space: pre;
+}
+.access-token-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--sp-2) var(--sp-3);
+}
+.access-token-form label {
+  display: grid;
+  gap: 4px;
+  min-width: min(100%, 16rem);
+  font-size: var(--fs-xs);
+  color: var(--muted-foreground);
+}
+.access-token-form select {
+  height: 2.25rem;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--input, var(--border));
+  border-radius: 2px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: var(--fs-sm);
+}
 
 .admin-enquiries td {
   vertical-align: top;

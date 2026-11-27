@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 import { currentUser, isAdmin } from "./auth";
 import { store } from "./db";
+import { type RedactSubject, redactText, redactValue } from "./redact";
 
 export const promptCap = 4_000;
 export const replyCap = 8_000;
@@ -35,9 +36,13 @@ export type ChatRunInput = {
   prompt: string | null;
   reply: string | null;
   context: object | null;
+  subject: RedactSubject;
 };
 
-export type ChatRun = Omit<ChatRunInput, "messageId" | "context"> & {
+export type ChatRun = Omit<
+  ChatRunInput,
+  "messageId" | "context" | "subject"
+> & {
   messageId: string | null;
   context: unknown;
 };
@@ -127,6 +132,14 @@ function toolCalls(value: unknown): ToolCallRecord[] {
   return parsed.success ? parsed.data : [];
 }
 
+const redactCalls = (calls: ToolCallRecord[], subject?: RedactSubject) =>
+  calls.map((call) =>
+    call.error ? { ...call, error: redactText(call.error, subject) } : call,
+  );
+
+const redactNullable = (value: string | null) =>
+  value === null ? null : redactText(value);
+
 const latest = (...values: Array<string | null>) =>
   values.reduce<string | null>(
     (best, value) => (value && (!best || value > best) ? value : best),
@@ -148,20 +161,24 @@ function toRun(row: RunRow): RunWithUser {
     steps: count(row.steps),
     inputTokens: numberOrNull(row.input_tokens),
     outputTokens: numberOrNull(row.output_tokens),
-    toolCalls: toolCalls(row.tool_calls),
-    error: text(row.error),
-    prompt: text(row.prompt),
-    reply: text(row.reply),
-    context: parseJson(row.context),
+    toolCalls: redactCalls(toolCalls(row.tool_calls)),
+    error: redactNullable(text(row.error)),
+    prompt: redactNullable(text(row.prompt)),
+    reply: redactNullable(text(row.reply)),
+    context: redactValue(parseJson(row.context)),
     userName: text(row.user_name),
   };
 }
 
 export async function recordRun(run: ChatRunInput): Promise<void> {
   const s = await store();
-  const prompt = run.prompt === null ? null : clip(run.prompt, promptCap);
-  const reply = run.reply === null ? null : clip(run.reply, replyCap);
-  const error = run.error === null ? null : clip(run.error, errorCap);
+  const scrub = (value: string | null, cap: number) =>
+    value === null ? null : clip(redactText(value, run.subject), cap);
+  const prompt = scrub(run.prompt, promptCap);
+  const reply = scrub(run.reply, replyCap);
+  const error = scrub(run.error, errorCap);
+  const calls = redactCalls(run.toolCalls, run.subject);
+  const context = run.context ? redactValue(run.context, run.subject) : null;
   if (s.kind === "pg") {
     await s.sql`
       INSERT INTO stockwatcher_chat_runs (
@@ -172,8 +189,8 @@ export async function recordRun(run: ChatRunInput): Promise<void> {
         ${run.id}, ${run.userId}, ${run.threadId}, ${run.messageId},
         ${run.startedAt}, ${run.durationMs}, ${run.model}, ${run.finishReason},
         ${run.steps}, ${run.inputTokens}, ${run.outputTokens},
-        ${s.sql.json(run.toolCalls)}, ${error}, ${prompt}, ${reply},
-        ${run.context ? s.sql.json(run.context) : null}
+        ${s.sql.json(calls)}, ${error}, ${prompt}, ${reply},
+        ${context ? s.sql.json(context) : null}
       ) ON CONFLICT (id) DO NOTHING`;
     return;
   }
@@ -197,11 +214,11 @@ export async function recordRun(run: ChatRunInput): Promise<void> {
       run.steps,
       run.inputTokens,
       run.outputTokens,
-      JSON.stringify(run.toolCalls),
+      JSON.stringify(calls),
       error,
       prompt,
       reply,
-      run.context ? JSON.stringify(run.context) : null,
+      context ? JSON.stringify(context) : null,
     );
 }
 
@@ -423,7 +440,7 @@ export async function listUserThreads(userId: string): Promise<AdminThread[]> {
           .all(userId);
   return rows.map((row) => ({
     id: String(row.id),
-    title: String(row.title),
+    title: redactText(String(row.title)),
     updatedAt: iso(row.updated_at) ?? "",
     messages: count(row.messages),
     runs: count(row.runs),

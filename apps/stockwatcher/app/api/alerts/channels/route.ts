@@ -5,7 +5,8 @@ import {
   readBody,
   tryDeliver,
 } from "@/lib/notify/channel-api";
-import { emailReady } from "@/lib/notify/send";
+import { connectReady } from "@/lib/notify/connect";
+import { emailReady, vapidKeys } from "@/lib/notify/send";
 import { createChannel, listChannels, publicChannel } from "@/lib/notify/store";
 
 export async function GET() {
@@ -15,6 +16,8 @@ export async function GET() {
   return json({
     channels: channels.map(publicChannel),
     email: { ready: emailReady(), address: user.email },
+    connect: connectReady(),
+    push: { publicKey: vapidKeys()?.publicKey ?? null },
     demo: user.demo,
   });
 }

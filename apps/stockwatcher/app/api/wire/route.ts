@@ -1,5 +1,6 @@
 import { currentUser, json } from "@/lib/auth";
-import { newsWire, trending } from "@/lib/market";
+import { trending } from "@/lib/market";
+import { companyNews } from "@/lib/news";
 import { symbolPattern } from "@/lib/universes";
 
 export async function GET(request: Request) {
@@ -17,7 +18,7 @@ export async function GET(request: Request) {
     const hot = await trending().catch(() => []);
     const symbols = (requested.length ? requested : hot).slice(0, 40);
     return json({
-      items: (await newsWire(symbols)).slice(0, 200),
+      items: (await companyNews(symbols)).slice(0, 200),
       trending: hot,
       symbols,
     });

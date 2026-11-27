@@ -4,32 +4,13 @@ import type { InferUITools } from "ai";
 import { type ReactNode, useState } from "react";
 import type { StockwatcherTools } from "@/lib/ai/tools";
 import { amount, compact, number, percent, tone } from "@/lib/utils";
+import { Block } from "./tool-block";
 
 type Tools = InferUITools<StockwatcherTools>;
 type Success<N extends keyof Tools> = Exclude<
   Tools[N]["output"],
   { error: unknown }
 >;
-
-function Block({
-  title,
-  meta,
-  children,
-}: {
-  title: string;
-  meta?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <div className="chat-tool">
-      <div className="chat-tool-head">
-        <span className="kicker">{title}</span>
-        {meta ? <span className="chat-tool-meta">{meta}</span> : null}
-      </div>
-      {children}
-    </div>
-  );
-}
 
 const Signed = ({ value }: { value: number | null | undefined }) => (
   <span className={tone(value)}>{percent(value)}</span>

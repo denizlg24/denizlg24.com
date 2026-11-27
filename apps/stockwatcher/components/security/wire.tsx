@@ -4,8 +4,8 @@ import { ExternalLink } from "lucide-react";
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { api, Empty, Failure, Loading } from "@/components/shared";
-import type { WireItem } from "@/lib/market";
 import type { Workspace } from "@/lib/models";
+import type { NewsItem } from "@/lib/news/types";
 import { symbolPattern } from "@/lib/universes";
 
 type Source = "watchlists" | "positions" | "trending" | "custom";
@@ -81,7 +81,7 @@ export function NewsWire({
       ? `/api/wire?${new URLSearchParams({ symbols: symbols.join(",") })}`
       : null;
   const { data, error, isLoading, mutate } = useSWR<{
-    items: WireItem[];
+    items: NewsItem[];
     trending: string[];
     symbols: string[];
   }>(key, api, {
