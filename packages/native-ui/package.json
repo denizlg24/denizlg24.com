@@ -27,7 +27,7 @@
     }
   },
   "devDependencies": {
-    "@expo/ui": "~57.0.20",
+    "@expo/ui": "~58.0.29",
     "@repo/typescript-config": "workspace:*",
     "@types/react": "19.2.18",
     "expo": "~57.0.25",
