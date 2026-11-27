@@ -356,6 +356,7 @@ async function chat(request: Request, scope: CostScope) {
           ? undefined
           : { credits: credits(chargeFor(cost.costUsd)) };
       },
+      sendReasoning: true,
       sendSources: true,
       redactToolErrors: false,
       onError: (error) =>

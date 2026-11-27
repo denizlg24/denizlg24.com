@@ -30,8 +30,27 @@ import {
   useState,
 } from "react";
 import { mutate } from "swr";
+import {
+  Question,
+  QuestionActions,
+  QuestionDescription,
+  QuestionInput,
+  QuestionOption,
+  QuestionOptions,
+  QuestionPrompt,
+  QuestionSubmit,
+  type QuestionValue,
+} from "@/components/ai-elements/question";
+import {
+  Source,
+  Sources,
+  SourcesContent,
+  SourcesTrigger,
+} from "@/components/ai-elements/sources";
+import { isToolRunning, Tool, ToolStatus } from "@/components/ai-elements/tool";
 import { ChartView } from "@/components/reports/chart";
 import { ShareControl } from "@/components/reports/share-control";
+import { Button } from "@/components/ui/button";
 import type { StockwatcherMessage, StockwatcherTools } from "@/lib/ai/tools";
 import { formatTarget, metricLabels } from "@/lib/alerts";
 import type {
@@ -51,6 +70,7 @@ import {
   PortfolioRiskView,
 } from "./risk-parts";
 import { Sparkline } from "./sparkline";
+import { Block } from "./tool-block";
 
 type Tools = InferUITools<StockwatcherTools>;
 type Part = StockwatcherMessage["parts"][number];
@@ -334,33 +354,22 @@ export function ToolPartView({
   part: ToolPart;
   interactive?: boolean;
 }) {
-  if (part.type === "tool-askUser" && part.state === "input-available")
-    return (
-      <QuestionCard
-        id={part.toolCallId}
-        input={part.input}
-        interactive={interactive}
-      />
-    );
-  switch (part.state) {
-    case "input-streaming":
-    case "input-available":
-      return <Status text={runningLabel(part)} />;
-    case "output-error":
-      return <ToolError name={toolNames[part.type]} text={part.errorText} />;
-    case "output-available":
-      return <ToolOutput part={part} />;
-    default:
-      return null;
-  }
-}
-
-export function Status({ text }: { text: string }) {
   return (
-    <div className="chat-status" role="status">
-      <span className="chat-pulse" aria-hidden />
-      <span>{text}…</span>
-    </div>
+    <Tool state={part.state} data-tool={part.type.slice(5)}>
+      {part.type === "tool-askUser" && part.state === "input-available" ? (
+        <QuestionCard
+          id={part.toolCallId}
+          input={part.input}
+          interactive={interactive}
+        />
+      ) : part.state === "output-available" ? (
+        <ToolOutput part={part} />
+      ) : part.state === "output-error" ? (
+        <ToolError name={toolNames[part.type]} text={part.errorText} />
+      ) : isToolRunning(part.state) ? (
+        <ToolStatus text={runningLabel(part)} />
+      ) : null}
+    </Tool>
   );
 }
 
@@ -386,26 +395,6 @@ function Sym({ symbol }: { symbol: string }) {
     >
       {symbol}
     </button>
-  );
-}
-
-function Block({
-  title,
-  meta,
-  children,
-}: {
-  title: string;
-  meta?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <div className="chat-tool">
-      <div className="chat-tool-head">
-        <span className="kicker">{title}</span>
-        {meta ? <span className="chat-tool-meta">{meta}</span> : null}
-      </div>
-      {children}
-    </div>
   );
 }
 
@@ -937,27 +926,31 @@ function QuestionCard({
   interactive: boolean;
 }) {
   const { answer } = use(ToolActions);
-  const [selected, setSelected] = useState<string[]>([]);
-  const [other, setOther] = useState("");
+  const [value, setValue] = useState<QuestionValue>({
+    selectedValues: [],
+    text: "",
+  });
   const multiple = input.multiple ?? false;
   const allowOther = input.allowOther ?? true;
-  const submit = (labels: string[], text = other) =>
+  const submit = (labels: readonly string[], text = value.text) =>
     answer(id, {
-      selected: labels,
+      selected: [...labels],
       ...(text.trim() ? { other: text.trim().slice(0, 500) } : {}),
     });
-  const toggle = (label: string) => {
-    if (!multiple) return submit([label], "");
-    setSelected((current) =>
-      current.includes(label)
-        ? current.filter((item) => item !== label)
-        : [...current, label],
-    );
+  const skip = () => answer(id, { selected: [], skipped: true });
+  const pick = (label: string) => {
+    if (multiple)
+      setValue((current) => ({
+        ...current,
+        selectedValues: current.selectedValues.includes(label)
+          ? current.selectedValues.filter((item) => item !== label)
+          : [...current.selectedValues, label],
+      }));
+    else submit([label], "");
   };
-  const ready = selected.length > 0 || other.trim().length > 0;
   const choose = useEffectEvent((index: number) => {
     const option = input.options[index];
-    if (option) toggle(option.label);
+    if (option) pick(option.label);
   });
   useEffect(() => {
     if (!interactive) return;
@@ -982,67 +975,67 @@ function QuestionCard({
     return () => window.removeEventListener("keydown", onKey);
   }, [interactive]);
   return (
-    <fieldset className="chat-question" disabled={!interactive}>
-      <legend>{input.question}</legend>
-      {input.context ? <p>{input.context}</p> : null}
-      <div className="chat-question-options" role="group">
+    <Question
+      aria-label={input.question}
+      disabled={!interactive}
+      selectionMode={multiple ? "multiple" : "single"}
+      value={value}
+      onValueChange={setValue}
+      onSubmit={(response) => submit(response.selectedValues, response.text)}
+    >
+      <QuestionPrompt>{input.question}</QuestionPrompt>
+      {input.context ? (
+        <QuestionDescription>{input.context}</QuestionDescription>
+      ) : null}
+      <QuestionOptions>
         {input.options.map((option, index) => (
-          <button
+          <QuestionOption
             key={option.label}
-            type="button"
-            aria-pressed={
-              multiple ? selected.includes(option.label) : undefined
-            }
-            onClick={() => toggle(option.label)}
+            value={option.label}
+            onClick={multiple ? undefined : () => submit([option.label], "")}
           >
-            <kbd aria-hidden>{index + 1}</kbd>
-            <span>
-              <strong>{option.label}</strong>
-              {option.description ? <small>{option.description}</small> : null}
+            <kbd
+              aria-hidden
+              className="grid size-[18px] place-items-center rounded-sm border border-input font-[inherit] text-[11px] text-muted-foreground"
+            >
+              {index + 1}
+            </kbd>
+            <span className="grid gap-px">
+              <strong className="font-semibold text-[13px]">
+                {option.label}
+              </strong>
+              {option.description ? (
+                <small className="text-muted-foreground text-xs">
+                  {option.description}
+                </small>
+              ) : null}
             </span>
-          </button>
+          </QuestionOption>
         ))}
-      </div>
-      {allowOther || multiple ? (
-        <form
-          className="chat-question-other"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (ready) submit(selected);
-          }}
+      </QuestionOptions>
+      <QuestionActions>
+        {allowOther ? (
+          <QuestionInput
+            maxLength={500}
+            placeholder="Something else…"
+            aria-label="Other answer"
+          />
+        ) : null}
+        {allowOther || multiple ? (
+          <QuestionSubmit>{multiple ? "Send answers" : "Send"}</QuestionSubmit>
+        ) : null}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="ml-auto text-muted-foreground"
+          disabled={!interactive}
+          onClick={skip}
         >
-          {allowOther ? (
-            <input
-              value={other}
-              maxLength={500}
-              placeholder="Something else…"
-              aria-label="Other answer"
-              onChange={(event) => setOther(event.target.value)}
-            />
-          ) : null}
-          <button type="submit" disabled={!ready}>
-            {multiple ? "Send answers" : "Send"}
-          </button>
-          <button
-            type="button"
-            className="chat-question-skip"
-            onClick={() => answer(id, { selected: [], skipped: true })}
-          >
-            Skip
-          </button>
-        </form>
-      ) : (
-        <div className="chat-question-other">
-          <button
-            type="button"
-            className="chat-question-skip"
-            onClick={() => answer(id, { selected: [], skipped: true })}
-          >
-            Skip
-          </button>
-        </div>
-      )}
-    </fieldset>
+          Skip
+        </Button>
+      </QuestionActions>
+    </Question>
   );
 }
 
@@ -1683,22 +1676,16 @@ export function SourceList({
 }) {
   if (!sources.length) return null;
   return (
-    <div className="chat-tool">
-      <div className="chat-tool-head">
-        <span className="kicker">Sources</span>
-      </div>
-      <ol className="chat-sources">
+    <Sources>
+      <SourcesTrigger count={sources.length} />
+      <SourcesContent>
         {sources.map((source) => (
-          <li key={source.url}>
-            <a href={source.url} target="_blank" rel="noopener noreferrer">
-              {source.title || hostOf(source.url)}
-              <ArrowUpRight aria-hidden />
-            </a>
-            <span className="meta">{hostOf(source.url)}</span>
-          </li>
+          <Source key={source.url} href={source.url} meta={hostOf(source.url)}>
+            {source.title || hostOf(source.url)}
+          </Source>
         ))}
-      </ol>
-    </div>
+      </SourcesContent>
+    </Sources>
   );
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
-import { type ComponentProps, memo } from "react";
-import { Streamdown } from "streamdown";
+import type { ComponentProps } from "react";
+import { MessageResponse } from "@/components/ai-elements/message";
 
 function Link({ href, title, children }: ComponentProps<"a">) {
   if (typeof href !== "string" || !/^(?:https?:\/\/|mailto:)/i.test(href))
@@ -39,7 +39,7 @@ const controls = {
 } as const;
 const linkSafety = { enabled: false };
 
-export const Markdown = memo(function Markdown({
+export function Markdown({
   text,
   streaming,
 }: {
@@ -47,7 +47,7 @@ export const Markdown = memo(function Markdown({
   streaming: boolean;
 }) {
   return (
-    <Streamdown
+    <MessageResponse
       className="chat-prose"
       mode={streaming ? "streaming" : "static"}
       isAnimating={streaming}
@@ -60,6 +60,6 @@ export const Markdown = memo(function Markdown({
       codeBlockMaxHeight={320}
     >
       {text}
-    </Streamdown>
+    </MessageResponse>
   );
-});
+}
