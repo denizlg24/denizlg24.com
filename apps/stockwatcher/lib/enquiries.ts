@@ -129,17 +129,26 @@ export async function notifyEnquiry(enquiry: Enquiry) {
     await deliver(
       { kind: "email", address },
       {
+        kicker: "Desk enquiry",
         title: `Stockwatcher enquiry: ${enquiry.interest}`,
-        body: enquiry.message,
-        url: appUrl("admin/enquiries"),
+        summary: `${enquiry.name} (${enquiry.email}) sent an enquiry about ${enquiry.interest}.`,
         tone: "info",
-        data: {
-          Name: enquiry.name,
-          Email: enquiry.email,
-          Company: enquiry.company,
-          Role: enquiry.role,
-          Seats: enquiry.seats,
-        },
+        time: enquiry.createdAt,
+        url: appUrl("admin/enquiries"),
+        action: "Open enquiries",
+        triggers: [],
+        details: (
+          [
+            ["Name", enquiry.name],
+            ["Email", enquiry.email],
+            ["Company", enquiry.company],
+            ["Role", enquiry.role],
+            ["Seats", enquiry.seats],
+          ] as const
+        ).flatMap(([label, value]) => (value ? [{ label, value }] : [])),
+        body: enquiry.message,
+        reason: "ENQUIRY_NOTIFY_EMAIL names this address for Desk enquiries.",
+        manageUrl: null,
       },
     );
   } catch (error) {

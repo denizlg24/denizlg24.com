@@ -1,19 +1,11 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
+import { testMessage } from "./compose";
 import type { ChannelConfig } from "./config";
 import { channelInputSchema, defaultLabels, describeTarget } from "./config";
-import { deliver, type Message } from "./send";
+import { deliver } from "./send";
 
-export const appUrl = (hash = "") =>
-  `${(process.env.APP_URL || "http://localhost:3000").replace(/\/+$/, "")}/${hash}`;
-
-export const testMessage = (label: string): Message => ({
-  title: "Stockwatcher test alert",
-  body: `${label} is connected. Price alerts you route here will arrive just like this.`,
-  url: appUrl("#alerts"),
-  tone: "info",
-  data: { Example: "AAPL price ≥ 250.00", Channel: label },
-});
+export { appUrl } from "./compose";
 
 export const reason = (error: unknown) =>
   (error instanceof Error ? error.message : "Delivery failed.").slice(0, 200);

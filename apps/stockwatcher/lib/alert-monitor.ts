@@ -1,19 +1,18 @@
 import "server-only";
 import { channelsFor, deliverTo, persist } from "./alert-delivery";
-import {
-  conditionMet,
-  describeRule,
-  expired,
-  formatTarget,
-  reading,
-} from "./alerts";
+import { conditionMet, expired, reading } from "./alerts";
 import { alertWorkspaces } from "./db";
 import { quotes } from "./market";
 import type { AlertEvent, AlertRule, Quote, Workspace } from "./models";
-import { appUrl } from "./notify/channel-api";
-import type { Message } from "./notify/send";
+import { isMoex } from "./moex";
+import {
+  alertMessage,
+  alertTrigger,
+  price,
+  signedPercent,
+} from "./notify/compose";
+import type { Trigger } from "./notify/types";
 import { monitorSignals } from "./signal-monitor";
-import { amount, percent } from "./utils";
 
 let running = false;
 const staleAfter = 96 * 60 * 60 * 1000;
@@ -56,56 +55,64 @@ export function evaluate(workspace: Workspace, data: Map<string, Quote>) {
   return { changed, fired };
 }
 
-function message({ rule, quote }: Fired): Message {
-  const value = reading(rule, quote);
-  const rising = rule.direction === "above";
-  const lines = [
-    `${quote.name || rule.symbol} is at ${amount(quote.price)} ${quote.currency}${quote.percent != null ? ` (${percent(quote.percent)} today)` : ""}.`,
-    `Rule: ${describeRule(rule)}${value != null && rule.metric !== "price" ? ` · now ${formatTarget(rule.metric, value)}` : ""}.`,
-  ];
-  if (rule.note) lines.push(`Note: ${rule.note}`);
-  if (rule.repeat === "rearm")
-    lines.push("This alert re-arms once the condition clears.");
-  return {
-    title: `${rule.symbol} · ${describeRule(rule)}`,
-    body: lines.join("\n"),
-    url: appUrl(`#security?ticker=${encodeURIComponent(rule.symbol)}&fn=GP`),
-    tone: rising ? "up" : "down",
-    data: {
-      Symbol: rule.symbol,
-      Last: `${amount(quote.price)} ${quote.currency}`,
-      "Day change": quote.percent != null ? percent(quote.percent) : null,
-      Exchange: quote.exchange || null,
-      Triggered: new Date().toUTCString(),
-    },
-  };
-}
+const activityText = (trigger: Trigger) =>
+  [
+    `${trigger.name} is at ${price(trigger.price)} ${trigger.currency}${trigger.day ? ` (${signedPercent(trigger.day.percent)} today)` : ""}.`,
+    `Rule: ${trigger.ruleText}${trigger.beyond ? ` · ${trigger.beyond}` : ""}.`,
+    ...(trigger.note ? [`Note: ${trigger.note}`] : []),
+  ]
+    .join("\n")
+    .slice(0, 400);
 
+/**
+ * Alerts that fire in the same check go out as one message per channel, so a
+ * channel shared by three alerts gets one notification listing all three.
+ */
 async function notify(userId: string, fired: Fired[]) {
   const channels = await channelsFor(
     userId,
     new Set(fired.flatMap(({ rule }) => rule.channels)),
   );
-  const events = await Promise.all(
-    fired.map(async (item): Promise<AlertEvent> => {
-      const content = message(item);
-      const deliveries = await deliverTo(
-        userId,
-        channels,
-        item.rule.channels,
-        content,
-      );
-      return {
-        id: crypto.randomUUID(),
-        alertId: item.rule.id,
-        symbol: item.rule.symbol,
-        label: "",
-        time: item.rule.lastTriggered ?? new Date().toISOString(),
-        price: item.quote.price,
-        currency: item.quote.currency.slice(0, 8),
-        message: content.body.slice(0, 400),
-        deliveries,
-      };
+  const time = new Date().toISOString();
+  const items = fired.map(({ rule, quote }) => ({
+    rule,
+    quote,
+    trigger: alertTrigger(
+      rule,
+      quote,
+      isMoex(rule.symbol) ? "Moscow Exchange" : "Yahoo Finance",
+    ),
+  }));
+  const results = (
+    await Promise.all(
+      channels.map((channel) => {
+        const routed = items
+          .filter(({ rule }) => rule.channels.includes(channel.id))
+          .map(({ trigger }) => trigger);
+        return routed.length
+          ? deliverTo(
+              userId,
+              [channel],
+              [channel.id],
+              alertMessage(routed, time),
+            )
+          : [];
+      }),
+    )
+  ).flat();
+  const events = items.map(
+    ({ rule, quote, trigger }): AlertEvent => ({
+      id: crypto.randomUUID(),
+      alertId: rule.id,
+      symbol: rule.symbol,
+      label: "",
+      time: rule.lastTriggered ?? time,
+      price: quote.price,
+      currency: quote.currency.slice(0, 8),
+      message: activityText(trigger),
+      deliveries: results.filter((result) =>
+        rule.channels.includes(result.channel),
+      ),
     }),
   );
   await persist(userId, (workspace) => {

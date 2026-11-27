@@ -3,8 +3,7 @@ import { runCompute } from "./ai/compute-tools";
 import { channelsFor, deliverTo, persist } from "./alert-delivery";
 import { readSignalRuntime, writeSignalRuntime } from "./db";
 import type { AlertEvent, Signal, SignalRuntime, Workspace } from "./models";
-import { appUrl } from "./notify/channel-api";
-import type { Message } from "./notify/send";
+import { signalMessage } from "./notify/compose";
 import {
   applyRun,
   interpret,
@@ -45,36 +44,13 @@ export async function runSignal(signal: Signal): Promise<SignalRun> {
   return outcome.ok ? interpret(outcome.result) : outcome;
 }
 
-function content({ signal, kind }: Notice): Message {
-  if (kind === "disabled")
-    return {
-      title: `${signal.name} · signal disabled`,
-      body: [
-        `Signal "${signal.name}" failed ${maxConsecutiveErrors} checks in a row and was turned off.`,
-        `Last error: ${signal.lastError ?? "unknown"}`,
-        "Ask the assistant to fix it, then re-enable it in Alerts.",
-      ].join("\n"),
-      url: appUrl("#alerts"),
-      tone: "info",
-    };
-  const lines = [`Signal "${signal.name}" fired.`];
-  if (signal.lastValue != null) lines.push(`Value: ${signal.lastValue}`);
-  if (signal.lastMessage) lines.push(signal.lastMessage);
-  if (signal.note) lines.push(`Note: ${signal.note}`);
-  if (signal.repeat === "rearm")
-    lines.push("This signal re-arms once it returns false.");
-  return {
-    title: `${signal.name} · signal`,
-    body: lines.join("\n"),
-    url: appUrl("#alerts"),
-    tone: "info",
-    data: {
-      Signal: signal.name,
-      Value: signal.lastValue,
-      Triggered: new Date().toUTCString(),
-    },
-  };
-}
+const content = ({ signal, kind }: Notice) =>
+  signalMessage(
+    signal,
+    kind,
+    signal.lastChecked ?? new Date().toISOString(),
+    maxConsecutiveErrors,
+  );
 
 async function sendNotices(userId: string, notices: Notice[]) {
   const channels = await channelsFor(
@@ -92,7 +68,7 @@ async function sendNotices(userId: string, notices: Notice[]) {
         time: notice.signal.lastChecked ?? new Date().toISOString(),
         price: null,
         currency: "",
-        message: `${message.title}\n${message.body}`.slice(0, 400),
+        message: `${message.title}\n${message.summary}`.slice(0, 400),
         deliveries: await deliverTo(
           userId,
           channels,
