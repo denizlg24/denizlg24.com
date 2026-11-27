@@ -77,6 +77,18 @@ export const channelInputSchema = z.discriminatedUnion("kind", [
       .transform((value) => value || undefined),
   }),
   z.object({
+    kind: z.literal("push"),
+    endpoint: z.url({ protocol: /^https$/ }).max(1000),
+    p256dh: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9_-]{80,100}$/, "The browser sent an invalid key."),
+    auth: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9_-]{16,32}$/, "The browser sent an invalid key."),
+  }),
+  z.object({
     kind: z.literal("webhook"),
     url: z.url({ protocol: /^https$/ }).max(500),
   }),
@@ -105,6 +117,8 @@ export function describeTarget(config: ChannelConfig): string {
       return `Webhook ${hide(config.url.split("/").at(-1) ?? "", 4)}`;
     case "ntfy":
       return `${new URL(config.server).host}/${config.topic.slice(0, 4)}${hide(config.topic.slice(4), 3)}`;
+    case "push":
+      return `Browser · ${new URL(config.endpoint).host}`;
     case "webhook": {
       const url = new URL(config.url);
       return url.pathname === "/"
@@ -121,5 +135,6 @@ export const defaultLabels: Record<ChannelKind, string> = {
   discord: "Discord",
   slack: "Slack",
   ntfy: "Phone push",
+  push: "This browser",
   webhook: "Webhook",
 };

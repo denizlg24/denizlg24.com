@@ -119,6 +119,9 @@
 .channel-icon[data-kind="ntfy"] {
   --tint: #2f8f86;
 }
+.channel-icon[data-kind="push"] {
+  --tint: var(--primary);
+}
 .channel-icon[data-kind="webhook"],
 .channel-icon[data-kind="browser"] {
   --tint: var(--muted-foreground);
@@ -509,4 +512,31 @@
 .chart-menu button:focus-visible {
   background: var(--muted);
   outline: none;
+}
+
+/* Outcome of a Discord or Slack approval, shown once on return */
+.connect-outcome {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 8px var(--sp-3);
+  border-radius: 2px;
+  font-size: var(--fs-sm);
+}
+.connect-outcome[data-ok="true"] {
+  color: var(--gain);
+  background: var(--heat-gain-soft);
+}
+.connect-outcome[data-ok="false"] {
+  color: var(--loss);
+  background: var(--heat-loss-soft);
+}
+.connect-outcome > svg {
+  flex: none;
+}
+.connect-outcome span {
+  flex: 1;
+  min-width: 0;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
 }

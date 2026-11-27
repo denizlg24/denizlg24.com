@@ -79,4 +79,15 @@ its history (`git subtree`). Product truth is `PRODUCT.md`, the visual system
   75% headline-word overlap; the filing or wire keeps the headline). A failing
   source sits out five minutes. GlobeNewswire and Reddit refuse server
   requests and are left out; GDELT allows one request per five seconds.
+- **One-click channels need their provider apps.** Telegram, Discord and
+  Slack connect through `lib/notify/connect.ts`: a one-time state in
+  `stockwatcher_connect_states` (15 minutes, consumed on use) ties the
+  approval back to the user, so the callbacks work without the session
+  cookie. Telegram uses one Stockwatcher-owned bot (`TELEGRAM_BOT_*`,
+  webhook at `/api/alerts/telegram/webhook` guarded by
+  `TELEGRAM_WEBHOOK_SECRET`, set once with `scripts/telegram-setup.ts`); its
+  token is copied into each channel's sealed config, so rotating the bot
+  token means reconnecting. Browser push is the `push` channel kind
+  (`web-push`, VAPID keys, `public/push-sw.js`). Each is hidden in the UI
+  while its env is missing; the manual paths stay.
 

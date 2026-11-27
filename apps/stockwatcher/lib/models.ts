@@ -183,6 +183,7 @@ export const channelKinds = [
   "discord",
   "slack",
   "ntfy",
+  "push",
   "webhook",
 ] as const;
 export type ChannelKind = (typeof channelKinds)[number];

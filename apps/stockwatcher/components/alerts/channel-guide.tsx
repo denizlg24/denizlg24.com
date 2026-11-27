@@ -17,6 +17,7 @@ import {
   Mail,
   MessageCircle,
   MessagesSquare,
+  MonitorSmartphone,
   Plus,
   RefreshCw,
   Search,
@@ -37,8 +38,15 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import type { ChannelKind } from "@/lib/models";
-import type { Channel } from "@/lib/notify/types";
+import type { Channel, ChannelsResponse } from "@/lib/notify/types";
 import { cn } from "@/lib/utils";
+import { isQuickKind, QuickConnect } from "./quick-connect";
+import {
+  deviceName,
+  type PushSupport,
+  subscribePush,
+  usePushSupport,
+} from "./web-push";
 
 export const channelMeta: Record<
   ChannelKind,
@@ -80,6 +88,13 @@ export const channelMeta: Record<
       "Push notifications on your phone with the free ntfy app, no account",
     icon: BellRing,
     time: "About 2 minutes",
+  },
+  push: {
+    name: "Browser push",
+    blurb:
+      "Notifications on this computer or phone, even when Stockwatcher is closed",
+    icon: MonitorSmartphone,
+    time: "Under a minute",
   },
   webhook: {
     name: "Webhook",
@@ -129,6 +144,7 @@ const required: Record<ChannelKind, FieldName[]> = {
   discord: ["url"],
   slack: ["url"],
   ntfy: ["topic", "server"],
+  push: [],
   webhook: ["url"],
 };
 
@@ -205,12 +221,14 @@ function payload(kind: ChannelKind, values: Values) {
         ...(v("server") ? { server: v("server") } : {}),
         ...(v("ntfyToken") ? { token: v("ntfyToken") } : {}),
       };
+    case "push":
+      return base;
   }
 }
 
 function randomTopic() {
   const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
-  const bytes = crypto.getRandomValues(new Uint8Array(10));
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
   return `stockwatcher-${Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("")}`;
 }
 
@@ -645,9 +663,13 @@ function KeyShot() {
 
 /* ── Telegram ────────────────────────────────────────────── */
 
-function TelegramPreview() {
+function TelegramPreview({
+  caption = "Illustration. Alerts arrive as messages from your own bot.",
+}: {
+  caption?: string;
+}) {
   return (
-    <Figure caption="Illustration. Alerts arrive as messages from your own bot.">
+    <Figure caption={caption}>
       <Phone
         app="tg"
         head={<ChatHead name="Stockwatcher alerts" sub="bot" avatar="S" />}
@@ -1143,6 +1165,87 @@ function WebhookPreview() {
   );
 }
 
+/* ── Browser push ────────────────────────────────────────── */
+
+function PushPreview() {
+  return (
+    <Figure caption="Illustration. Alerts pop up like any other notification on your computer or phone, even with Stockwatcher closed.">
+      <Window url="Your desktop" app="mail">
+        <div className="cg-desk">
+          <div className="cg-notice">
+            <span className="cg-notice-app">
+              <span className="cg-app-icon">
+                <BellRing size={10} />
+              </span>
+              Stockwatcher <span className="shot-muted">now</span>
+            </span>
+            <b>{sample.title}</b>
+            <span>{sample.body}</span>
+          </div>
+        </div>
+      </Window>
+    </Figure>
+  );
+}
+
+function pushNote(support: PushSupport, iosSteps: boolean) {
+  switch (support) {
+    case "home-screen":
+      return (
+        <li className="cg-warn">
+          <CircleAlert size={16} />
+          <div>
+            <b>
+              On iPhone and iPad, add Stockwatcher to your Home Screen first.
+            </b>{" "}
+            Apple only allows notifications from sites opened from the Home
+            Screen.
+            {iosSteps ? (
+              <ol className="cg-quick-steps">
+                <li>
+                  In Safari, tap the <b>Share</b> button (the square with an
+                  arrow).
+                </li>
+                <li>
+                  Tap <b>Add to Home Screen</b>, then <b>Add</b>.
+                </li>
+                <li>
+                  Open Stockwatcher from the new icon on your Home Screen. Sign
+                  in again if it asks, then go to <b>Alerts</b> and choose{" "}
+                  <b>Browser push</b> again.
+                </li>
+              </ol>
+            ) : null}
+          </div>
+        </li>
+      );
+    case "denied":
+      return (
+        <li className="cg-warn">
+          <CircleAlert size={16} />
+          <span>
+            <b>Notifications are blocked for this site.</b> Click the icon to
+            the left of the web address, allow <b>Notifications</b>, then reload
+            the page.
+          </span>
+        </li>
+      );
+    case "unsupported":
+      return (
+        <li className="cg-warn">
+          <CircleAlert size={16} />
+          <span>
+            <b>This browser can’t receive push notifications.</b> Try Chrome,
+            Edge, Firefox or Safari, or use Phone push instead.
+          </span>
+        </li>
+      );
+    case "pending":
+    case "ready":
+      return null;
+  }
+}
+
 /* ── Guide ───────────────────────────────────────────────── */
 
 type Panel = "telegram-chat" | "ntfy-topic";
@@ -1222,7 +1325,13 @@ function guideSteps(
     emailReady,
     bot,
     topic,
-  }: { emailReady: boolean; bot: string | null; topic: string },
+    push,
+  }: {
+    emailReady: boolean;
+    bot: string | null;
+    topic: string;
+    push: PushSupport;
+  },
 ): Step[] {
   switch (kind) {
     case "email":
@@ -1592,6 +1701,10 @@ function guideSteps(
                 <Mark n={2} /> Type the topic below exactly. <Mark n={3} /> Tap{" "}
                 <b>Subscribe</b>.
               </li>
+              <li>
+                Reading this on an Android phone with ntfy installed? Tap{" "}
+                <b>Open in the ntfy app</b> below instead of typing.
+              </li>
               <li className="guide-optional">
                 The topic works like a password: anyone who knows it can read
                 your alerts. That’s why it’s long and random.
@@ -1606,6 +1719,29 @@ function guideSteps(
             Stockwatcher sends a test notification to your phone now. It’s saved
             only if ntfy accepts it.
           </p>,
+        ),
+      ];
+    case "push":
+      return [
+        intro({
+          title: "Get notifications in this browser",
+          lead: "Alerts pop up as notifications on this computer or phone, even when Stockwatcher is closed. Set it up once on each device you want alerts on.",
+          need: "this browser, on the device where you want the alerts.",
+          time: channelMeta.push.time,
+          extra: pushNote(push, true),
+          preview: <PushPreview />,
+        }),
+        finalStep(
+          <ol className="guide-actions">
+            <li>
+              When you press the button, your browser asks whether Stockwatcher
+              may show notifications. <b>Choose Allow.</b>
+            </li>
+            <li>
+              Stockwatcher then sends a test notification to this device. It’s
+              saved only if the notification goes out.
+            </li>
+          </ol>,
         ),
       ];
     case "webhook":
@@ -1652,6 +1788,7 @@ const errorHints: Record<ChannelKind, string> = {
   slack:
     "Slack links stop working when the app is removed. Add a new webhook and copy it again.",
   ntfy: "Check the topic. If you use your own server, check its address and token under Advanced.",
+  push: "If you chose Block by mistake, allow notifications for this site in your browser’s settings and reload. On iPhone or iPad, open Stockwatcher from its Home Screen icon.",
   webhook:
     "Your endpoint must be public and answer with a 2xx status within a few seconds. Check its logs for the test request.",
 };
@@ -1703,14 +1840,21 @@ export function ChannelGuide({
   created,
   emailReady,
   defaultEmail,
+  connect,
+  pushKey,
 }: {
   kind: ChannelKind;
   close: () => void;
   created: (channel: Channel) => void;
   emailReady: boolean;
   defaultEmail: string | null;
+  connect: ChannelsResponse["connect"];
+  pushKey: string | null;
 }) {
   const meta = channelMeta[kind];
+  const quick = isQuickKind(kind) && connect[kind];
+  const [byHand, setByHand] = useState(!quick);
+  const push = usePushSupport();
   const [index, setIndex] = useState(0);
   const main = useRef<HTMLFormElement>(null);
   // Autofocusing a field further down would otherwise scroll the step's title out of view.
@@ -1727,7 +1871,7 @@ export function ChannelGuide({
     topic: kind === "ntfy" ? randomTopic() : "",
     server: "",
     ntfyToken: "",
-    label: "",
+    label: kind === "push" ? deviceName() : "",
   }));
   const [bot, setBot] = useState<string | null>(null);
   const [chatName, setChatName] = useState<string | null>(null);
@@ -1737,12 +1881,31 @@ export function ChannelGuide({
   const [error, setError] = useState<Error>();
   const [secret, setSecret] = useState<string | null>(null);
 
-  const steps = guideSteps(kind, { emailReady, bot, topic: values.topic });
+  const steps = guideSteps(kind, {
+    emailReady,
+    bot,
+    topic: values.topic,
+    push,
+  });
   const step = steps[index]!;
   const busy = working || finding;
   const ok = (name: FieldName) => valid(kind, name, values[name]);
   const allOk = required[kind].every(ok) && ok("ntfyToken") && ok("label");
-  const blocked = kind === "email" && !emailReady;
+  const blockedNote =
+    kind === "email" && !emailReady
+      ? "Email isn’t set up on this server yet, so this channel can’t be saved. Pick another channel for now."
+      : kind === "push" && (!pushKey || push !== "ready")
+        ? push === "home-screen"
+          ? "Add Stockwatcher to your Home Screen and open it from there to turn on notifications. The steps are on the first page."
+          : push === "denied"
+            ? "Notifications are blocked for this site. Allow them in your browser’s site settings, then reload the page."
+            : push === "pending"
+              ? null
+              : "Browser push isn’t available here. Pick another channel, such as Phone push."
+        : null;
+  const blocked =
+    (kind === "email" && !emailReady) ||
+    (kind === "push" && (!pushKey || push !== "ready"));
   const stepOk =
     (step.fields ?? []).every(ok) &&
     (step.panel === "ntfy-topic"
@@ -1760,6 +1923,10 @@ export function ChannelGuide({
   };
 
   const go = (next: number) => {
+    if (next < 0 && quick) {
+      setByHand(false);
+      return;
+    }
     setError(undefined);
     setFindNote(undefined);
     setIndex(Math.max(0, Math.min(steps.length - 1, next)));
@@ -1820,21 +1987,38 @@ export function ChannelGuide({
   };
 
   const submit = async () => {
+    // Started before any state update or await so the permission prompt
+    // still counts as a response to the click.
+    const target =
+      kind === "push" && pushKey ? subscribePush(pushKey) : undefined;
     setWorking(true);
     setError(undefined);
+    let discard: (() => Promise<void>) | undefined;
     try {
+      const subscription = target ? await target : undefined;
+      discard = subscription?.discard;
       const result = await api<{ channel: Channel | null; secret?: string }>(
         "/api/alerts/channels",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload(kind, values)),
+          body: JSON.stringify({
+            ...payload(kind, values),
+            ...(subscription
+              ? {
+                  endpoint: subscription.endpoint,
+                  p256dh: subscription.p256dh,
+                  auth: subscription.auth,
+                }
+              : {}),
+          }),
         },
       );
       if (result.channel) created(result.channel);
       if (result.secret) setSecret(result.secret);
       else close();
     } catch (cause) {
+      void discard?.();
       setError(
         cause instanceof Error
           ? cause
@@ -1851,6 +2035,12 @@ export function ChannelGuide({
     else if (kind === "telegram" && step.fields?.includes("token") && !bot)
       void verifyToken();
     else go(index + 1);
+  };
+
+  const ntfyLink = (scheme: "ntfy" | "https") => {
+    const server = new URL(values.server.trim() || "https://ntfy.sh");
+    const path = `${server.pathname.replace(/\/+$/, "")}/${values.topic.trim()}`;
+    return `${scheme}://${server.host}${path}`;
   };
 
   const fieldStep = (name: FieldName) =>
@@ -1935,10 +2125,30 @@ export function ChannelGuide({
           { term: "Topic", value: show("topic", values.topic) },
           { term: "Server", value: values.server.trim() || "ntfy.sh" },
         ];
+      case "push":
+        return [{ term: "Device", value: "This browser" }];
       case "webhook":
         return [{ term: "Endpoint", value: show("url", values.url.trim()) }];
     }
   })();
+
+  if (!byHand && isQuickKind(kind))
+    return (
+      <QuickConnect
+        kind={kind}
+        preview={
+          kind === "telegram" ? (
+            <TelegramPreview caption="Illustration. Alerts arrive as messages from the Stockwatcher bot." />
+          ) : kind === "discord" ? (
+            <DiscordPreview />
+          ) : (
+            <SlackPreview />
+          )
+        }
+        close={close}
+        manual={() => setByHand(true)}
+      />
+    );
 
   if (secret)
     return (
@@ -2073,6 +2283,24 @@ export function ChannelGuide({
                   <RefreshCw /> New topic
                 </Button>
               </div>
+              {ok("topic") && ok("server") ? (
+                <div className="cg-open">
+                  <Button asChild variant="outline">
+                    <a href={ntfyLink("ntfy")}>
+                      Open in the ntfy app (Android) <ExternalLink />
+                    </a>
+                  </Button>
+                  <Button asChild variant="ghost">
+                    <a
+                      href={ntfyLink("https")}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open the topic in a browser <ExternalLink />
+                    </a>
+                  </Button>
+                </div>
+              ) : null}
               <details className="cg-advanced">
                 <summary>
                   <ChevronDown size={14} aria-hidden /> Advanced: topic name,
@@ -2135,11 +2363,8 @@ export function ChannelGuide({
               ))}
             </dl>
           ) : null}
-          {step.final && blocked ? (
-            <p className="guide-help guide-bad">
-              Email isn’t set up on this server yet, so this channel can’t be
-              saved. Pick another channel for now.
-            </p>
+          {step.final && blockedNote ? (
+            <p className="guide-help guide-bad">{blockedNote}</p>
           ) : null}
           <Failure error={error} />
           {error && step.final ? (
@@ -2149,7 +2374,7 @@ export function ChannelGuide({
             <Button
               type="button"
               variant="ghost"
-              disabled={index === 0 || busy}
+              disabled={(index === 0 && !quick) || busy}
               onClick={() => go(index - 1)}
             >
               <ArrowLeft /> Back
@@ -2158,6 +2383,8 @@ export function ChannelGuide({
               {step.final ? (
                 working ? (
                   "Sending test…"
+                ) : kind === "push" ? (
+                  "Allow notifications and test"
                 ) : (
                   "Send test and save"
                 )

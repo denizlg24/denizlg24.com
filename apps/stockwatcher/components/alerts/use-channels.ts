@@ -7,6 +7,8 @@ import { api } from "../shared";
 const empty: ChannelsResponse = {
   channels: [],
   email: { ready: false, address: null },
+  connect: { telegram: false, discord: false, slack: false },
+  push: { publicKey: null },
   demo: false,
 };
 

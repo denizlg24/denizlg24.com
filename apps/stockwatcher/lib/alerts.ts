@@ -21,6 +21,7 @@ export const channelLabels: Record<ChannelKind, string> = {
   discord: "Discord",
   slack: "Slack",
   ntfy: "Phone push (ntfy)",
+  push: "Browser push",
   webhook: "Webhook",
 };
 
