@@ -425,6 +425,18 @@ function mfaEnrollmentRequiredError() {
   );
 }
 
+/** Every header a browser client sends cross-origin; a missing one fails the preflight. */
+export const apiCorsHeaders = [
+  "Content-Type",
+  "Authorization",
+  "X-API-Key",
+  "Tus-Resumable",
+  "Upload-Length",
+  "Upload-Metadata",
+  "Upload-Offset",
+  TURNSTILE_HEADER,
+] as const;
+
 export function createCloudApiApp(options: CloudApiOptions) {
   const app = new Hono<{ Variables: AuthVariables }>();
   const resolveOAuthBearer = options.oauth
@@ -483,15 +495,7 @@ export function createCloudApiApp(options: CloudApiOptions) {
   app.use(
     "/api/*",
     cors({
-      allowHeaders: [
-        "Content-Type",
-        "Authorization",
-        "X-API-Key",
-        "Tus-Resumable",
-        "Upload-Length",
-        "Upload-Metadata",
-        "Upload-Offset",
-      ],
+      allowHeaders: [...apiCorsHeaders],
       allowMethods: [
         "GET",
         "HEAD",
