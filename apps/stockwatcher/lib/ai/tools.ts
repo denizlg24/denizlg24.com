@@ -43,6 +43,7 @@ import { insiderTools } from "./insider-tools";
 import { marketTools } from "./market-tools";
 import { optionsTools } from "./options-tools";
 import { riskTools } from "./risk-tools";
+import { routineTools } from "./routine-tools";
 import { attempt, ticker } from "./shared";
 import { signalTools } from "./signal-tools";
 import { workspaceTools } from "./workspace-tools";
@@ -535,6 +536,7 @@ export function createTools(ctx: { user: Identity; origin: string }) {
     ...filingTools(),
     ...documentTools({ user }),
     ...signalTools({ user }),
+    ...routineTools({ user }),
     ...optionsTools(),
     // Results stay in context for every later step of the turn; 8 × 1024
     // averaged 17k characters a call.

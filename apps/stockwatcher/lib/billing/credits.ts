@@ -173,7 +173,7 @@ export type Usage = {
   threadId?: string | null;
   messageId?: string | null;
   model?: string | null;
-  source: "chat" | "brief" | "supply-chain";
+  source: "chat" | "brief" | "supply-chain" | "routine";
   unresolved?: number;
   unresolvedIds?: string[];
 };

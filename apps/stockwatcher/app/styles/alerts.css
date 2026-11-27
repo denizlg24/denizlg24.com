@@ -60,6 +60,9 @@
     "meta meta"
     "code code";
 }
+.alert-row.routine-row {
+  --actions: 112px;
+}
 .alert-rows li.alert-row:hover {
   background: color-mix(in srgb, var(--muted) 45%, transparent);
 }
@@ -256,6 +259,11 @@
   font-size: var(--fs-xs);
   line-height: 1.5;
   white-space: pre;
+}
+.routine-prompt {
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
 }
 
 .alert-group-title {

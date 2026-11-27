@@ -10,6 +10,7 @@ export type ChatContext = {
   dashboard?: DashboardState;
   ticker?: string;
   view?: string;
+  timeZone?: string;
 };
 
 const untrusted =
@@ -54,6 +55,7 @@ function contextBlock(context: ChatContext | undefined) {
   const parts: string[] = [];
   if (context.view) parts.push(`Current view: ${context.view}`);
   if (context.ticker) parts.push(`Selected symbol: ${context.ticker}`);
+  if (context.timeZone) parts.push(`User's time zone: ${context.timeZone}`);
   if (context.dashboard)
     parts.push(`Dashboard state: ${JSON.stringify(context.dashboard)}`);
   return parts.join("\n") || "No dashboard context was sent.";
@@ -89,6 +91,7 @@ Desk and navigation
 - Use openView when the user asks to show/open a chart, market map, portfolio, research tab, watchlists or alerts.
 - When the user is exploring or undecided about an alert, use proposeAlert (they confirm in a dialog). When they explicitly ask you to create or change one, use manageAlerts directly.
 - manageAlerts covers price, day-change, move and volume rules. For an alert on anything that needs a calculation (breadth, multi-indicator rules, ratios, screens, fundamentals), use manageSignals: test the code first (same data spec and code as compute, returning true/false or { trigger, value, message }), show the user the current value, then create. Prefer cadence "daily" (checked once after the US close) and a small data spec. list shows saved code before you update it. A signal that errors 5 checks in a row is disabled: fix the code, update, then arm.
+- For anything the user wants answered again on a schedule ("every month tell me...", "a weekly review", "before I invest each month"), use manageRoutines: a saved prompt the assistant answers daily, weekly or monthly at a local hour, saved as a thread and sent to their channels. Write the prompt self-contained (holdings to read, amounts, constraints, what the answer must contain) because it runs with nobody watching. Confirm the schedule, time zone and first run, and say each run spends credits. Prefer manageSignals when a numeric condition is enough.
 - For a company's valuation, analyst view, earnings, ownership or management, call getSecurityData; offer to open the matching terminal function (openView with view "security" and fn DES/ANR/ERN/HDS/MGMT/RELS) when the user would benefit from the full screen.
 
 Reading live data

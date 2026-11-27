@@ -1,5 +1,5 @@
 import { describeRule, reading } from "../alerts";
-import type { AlertRule, Quote, Signal } from "../models";
+import type { AlertRule, Quote, Routine, Signal } from "../models";
 import type { Detail, Message, Tone, Trigger } from "./types";
 
 export const appUrl = (hash = "") =>
@@ -293,6 +293,75 @@ export function signalMessage(
       ]
         .filter(Boolean)
         .join("\n") || null,
+  };
+}
+
+const routineBodyLimit = 1_800;
+
+/** The headline of a markdown reply: its first line of prose, without markup. */
+export function replyHeadline(reply: string) {
+  const line =
+    reply
+      .split("\n")
+      .map((text) =>
+        text
+          .replace(/^\s*(#{1,6}\s+|[-*+]\s+|\d+\.\s+|>\s*)/, "")
+          .replace(/[*_`]/g, "")
+          .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+          .trim(),
+      )
+      .find((text) => text.length > 0 && !/^\|?[-:| ]+\|?$/.test(text)) ?? "";
+  return line.length > 240 ? `${line.slice(0, 239)}…` : line;
+}
+
+export function routineMessage(
+  routine: Routine,
+  outcome:
+    | { ok: true; reply: string; threadId: string; credits: number | null }
+    | { ok: false; error: string },
+  time: string,
+  schedule: string,
+): Message {
+  if (!outcome.ok)
+    return {
+      kicker: "Routine failed",
+      title: `${routine.name} · did not run`,
+      summary: `The routine “${routine.name}” could not run: ${outcome.error}`,
+      tone: "info",
+      time,
+      url: appUrl("#alerts"),
+      action: "Open alerts",
+      triggers: [],
+      details: [{ label: "Schedule", value: schedule }],
+      body: "It will try again at its next scheduled time.",
+      reason:
+        "You saved this routine in Stockwatcher and chose to send it here.",
+      manageUrl: appUrl("#alerts"),
+    };
+  const clipped =
+    outcome.reply.length > routineBodyLimit
+      ? `${outcome.reply.slice(0, routineBodyLimit - 1).trimEnd()}…\n\nThe full answer is in the thread.`
+      : outcome.reply;
+  return {
+    kicker: "Routine",
+    title: routine.name,
+    summary:
+      replyHeadline(outcome.reply) ||
+      `The routine “${routine.name}” ran and saved its answer as a thread.`,
+    tone: "info",
+    time,
+    url: appUrl(`?thread=${encodeURIComponent(outcome.threadId)}`),
+    action: "Open the full answer",
+    triggers: [],
+    details: [
+      { label: "Schedule", value: schedule },
+      ...(outcome.credits != null
+        ? [{ label: "Credits used", value: outcome.credits.toFixed(1) }]
+        : []),
+    ],
+    body: clipped,
+    reason: "You saved this routine in Stockwatcher and chose to send it here.",
+    manageUrl: appUrl("#alerts"),
   };
 }
 

@@ -163,6 +163,7 @@ const toolNames: Record<ToolPart["type"], string> = {
   "tool-manageWatchlists": "Watchlists",
   "tool-manageAlerts": "Alerts",
   "tool-manageSignals": "Signals",
+  "tool-manageRoutines": "Routines",
   "tool-manageNotes": "Notes",
   "tool-managePortfolios": "Portfolios",
   "tool-manageDrawings": "Drawings",
@@ -287,6 +288,10 @@ export function runningLabel(part: ToolPart): string {
       return part.input?.action === "test"
         ? "Testing signal"
         : "Updating signals";
+    case "tool-manageRoutines":
+      return part.input?.name
+        ? `Saving routine “${part.input.name}”`
+        : "Updating routines";
     case "tool-manageNotes":
       return part.input?.title
         ? `Saving note “${part.input.title}”`
@@ -532,6 +537,7 @@ function ToolOutput({ part }: { part: DonePart }) {
     case "tool-manageWatchlists":
     case "tool-manageAlerts":
     case "tool-manageSignals":
+    case "tool-manageRoutines":
     case "tool-manageNotes":
     case "tool-managePortfolios":
     case "tool-manageDrawings":

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { executeCompute } from "../ai/compute-tools";
 import { monitorAlerts } from "../alert-monitor";
 import { syncDueLinks } from "../brokers/sync";
+import { monitorRoutines } from "../routine-runner";
 import { purgeExpiredRuns } from "../run-retention";
 import {
   claimNext,
@@ -43,6 +44,12 @@ const schedules: Schedule[] = [
     everyMs: 120_000,
     enabled: () => process.env.ALERT_MONITOR === "1",
     run: monitorAlerts,
+  },
+  {
+    name: "routines",
+    everyMs: 5 * 60_000,
+    enabled: () => process.env.ALERT_MONITOR === "1",
+    run: () => monitorRoutines(),
   },
   {
     name: "broker-sync",

@@ -76,6 +76,23 @@ its history (`git subtree`). Product truth is `PRODUCT.md`, the visual system
   prompt: $0.134 written, $0.009 read). Brief and filing extraction are
   one-shot and stay uncached on purpose. Plan:
   `docs/internal/plans/035-stockwatcher-multi-user.md`.
+- **Routines are scheduled chat turns.** `workspace.routines` holds a prompt
+  and a daily/weekly/monthly local-hour schedule (`lib/routines.ts`, IANA
+  zone, monthly days capped at 28). `lib/routine-runner.ts` runs them every
+  five minutes wherever `ALERT_MONITOR=1` runs (worker schedule `routines`,
+  or in-process without a worker), one per user per tick, three per tick.
+  A run is claimed by writing `lastRun` through the workspace revision before
+  the model is called, so two containers or a redeploy never answer one slot
+  twice; a slot missed by downtime runs once, slots missed while paused are
+  skipped (`resumedAt`). The turn is chat's: the same instructions plus a
+  "nobody is watching" system block, the same per-step credit budget, metered
+  as `source: "routine"`, minus the tools that drive the UI or wait for an
+  answer. The answer is saved as a thread and delivered like a signal, with
+  a `/?thread=<id>` link the dashboard opens in the assistant. Routine runs
+  are not in the admin chat-runs log: `recordRun` lives in `lib/admin`, which
+  the worker bundle must not import. `bun --env-file=.env.local
+  scripts/routines-e2e.ts` runs one for a throwaway user against the real
+  gateway (a few cents).
 - **Per-user gateway keys are a backstop, not the meter.** With
   `VERCEL_API_TOKEN` and `AI_GATEWAY_TEAM_ID`, the Polar webhook creates a
   user's own AI Gateway key on their first purchase (name is a hash of the
