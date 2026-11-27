@@ -80,6 +80,7 @@ import {
   creditsKey,
   formatCredits,
   isOutOfCredits,
+  outOfCreditsMessage,
   useCredits,
 } from "./credits";
 import { errorMessage } from "./format";
@@ -735,8 +736,8 @@ export function AssistantPanel({
                         {error && isOutOfCredits(error) ? (
                           <div className="chat-error" role="alert">
                             <span>
-                              You are out of credits. Free credits reset on the
-                              1st of the month.
+                              {outOfCreditsMessage(error)} Free credits reset on
+                              the 1st of the month.
                             </span>
                             <Button variant="ghost" size="xs" asChild>
                               <a href="/account">Buy credits</a>
@@ -1006,6 +1007,16 @@ function Answer({
         })}
       </MessageContent>
       <SourceList sources={sources} />
+      {message.metadata?.stopped === "credits" ? (
+        <div className="chat-error" role="status">
+          <span>
+            Stopped here: this turn used the credits left on your account.
+          </span>
+          <Button variant="ghost" size="xs" asChild>
+            <a href="/account">Buy credits</a>
+          </Button>
+        </div>
+      ) : null}
       {done && text ? (
         <MessageActions className="chat-answer-actions">
           {message.metadata?.credits !== undefined ? (

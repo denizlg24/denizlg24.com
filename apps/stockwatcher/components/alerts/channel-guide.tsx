@@ -117,8 +117,8 @@ const permissionText = "I allow callmebot to send me messages";
 const sender = "alerts@auth.denizlg24.com";
 
 const sample = {
-  title: "AAPL · Price ≥ 250",
-  body: "Apple Inc. is at 251.30 USD (+2.10% today). Your alert at 250.00 was reached.",
+  title: "AAPL 251.40 USD · Price ≥ 250",
+  body: "Apple Inc.: 251.40 USD, +1.26% today. Price rose to 250.00 USD or above (0.56% above 250.00).",
 };
 
 type FieldName =
@@ -562,7 +562,7 @@ function SpamShot() {
             <div className="cg-mail-row cg-unread shot-hl shot-rel">
               <b>Stockwatcher</b>
               <span className="cg-mail-subject">
-                <b>Stockwatcher test alert</b>
+                <b>Stockwatcher test: Email is connected</b>
               </span>
               <time>9:41</time>
               <Mark n={2} className="cg-mark-in" />
@@ -1134,11 +1134,21 @@ function SubscribeShot({ topic }: { topic: string }) {
 const examplePayload = `{
   "event": "stockwatcher.alert",
   "sentAt": "2026-11-24T14:41:07.000Z",
-  "title": "AAPL · Price ≥ 250",
-  "body": "Apple Inc. is at 251.30 USD (+2.10% today).",
-  "url": "https://…/#alerts",
+  "title": "AAPL 251.40 USD · Price ≥ 250",
+  "body": "Apple Inc. is at 251.40 USD, +1.26% today. …",
+  "url": "https://…/#security?ticker=AAPL&fn=GP",
   "tone": "up",
-  "data": { "Symbol": "AAPL", "Price": "251.30 USD" }
+  "data": { "Symbol": "AAPL", "Last": "251.40 USD", … },
+  "kicker": "Price alert",
+  "time": "2026-11-24T14:41:05.000Z",
+  "triggers": [{
+    "symbol": "AAPL", "name": "Apple Inc.", "currency": "USD",
+    "price": 251.4, "rule": "Price ≥ 250",
+    "day": { "change": 3.12, "percent": 1.26, "previous": 248.28 },
+    "quotedAt": "2026-11-24T14:40:00.000Z", …
+  }],
+  "details": [],
+  "text": null
 }`;
 
 function WebhookPreview() {
@@ -1147,8 +1157,9 @@ function WebhookPreview() {
       caption={
         <>
           Example request. <code>tone</code> is <code>up</code>,{" "}
-          <code>down</code> or <code>info</code>; <code>data</code> varies by
-          alert.
+          <code>down</code> or <code>info</code>. <code>triggers</code> lists
+          every alert that fired in the same check, with its figures as numbers;{" "}
+          <code>data</code> repeats one alert’s figures as text.
         </>
       }
     >

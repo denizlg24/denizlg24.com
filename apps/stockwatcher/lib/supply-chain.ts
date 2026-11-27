@@ -1,6 +1,6 @@
 import "server-only";
 import { generateText, Output } from "ai";
-import { addScopedStep } from "@/lib/billing/scope";
+import { addScopedStep, guardScopedSpend } from "@/lib/billing/scope";
 import { briefModel } from "./ai/config";
 import { readExtract, writeExtract } from "./db";
 import { archive, sec, submission } from "./research";
@@ -201,6 +201,7 @@ export async function ownDisclosure(
   const context = excerpts(text, ownPatterns);
   let links: Link[] = [];
   if (context) {
+    await guardScopedSpend(context);
     const { output } = await generateText({
       onStepEnd: addScopedStep,
       model: briefModel(),
@@ -341,6 +342,7 @@ export async function verify(ticker: string, cik: string): Promise<Verified> {
   const context = excerpts(text, [new RegExp(escaped, "i")], 600, 9_000);
   let link: Link | null = null;
   if (context) {
+    await guardScopedSpend(context);
     const { output } = await generateText({
       onStepEnd: addScopedStep,
       model: briefModel(),

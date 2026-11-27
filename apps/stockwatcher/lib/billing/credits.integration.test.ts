@@ -134,6 +134,39 @@ describe.skipIf(!url)("credits ledger", () => {
     expect((await credits.balance(someone.id)).held).toBe(0);
   });
 
+  test("a hold grows only as far as the account can cover", async () => {
+    const someone = user();
+    await credits.adjustPaid({
+      userId: someone.id,
+      amountMc: 19_000,
+      kind: "purchase",
+      ref: `polar:order:${randomUUID()}`,
+      meta: {},
+    });
+    const other = await credits.reserve(someone, 4_000);
+    const hold = await credits.reserve(someone, 5_000, 5_000);
+    if (!hold.ok || !hold.holdId || !other.ok)
+      throw new Error("both should pass");
+    expect(hold.amountMc).toBe(5_000);
+    expect(await credits.extendHold(someone.id, hold.holdId, 12_000)).toBe(
+      12_000,
+    );
+    expect(await credits.extendHold(someone.id, hold.holdId, 50_000)).toBe(
+      16_000,
+    );
+    expect(await credits.extendHold(someone.id, hold.holdId, 1_000)).toBe(
+      16_000,
+    );
+    expect((await credits.balance(someone.id)).held).toBe(20);
+  });
+
+  test("a reply larger than the balance is refused up front", async () => {
+    const someone = user();
+    const result = await credits.reserve(someone, 30_000, 25_000);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.requiredCredits).toBe(25);
+  });
+
   test("a signed order.paid grants its credits once", async () => {
     process.env.POLAR_WEBHOOK_SECRET = secret;
     const someone = user();
@@ -263,7 +296,12 @@ describe.skipIf(!url)("credits ledger", () => {
   test("preview sessions bypass billing", async () => {
     const preview = { id: `demo|${randomUUID()}`, demo: true };
     const hold = await credits.reserve(preview);
-    expect(hold).toEqual({ ok: true, holdId: null, metered: false });
+    expect(hold).toEqual({
+      ok: true,
+      holdId: null,
+      metered: false,
+      amountMc: 0,
+    });
   });
 
   test("gateway cost sums string costs and counts missing steps", () => {

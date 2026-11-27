@@ -1,17 +1,23 @@
 import "server-only";
 import { createHmac } from "node:crypto";
 import webpush from "web-push";
+import { appUrl } from "./compose";
 import type { ChannelConfig } from "./config";
 import { publicPost } from "./public-post";
+import {
+  discordPayload,
+  emailHtml,
+  emailText,
+  pushPayload,
+  shortText,
+  slackPayload,
+  telegramHtml,
+  webhookPayload,
+  whatsappText,
+} from "./render";
+import type { Message } from "./types";
 
-export type Message = {
-  title: string;
-  body: string;
-  /** Deep link into Stockwatcher. */
-  url: string;
-  tone: "up" | "down" | "info";
-  data?: Record<string, string | number | null>;
-};
+export type { Message } from "./types";
 
 export const emailReady = () => Boolean(process.env.RESEND_API_KEY);
 
@@ -42,45 +48,7 @@ async function failure(response: Response, service: string) {
   );
 }
 
-const escape = (text: string) =>
-  text.replace(
-    /[&<>"']/g,
-    (char) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-        char
-      ]!,
-  );
-
-function emailHtml(message: Message) {
-  const accent =
-    message.tone === "up"
-      ? "#16794c"
-      : message.tone === "down"
-        ? "#b3261e"
-        : "#1f4e8c";
-  const rows = Object.entries(message.data ?? {})
-    .filter(([, value]) => value !== null && value !== "")
-    .map(
-      ([key, value]) =>
-        `<tr><td style="padding:6px 0;color:#6b6b6b">${escape(key)}</td><td style="padding:6px 0;text-align:right;font-weight:600">${escape(String(value))}</td></tr>`,
-    )
-    .join("");
-  return `<!doctype html><html><body style="margin:0;background:#f4f3ef;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1a1a1a">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:24px 12px"><tr><td align="center">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fff;border:1px solid #e2e0d8;border-radius:6px">
-<tr><td style="height:4px;background:${accent};border-radius:6px 6px 0 0"></td></tr>
-<tr><td style="padding:20px 24px 4px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#6b6b6b">Stockwatcher alert</td></tr>
-<tr><td style="padding:0 24px 8px;font-size:22px;font-weight:650">${escape(message.title)}</td></tr>
-<tr><td style="padding:0 24px 12px;font-size:15px;line-height:1.5;white-space:pre-line">${escape(message.body)}</td></tr>
-${rows ? `<tr><td style="padding:0 24px 8px"><table role="presentation" width="100%" style="font-size:14px;border-top:1px solid #eceae3">${rows}</table></td></tr>` : ""}
-<tr><td style="padding:12px 24px 24px"><a href="${escape(message.url)}" style="display:inline-block;padding:10px 16px;background:#1a1a1a;color:#fff;text-decoration:none;border-radius:4px;font-weight:600;font-size:14px">Open in Stockwatcher</a></td></tr>
-</table>
-<p style="font-size:12px;color:#8a8a8a">You set this alert in Stockwatcher. Manage notifications under Alerts.</p>
-</td></tr></table></body></html>`;
-}
-
 export async function deliver(config: ChannelConfig, message: Message) {
-  const text = `${message.title}\n${message.body}\n${message.url}`;
   switch (config.kind) {
     case "email": {
       const key = process.env.RESEND_API_KEY;
@@ -96,8 +64,8 @@ export async function deliver(config: ChannelConfig, message: Message) {
           from: emailFrom(),
           to: [config.address],
           subject: message.title,
-          text,
-          html: emailHtml(message),
+          text: emailText(message),
+          html: emailHtml(message, appUrl("apple-icon.png")),
         }),
       });
       if (!response.ok) throw await failure(response, "Resend");
@@ -106,7 +74,7 @@ export async function deliver(config: ChannelConfig, message: Message) {
     case "whatsapp": {
       const query = new URLSearchParams({
         phone: config.phone,
-        text: `*${message.title}*\n${message.body}\n${message.url}`,
+        text: whatsappText(message),
         apikey: config.apikey,
       });
       const response = await fetch(
@@ -131,7 +99,8 @@ export async function deliver(config: ChannelConfig, message: Message) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             chat_id: config.chatId,
-            text,
+            text: telegramHtml(message),
+            parse_mode: "HTML",
             link_preview_options: { is_disabled: true },
           }),
         },
@@ -152,31 +121,7 @@ export async function deliver(config: ChannelConfig, message: Message) {
         signal: timeout(),
         redirect: "error",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: "Stockwatcher",
-          embeds: [
-            {
-              title: message.title,
-              description: message.body,
-              url: message.url,
-              color:
-                message.tone === "up"
-                  ? 0x16794c
-                  : message.tone === "down"
-                    ? 0xb3261e
-                    : 0x1f4e8c,
-              fields: Object.entries(message.data ?? {})
-                .filter(([, value]) => value !== null && value !== "")
-                .slice(0, 8)
-                .map(([name, value]) => ({
-                  name,
-                  value: String(value),
-                  inline: true,
-                })),
-              timestamp: new Date().toISOString(),
-            },
-          ],
-        }),
+        body: JSON.stringify(discordPayload(message)),
       });
       if (!response.ok) throw await failure(response, "Discord");
       return;
@@ -187,9 +132,7 @@ export async function deliver(config: ChannelConfig, message: Message) {
         signal: timeout(),
         redirect: "error",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: `*${message.title}*\n${message.body}\n<${message.url}|Open in Stockwatcher>`,
-        }),
+        body: JSON.stringify(slackPayload(message)),
       });
       if (!response.ok) throw await failure(response, "Slack");
       return;
@@ -206,8 +149,16 @@ export async function deliver(config: ChannelConfig, message: Message) {
         JSON.stringify({
           topic: config.topic,
           title: message.title,
-          message: message.body,
+          message: shortText(message),
           click: message.url,
+          actions: [
+            {
+              action: "view",
+              label: message.action,
+              url: message.url,
+              clear: true,
+            },
+          ],
           priority: message.tone === "info" ? 3 : 4,
           tags: [
             message.tone === "up"
@@ -231,12 +182,7 @@ export async function deliver(config: ChannelConfig, message: Message) {
             endpoint: config.endpoint,
             keys: { p256dh: config.p256dh, auth: config.auth },
           },
-          JSON.stringify({
-            title: message.title,
-            body: message.body,
-            url: message.url,
-            tone: message.tone,
-          }),
+          JSON.stringify(pushPayload(message)),
           {
             vapidDetails: vapid,
             TTL: 3600,
@@ -256,11 +202,9 @@ export async function deliver(config: ChannelConfig, message: Message) {
       return;
     }
     case "webhook": {
-      const body = JSON.stringify({
-        event: "stockwatcher.alert",
-        sentAt: new Date().toISOString(),
-        ...message,
-      });
+      const body = JSON.stringify(
+        webhookPayload(message, new Date().toISOString()),
+      );
       const signature = createHmac("sha256", config.secret)
         .update(body)
         .digest("hex");

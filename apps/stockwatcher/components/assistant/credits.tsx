@@ -27,17 +27,28 @@ export function useCredits() {
   return data.balance.available;
 }
 
-export function isOutOfCredits(error: Error | undefined) {
-  if (!error) return false;
+const outOfCreditsBody = (error: Error | undefined) => {
+  if (!error) return null;
   try {
     const parsed: unknown = JSON.parse(error.message);
-    return (
-      typeof parsed === "object" &&
+    return typeof parsed === "object" &&
       parsed !== null &&
       "code" in parsed &&
       parsed.code === "out_of_credits"
-    );
+      ? parsed
+      : null;
   } catch {
-    return false;
+    return null;
   }
+};
+
+export const isOutOfCredits = (error: Error | undefined) =>
+  outOfCreditsBody(error) !== null;
+
+/** The server's explanation, which says how much a reply needs when credits are low rather than gone. */
+export function outOfCreditsMessage(error: Error | undefined) {
+  const body = outOfCreditsBody(error);
+  return body && "error" in body && typeof body.error === "string"
+    ? body.error
+    : "You are out of credits.";
 }

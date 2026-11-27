@@ -65,3 +65,31 @@ xcodebuild -workspace ios/Hours.xcworkspace -scheme Hours -sdk iphonesimulator \
 An unsigned simulator build has no entitlements, so keychain and App Group
 calls fail there (expo-notifications logs `ERR_NOTIFICATIONS_KEYCHAIN_ACCESS`);
 `bun run ios` signs for the simulator and works.
+
+## Sign-in, widgets and pushes
+
+Design: `docs/internal/plans/028-native-hours-and-voice.md`; each app's
+`AGENTS.md` has the detail.
+
+- **Sign-in is one `native` client, "iPhone apps (Hours, Voice)"**, holding
+  `com.denizlg24.hours:/oauth/callback` and `com.denizlg24.voice:/oauth/callback`
+  — one slash: the provider only accepts a reverse-domain private-use scheme
+  with no authority. Web serves it at `/api/public/mobile-auth` from
+  `MOBILE_OAUTH_CLIENT_ID`. It was created on 2026-10-08 by copying the
+  desktop client's row (`auth_oauth_client` + its `auth_oauth_client_resource`
+  binding) with new redirects, the same hand-row route as the MCP resource.
+- **Hours' widgets and intents call the API from Swift.** The session lives in
+  the App Group keychain; the remember-me handle is what keeps the app and the
+  extension refreshing without spending each other's tokens.
+- **Web pushes the Hours Live Activity** (`lib/mobile-push.ts`) whenever a
+  shift changes, with the team APNs key (`APNS_KEY_ID`, `APNS_TEAM_ID`,
+  `APNS_PRIVATE_KEY` — Macros' key; an auth key is team-wide). Devices and
+  their ActivityKit tokens are `MobileDevice` in Mongo. The phone that made a
+  change sends `x-mobile-installation` and is skipped for push-to-start.
+  Content-state instants are Unix seconds: ActivityKit decodes a pushed JSON
+  date as seconds since 2001.
+- **Xcode refuses the App Store Connect key for automatic provisioning**
+  ("Authentication failed"); device builds sign through the Apple account
+  signed in to Xcode.
+- **Every new Expo app here needs `withSceneLifecycle`.** Without it the iOS 27
+  SDK kills the app at launch in `_UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption`.

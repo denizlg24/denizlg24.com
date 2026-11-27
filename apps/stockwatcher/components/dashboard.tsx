@@ -364,6 +364,10 @@ export function Dashboard({
     setSheet(false);
     if (!window.matchMedia(mobileQuery).matches) setDocked(false);
   }, [setDocked]);
+  const openFullAssistant = useCallback(() => {
+    if (!window.matchMedia(mobileQuery).matches) changeMode("full");
+    openAssistant();
+  }, [changeMode, openAssistant]);
   const toggleAssistant = useCallback(() => {
     if (assistantOpen) closeAssistant();
     else openAssistant();
@@ -560,6 +564,7 @@ export function Dashboard({
         badges={{ alerts: triggered }}
         go={go}
         close={() => setNavOpen(false)}
+        assistant={{ active: fullScreen, open: openFullAssistant }}
       />
       <main
         className="shell-main"

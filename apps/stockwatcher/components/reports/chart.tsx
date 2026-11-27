@@ -124,6 +124,22 @@ function extent(chart: Chart, rows: Row[]) {
 
 const estimateWidth = (text: string, px: number) => text.length * px * 0.58;
 
+const endLabelPad = 22;
+
+function endLabelRoom(name: string, value: string, font: number) {
+  return estimateWidth(`${name}  ${value}`, font) + endLabelPad;
+}
+
+/** Shortens the series name so `name  value` fits the gutter `endLabelRoom` measured; the legend carries the full name. */
+function fitEndLabel(name: string, value: string, room: number, font: number) {
+  const chars = Math.floor(
+    (room - endLabelPad - estimateWidth(`  ${value}`, font)) /
+      estimateWidth("x", font),
+  );
+  if (chars >= name.length) return name;
+  return chars >= 4 ? `${name.slice(0, chars - 1).trimEnd()}…` : "";
+}
+
 function lastPoint(rows: Row[], s: number) {
   for (let i = rows.length - 1; i >= 0; i--) {
     const value = rows[i].values[s];
@@ -132,14 +148,22 @@ function lastPoint(rows: Row[], s: number) {
   return null;
 }
 
+const endValue = (chart: Chart, value: number) =>
+  formatValue(value, chart.y, {
+    signed: chart.kind === "performance",
+    compact: true,
+  });
+
 function EndLabels({
   chart,
   rows,
   font,
+  room,
 }: {
   chart: Chart;
   rows: Row[];
   font: number;
+  room: number;
 }) {
   const xScale = useXAxisScale();
   const yScale = useYAxisScale();
@@ -153,16 +177,14 @@ function EndLabels({
       const x = xScale(end.key);
       const y = yScale(end.value);
       if (x == null || y == null) return null;
+      const value = endValue(chart, end.value);
       return {
         s,
         x,
         y,
         target: y,
-        name: series.name,
-        value: formatValue(end.value, chart.y, {
-          signed: chart.kind === "performance",
-          compact: true,
-        }),
+        name: fitEndLabel(series.name, value, room, font),
+        value,
       };
     })
     .filter((item) => item !== null)
@@ -205,8 +227,11 @@ function EndLabels({
             fontSize={font}
             fill="var(--foreground)"
           >
-            <tspan fontWeight={650}>{item.name}</tspan>
-            <tspan dx={6} fill="var(--muted-foreground)">
+            {item.name ? <tspan fontWeight={650}>{item.name}</tspan> : null}
+            <tspan
+              dx={item.name ? 6 : undefined}
+              fill="var(--muted-foreground)"
+            >
               {item.value}
             </tspan>
           </text>
@@ -418,10 +443,28 @@ function Plot({
     (rows.length > 7 || longest > 10 || (width < 420 && rows.length > 4));
   const signed = isBar && single && chart.y.format === "percent" && !stacked;
   const { min, max } = extent(chart, rows);
+  const categoryWidth = Math.min(
+    180,
+    Math.round(width * 0.4),
+    Math.ceil(Math.max(...categories.map((c) => estimateWidth(c, font)))) + 12,
+  );
+  const barValueRoom = Math.ceil(estimateWidth("+000.0%", font)) + 10;
+  const tickTarget = size === "slide" ? 6 : height < 240 ? 4 : 5;
   const valueTicks = niceTicks(
     min,
     max,
-    size === "slide" ? 6 : height < 240 ? 4 : 5,
+    horizontal
+      ? Math.max(
+          3,
+          Math.min(
+            tickTarget,
+            Math.floor(
+              (width - categoryWidth - (single ? barValueRoom : 12)) /
+                (font * 4),
+            ),
+          ),
+        )
+      : tickTarget,
   );
   const domain: [number, number] = [
     valueTicks[0],
@@ -440,10 +483,11 @@ function Plot({
         Math.max(
           ...chart.series.map((series, s) => {
             const end = lastPoint(rows, s);
-            const value = end
-              ? formatValue(end.value, chart.y, { signed: true, compact: true })
-              : "";
-            return estimateWidth(`${series.name}  ${value}`, font) + 22;
+            return endLabelRoom(
+              series.name,
+              end ? endValue(chart, end.value) : "",
+              font,
+            );
           }),
         ),
       )
@@ -553,10 +597,7 @@ function Plot({
 
   const margin = {
     top: isBar && !horizontal && single ? font + 10 : 8,
-    right:
-      horizontal && single
-        ? Math.ceil(estimateWidth("+000.0%", font)) + 10
-        : labelRoom,
+    right: horizontal && single ? barValueRoom : labelRoom,
     bottom: 0,
     left: 0,
   };
@@ -630,11 +671,6 @@ function Plot({
           (single ? 0.62 : 0.8)) /
           (stacked ? 1 : chart.series.length),
       ),
-    );
-    const categoryWidth = Math.min(
-      180,
-      Math.ceil(Math.max(...categories.map((c) => estimateWidth(c, font)))) +
-        12,
     );
     return (
       <ComposedChart
@@ -781,7 +817,9 @@ function Plot({
           />
         ),
       )}
-      {endLabels ? <EndLabels chart={chart} rows={rows} font={font} /> : null}
+      {endLabels ? (
+        <EndLabels chart={chart} rows={rows} font={font} room={labelRoom} />
+      ) : null}
     </ComposedChart>
   );
 }
@@ -843,8 +881,15 @@ export function ChartView({
   const rows = buildRows(chart);
   const subtitle = autoSubtitle(chart);
   const legend = chart.series.length > 1;
+  const narrow = box.width > 0 && box.width < 420;
   const fixedHeight =
-    size === "inline" ? 220 : box.width && box.width < 520 ? 260 : 320;
+    size === "inline"
+      ? chart.kind === "bar" && narrow
+        ? Math.max(220, rows.length * 26 + 36)
+        : 220
+      : box.width && box.width < 520
+        ? 260
+        : 320;
   return (
     <figure className="rchart" data-size={fills(size) ? "slide" : size}>
       <figcaption className="rchart-head">

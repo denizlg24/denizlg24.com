@@ -32,3 +32,6 @@ this session's turns, New conversation and Sign out.
 - A reply that lands while the app is in the background is also posted as a
   passive notification; the last exchange feeds the widgets via the App Group.
 - Session in SecureStore — nothing outside the app calls the API.
+
+Sign-in, the shared native client and the iOS 27 scene life cycle are covered
+in `apps/hours-mobile/AGENTS.md` ("Sign-in, widgets and pushes").

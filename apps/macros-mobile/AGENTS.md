@@ -539,3 +539,70 @@ changes: it posts weight, body fat, steps and active energy to
 `/api/health-sync` (the Shortcuts import, under the session) and writes one
 sample per nutrient per day back, keyed by an HK sync identifier so a higher
 version replaces the day's previous total.
+
+## Builds, releases and platforms
+
+- **One workflow, builds ungated, releases behind approval.**
+  `macros-mobile.yml` builds an unsigned iOS IPA and a debug-signed Android
+  APK on PRs and manual dispatch with no secret in reach. A version bump on
+  `main` starts release jobs in the `macros-release` environment
+  (owner approval), which holds every signing secret as an *environment*
+  secret — a repository secret would be readable by the ungated builds.
+- **SideStore publishing is gone.** No job publishes `macros-ios-v*` or
+  rewrites `source.json` any more; `macros.denizlg24.com/ios/source.json`
+  still proxies the last file on the rolling `macros-ios-source` release, so
+  existing SideStore installs see no update past it.
+- **iOS entitlements ship in every build.** HealthKit, APNs, and the App Group
+  for widgets are compiled in. The unsigned validation build checks them
+  against the allowlist with `scripts/ios-entitlements.ts --unsigned`.
+  `release-ios` creates App Store profiles for both targets, signs the archive,
+  and uploads it to App Store Connect. Local device builds need the paid Apple
+  team. The App Store Connect key lives only in `macros-release`; a missing
+  signing secret exits green with a notice.
+- **Macros releases are never "latest".** The Envoy CLI's updater reads this
+  repository's releases.
+- **React is 19.2.7 here, Expo SDK 57 pins 19.2.3.** The root `overrides` win;
+  React Native 0.86's renderer has no React version check, so this runs, but
+  `expo install --check` / `expo-doctor` will flag it. Do not "fix" it by
+  downgrading the root override — every Next app shares it.
+- **The Expo auth client rewrites relative callback URLs into `macros://`
+  deep links.** Auth callbacks the app sends are absolute web URLs
+  (`/register/verified`, `/register/reset-password`). The server ignores the
+  verification callback anyway: every verification email lands on
+  `/register/verified`, which also renders Better Auth's `?error=` outcome.
+- **`bun run dev:macros:ios` talks to a local API.** It builds and runs the app
+  in the simulator (`expo run:ios`) against `http://<en0>:3000`, so run
+  `bun run dev:macros` beside it — whose `.env.macros` is the production DB.
+  Expo Go works only against `next dev` at all: `@better-auth/expo` trusts its
+  `exp://` origin only under `NODE_ENV=development`.
+- **The iOS project is generated, never committed** (`expo prebuild`; `ios/` is
+  gitignored). Native configuration belongs in `app.config.ts` and config
+  plugins, which live in `apps/macros-mobile/plugins/` as CommonJS — Expo
+  compiles `app.config.ts` but `require`s local plugins as plain JavaScript.
+  After changing either, `bun run prebuild` (it runs `--clean`).
+- **The iOS 27 SDK refuses to launch an app without the UIScene life cycle**,
+  and Expo 57's prebuild template (57.0.27) still starts React Native from the
+  app delegate. `plugins/with-scene-lifecycle.js` moves it onto Expo's own
+  `ExpoAppSceneDelegate` and adds `UIApplicationSceneManifest`. It throws at
+  prebuild if the template changes shape — that is the signal to delete it.
+  Without it the simulator build dies at launch and so does every IPA the
+  `latest-stable` Xcode on CI produces.
+
+Android (same app, sideloaded APK; details in `apps/macros-mobile/AGENTS.md`):
+
+- **Released on the same version bump.** `build-android` builds a
+  debug-signed APK; `release-android` re-signs that APK with `apksigner` and
+  publishes `macros-android-v<version>` (`--latest=false`) from `main`; `macros.denizlg24.com/android/Macros.apk`
+  streams the newest by version. Without the `MACROS_ANDROID_KEYSTORE`,
+  `_KEYSTORE_PASSWORD`, `_KEY_ALIAS`, `_KEY_PASSWORD` secrets it builds and
+  skips publishing. **Never rotate that keystore**: Android refuses an update
+  signed by another key, so every installed copy would need uninstalling.
+- **Android silently drops what iOS relies on.** A text-only
+  `Stack.Toolbar.Button` renders nothing (Save vanishes), iOS `PlatformColor`
+  names throw, `ActionSheetIOS` / `Alert.prompt` / `Link.Menu` do nothing,
+  and the community date picker opens a dialog on mount. The wrappers in
+  `src/ui` (`toolbarText`, `date-time-picker`, `stepper`, …) and the
+  `@color/macros_*` resources exist for this; the iOS code paths are left as
+  they were.
+- **No HealthKit, no FCM.** `capabilities` is false for both on Android;
+  Health Connect and FCM push are not built.

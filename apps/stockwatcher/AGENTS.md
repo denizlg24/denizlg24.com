@@ -59,7 +59,22 @@ its history (`git subtree`). Product truth is `PRODUCT.md`, the visual system
   (`providerMetadata.gateway.cost`, a decimal string per step) after. Every
   new model call must go through `reserve` + `meter`, or it is free. Spend
   below a request (a tool that calls `generateText`) is added with
-  `addScopedCost` inside `withCostScope`. Plan:
+  `addScopedStep` inside `withCostScope`, and must call `guardScopedSpend`
+  first. A chat turn is budgeted per step (`lib/billing/budget.ts`): the
+  first reservation must cover an estimate of the first step, and before
+  every further step (a `stopWhen` condition) and every scoped model call the
+  hold is grown to cover spend so far plus the next step projected from the
+  last; when the account cannot cover it the turn stops and the reply carries
+  `metadata.stopped = "credits"`. One 14-step turn spent 472 credits on a
+  5-credit hold before this existed (2026-11-27). Chat is prompt-cached:
+  `chatInstructions` returns a byte-stable rules block carrying an Anthropic
+  cache breakpoint, then a per-turn state block (time, view, workspace,
+  memories), and chat passes `gatewayOptions(userId, true)` so the gateway
+  moves a second breakpoint along the messages. Anything per-turn added to the
+  rules block (a timestamp, a count) silently turns every turn into a cache
+  write. A cached step costs about 7% of an uncached one (53k-token fixed
+  prompt: $0.134 written, $0.009 read). Brief and filing extraction are
+  one-shot and stay uncached on purpose. Plan:
   `docs/internal/plans/035-stockwatcher-multi-user.md`.
 - **Per-user gateway keys are a backstop, not the meter.** With
   `VERCEL_API_TOKEN` and `AI_GATEWAY_TEAM_ID`, the Polar webhook creates a

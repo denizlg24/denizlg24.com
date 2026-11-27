@@ -1141,39 +1141,41 @@ function Quotes({ quotes }: { quotes: Success<"getQuotes"> }) {
       title={quotes.length === 1 ? "Quote" : `Quotes · ${quotes.length}`}
       meta={time ? `As of ${stamp(time * 1000)}` : undefined}
     >
-      <table className="data-table chat-table">
-        <thead>
-          <tr>
-            <th>Symbol</th>
-            <th className="chat-col-name">Name</th>
-            <th className="num">Last</th>
-            <th className="num">Chg</th>
-            <th className="num chat-col-wide">52w range</th>
-          </tr>
-        </thead>
-        <tbody>
-          {quotes.map((quote) => (
-            <tr key={quote.symbol}>
-              <td>
-                <Sym symbol={quote.symbol} />
-              </td>
-              <td className="chat-col-name chat-truncate">{quote.name}</td>
-              <td className="num">
-                {amount(quote.price)}{" "}
-                <span className="chat-ccy">{quote.currency}</span>
-              </td>
-              <td className="num">
-                <Signed value={quote.percent} />
-              </td>
-              <td className="num chat-col-wide muted">
-                {quote.yearLow != null && quote.yearHigh != null
-                  ? `${amount(quote.yearLow)}–${amount(quote.yearHigh)}`
-                  : "—"}
-              </td>
+      <div className="chat-table-scroll">
+        <table className="data-table chat-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th className="chat-col-name">Name</th>
+              <th className="num">Last</th>
+              <th className="num">Chg</th>
+              <th className="num chat-col-wide">52w range</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {quotes.map((quote) => (
+              <tr key={quote.symbol}>
+                <td>
+                  <Sym symbol={quote.symbol} />
+                </td>
+                <td className="chat-col-name chat-truncate">{quote.name}</td>
+                <td className="num">
+                  {amount(quote.price)}{" "}
+                  <span className="chat-ccy">{quote.currency}</span>
+                </td>
+                <td className="num">
+                  <Signed value={quote.percent} />
+                </td>
+                <td className="num chat-col-wide muted">
+                  {quote.yearLow != null && quote.yearHigh != null
+                    ? `${amount(quote.yearLow)}–${amount(quote.yearHigh)}`
+                    : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </Block>
   );
 }
@@ -1322,37 +1324,39 @@ function Holdings({ data }: { data: Success<"getInstitutionalHoldings"> }) {
         </a>
       }
     >
-      <table className="data-table chat-table">
-        <thead>
-          <tr>
-            <th>Issuer</th>
-            <th className="num">Value</th>
-            <th className="num">Weight</th>
-            <th className="num chat-col-wide">Shares</th>
-          </tr>
-        </thead>
-        <tbody>
-          {shown.map((item) => (
-            <tr key={`${item.cusip}-${item.putCall ?? ""}`}>
-              <td className="chat-truncate">
-                {item.name}
-                {item.putCall ? (
-                  <span className="tag chat-inline-tag">{item.putCall}</span>
-                ) : null}
-              </td>
-              <td className="num">${compact(item.value)}</td>
-              <td className="num">
-                {item.weightPercent == null
-                  ? "—"
-                  : `${amount(item.weightPercent)}%`}
-              </td>
-              <td className="num chat-col-wide muted">
-                {compact(item.shares)}
-              </td>
+      <div className="chat-table-scroll">
+        <table className="data-table chat-table">
+          <thead>
+            <tr>
+              <th>Issuer</th>
+              <th className="num">Value</th>
+              <th className="num">Weight</th>
+              <th className="num chat-col-wide">Shares</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {shown.map((item) => (
+              <tr key={`${item.cusip}-${item.putCall ?? ""}`}>
+                <td className="chat-truncate">
+                  {item.name}
+                  {item.putCall ? (
+                    <span className="tag chat-inline-tag">{item.putCall}</span>
+                  ) : null}
+                </td>
+                <td className="num">${compact(item.value)}</td>
+                <td className="num">
+                  {item.weightPercent == null
+                    ? "—"
+                    : `${amount(item.weightPercent)}%`}
+                </td>
+                <td className="num chat-col-wide muted">
+                  {compact(item.shares)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <div className="chat-tool-foot">
         <span>
           {data.positionCount} positions · ${compact(data.totalValue)}{" "}
@@ -1377,37 +1381,39 @@ function Mentions({ items }: { items: Success<"getSocialMentions"> }) {
   const shown = all ? items : items.slice(0, 10);
   return (
     <Block title="WallStreetBets · 24h" meta="ApeWisdom">
-      <table className="data-table chat-table">
-        <thead>
-          <tr>
-            <th className="num">#</th>
-            <th>Symbol</th>
-            <th className="chat-col-name">Name</th>
-            <th className="num">Mentions</th>
-            <th className="num">vs prior</th>
-          </tr>
-        </thead>
-        <tbody>
-          {shown.map((item) => {
-            const delta = item.prior
-              ? ((item.count - item.prior) / item.prior) * 100
-              : null;
-            return (
-              <tr key={item.symbol}>
-                <td className="num muted">{item.rank}</td>
-                <td>
-                  <Sym symbol={item.symbol} />
-                </td>
-                <td className="chat-col-name chat-truncate">{item.name}</td>
-                <td className="num">{number(item.count)}</td>
-                <td className="num">
-                  <Signed value={delta} />
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <div className="chat-table-scroll">
+        <table className="data-table chat-table">
+          <thead>
+            <tr>
+              <th className="num">#</th>
+              <th>Symbol</th>
+              <th className="chat-col-name">Name</th>
+              <th className="num">Mentions</th>
+              <th className="num">vs prior</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((item) => {
+              const delta = item.prior
+                ? ((item.count - item.prior) / item.prior) * 100
+                : null;
+              return (
+                <tr key={item.symbol}>
+                  <td className="num muted">{item.rank}</td>
+                  <td>
+                    <Sym symbol={item.symbol} />
+                  </td>
+                  <td className="chat-col-name chat-truncate">{item.name}</td>
+                  <td className="num">{number(item.count)}</td>
+                  <td className="num">
+                    <Signed value={delta} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
       {items.length > shown.length ? (
         <button
           type="button"
@@ -1495,35 +1501,37 @@ function PortfolioHistory({ data }: { data: Success<"getPortfolioHistory"> }) {
         <Sparkline points={curve} label={`Book value in ${data.base}`} />
       </div>
       {rows.length ? (
-        <table className="data-table chat-table">
-          <thead>
-            <tr>
-              <th>Symbol</th>
-              <th className="num">
-                {data.focus ? `P&L ${data.focus.date}` : "Period P&L"}
-              </th>
-              <th className="num">{data.focus ? "Price" : "Contrib."}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.symbol}>
-                <td>
-                  <Sym symbol={row.symbol} />
-                  {row.stale ? (
-                    <span className="chat-quiet"> no trade</span>
-                  ) : null}
-                </td>
-                <td className={`num ${tone(row.change)}`}>
-                  {amount(row.change)}
-                </td>
-                <td className="num">
-                  <Signed value={row.sub} />
-                </td>
+        <div className="chat-table-scroll">
+          <table className="data-table chat-table">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th className="num">
+                  {data.focus ? `P&L ${data.focus.date}` : "Period P&L"}
+                </th>
+                <th className="num">{data.focus ? "Price" : "Contrib."}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.symbol}>
+                  <td>
+                    <Sym symbol={row.symbol} />
+                    {row.stale ? (
+                      <span className="chat-quiet"> no trade</span>
+                    ) : null}
+                  </td>
+                  <td className={`num ${tone(row.change)}`}>
+                    {amount(row.change)}
+                  </td>
+                  <td className="num">
+                    <Signed value={row.sub} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : null}
       {listed.length > 12 ? (
         <Button
@@ -1595,43 +1603,45 @@ function Portfolio({ data }: { data: Success<"getPortfolio"> }) {
           </div>
         </div>
       ) : null}
-      <table className="data-table chat-table">
-        <thead>
-          <tr>
-            <th>Symbol</th>
-            <th className="num">Price</th>
-            <th className="num">Value</th>
-            <th className="num">Day</th>
-            <th className="num chat-col-wide">Unrl</th>
-            <th className="num">Wt</th>
-          </tr>
-        </thead>
-        <tbody>
-          {shown.map((position) => (
-            <tr key={`${position.symbol}:${position.currency}`}>
-              <td>
-                <Sym symbol={position.symbol} />
-              </td>
-              <td className="num">{amount(position.price)}</td>
-              <td className="num">
-                {compact(position.marketValue)}{" "}
-                <span className="chat-ccy">{position.currency}</span>
-              </td>
-              <td className="num">
-                <Signed value={position.dayChangePercent} />
-              </td>
-              <td className="num chat-col-wide">
-                <Signed value={position.unrealizedPercent} />
-              </td>
-              <td className="num muted">
-                {position.weightInCurrencyPercent == null
-                  ? "—"
-                  : `${amount(position.weightInCurrencyPercent)}%`}
-              </td>
+      <div className="chat-table-scroll">
+        <table className="data-table chat-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th className="num">Price</th>
+              <th className="num">Value</th>
+              <th className="num">Day</th>
+              <th className="num chat-col-wide">Unrl</th>
+              <th className="num">Wt</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {shown.map((position) => (
+              <tr key={`${position.symbol}:${position.currency}`}>
+                <td>
+                  <Sym symbol={position.symbol} />
+                </td>
+                <td className="num">{amount(position.price)}</td>
+                <td className="num">
+                  {compact(position.marketValue)}{" "}
+                  <span className="chat-ccy">{position.currency}</span>
+                </td>
+                <td className="num">
+                  <Signed value={position.dayChangePercent} />
+                </td>
+                <td className="num chat-col-wide">
+                  <Signed value={position.unrealizedPercent} />
+                </td>
+                <td className="num muted">
+                  {position.weightInCurrencyPercent == null
+                    ? "—"
+                    : `${amount(position.weightInCurrencyPercent)}%`}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <div className="chat-tool-foot">
         <span>
           Weights within currency · net value converted at listed FX only
@@ -1860,46 +1870,48 @@ function OptionsSummary({ data }: { data: Success<"getOptions"> }) {
           </div>
         ) : null}
       </div>
-      <table className="data-table chat-table">
-        <thead>
-          <tr>
-            <th>Expiry</th>
-            <th className="num">ATM IV</th>
-            <th className="num">Move</th>
-            <th className="num chat-col-wide">25Δ skew</th>
-            <th className="num">P/C vol</th>
-            <th className="num chat-col-wide">P/C OI</th>
-            <th className="num chat-col-wide">Pain</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.analyses.map((row) => (
-            <tr key={row.expiry}>
-              <td>{row.expiry}</td>
-              <td className="num">
-                {row.atmIvPercent == null
-                  ? "—"
-                  : `${amount(row.atmIvPercent)}%`}
-              </td>
-              <td className="num">
-                {row.impliedMovePercent == null
-                  ? "—"
-                  : `±${amount(row.impliedMovePercent)}%`}
-              </td>
-              <td className="num chat-col-wide">
-                {row.riskReversal25Points == null
-                  ? "—"
-                  : amount(row.riskReversal25Points)}
-              </td>
-              <td className="num">{amount(row.putCallRatioVolume)}</td>
-              <td className="num chat-col-wide">
-                {amount(row.putCallRatioOpenInterest)}
-              </td>
-              <td className="num chat-col-wide">{amount(row.maxPain)}</td>
+      <div className="chat-table-scroll">
+        <table className="data-table chat-table">
+          <thead>
+            <tr>
+              <th>Expiry</th>
+              <th className="num">ATM IV</th>
+              <th className="num">Move</th>
+              <th className="num chat-col-wide">25Δ skew</th>
+              <th className="num">P/C vol</th>
+              <th className="num chat-col-wide">P/C OI</th>
+              <th className="num chat-col-wide">Pain</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {data.analyses.map((row) => (
+              <tr key={row.expiry}>
+                <td>{row.expiry}</td>
+                <td className="num">
+                  {row.atmIvPercent == null
+                    ? "—"
+                    : `${amount(row.atmIvPercent)}%`}
+                </td>
+                <td className="num">
+                  {row.impliedMovePercent == null
+                    ? "—"
+                    : `±${amount(row.impliedMovePercent)}%`}
+                </td>
+                <td className="num chat-col-wide">
+                  {row.riskReversal25Points == null
+                    ? "—"
+                    : amount(row.riskReversal25Points)}
+                </td>
+                <td className="num">{amount(row.putCallRatioVolume)}</td>
+                <td className="num chat-col-wide">
+                  {amount(row.putCallRatioOpenInterest)}
+                </td>
+                <td className="num chat-col-wide">{amount(row.maxPain)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </Block>
   );
 }

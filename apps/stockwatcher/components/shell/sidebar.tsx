@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
-import { preferenceViews, type View, workspaceViews } from "./nav";
+import { type ReactNode, useEffect } from "react";
+import {
+  assistantNav,
+  preferenceViews,
+  type View,
+  workspaceViews,
+} from "./nav";
 
 type Item = (typeof workspaceViews)[number] | (typeof preferenceViews)[number];
 
@@ -11,12 +16,14 @@ function NavLinks({
   view,
   badges,
   go,
+  children,
 }: {
   label: string;
   items: readonly Item[];
   view: View;
   badges: Partial<Record<View, number>>;
   go: (view: View) => void;
+  children?: ReactNode;
 }) {
   return (
     <nav aria-label={label}>
@@ -44,7 +51,31 @@ function NavLinks({
           </a>
         );
       })}
+      {children}
     </nav>
+  );
+}
+
+function AssistantLink({
+  active,
+  open,
+}: {
+  active: boolean;
+  open: () => void;
+}) {
+  const { label, icon: Icon } = assistantNav;
+  return (
+    <button
+      type="button"
+      className={active ? "active" : undefined}
+      aria-expanded={active}
+      aria-controls="assistant-dock"
+      title={label}
+      onClick={open}
+    >
+      <Icon aria-hidden />
+      <span>{label}</span>
+    </button>
   );
 }
 
@@ -55,6 +86,7 @@ export function Sidebar({
   badges,
   go,
   close,
+  assistant,
 }: {
   inert?: boolean;
   view: View;
@@ -62,6 +94,7 @@ export function Sidebar({
   badges: Partial<Record<View, number>>;
   go: (view: View) => void;
   close: () => void;
+  assistant: { active: boolean; open: () => void };
 }) {
   useEffect(() => {
     if (!open) return;
@@ -92,7 +125,9 @@ export function Sidebar({
           view={view}
           badges={badges}
           go={go}
-        />
+        >
+          <AssistantLink active={assistant.active} open={assistant.open} />
+        </NavLinks>
         <NavLinks
           label="Preferences"
           items={preferenceViews}
