@@ -22,6 +22,8 @@ import { isQuickKind } from "./quick-connect";
 import { useChannels } from "./use-channels";
 import { type PushSupport, usePushSupport } from "./web-push";
 
+export type Usage = { alerts: number; signals: number; routines: number };
+
 const pushHint: Record<PushSupport, string | null> = {
   pending: null,
   ready: null,
@@ -40,7 +42,7 @@ function ChannelRow({
   changed,
 }: {
   channel: Channel;
-  usage: { alerts: number; signals: number };
+  usage: Usage;
   notify: (message: string, error?: boolean) => void;
   changed: () => void;
 }) {
@@ -60,7 +62,7 @@ function ChannelRow({
       changed();
     }
   }
-  const used = usage.alerts + usage.signals;
+  const used = usage.alerts + usage.signals + usage.routines;
   return (
     <li className="channel-row" data-status={channel.status}>
       <span className="channel-glyph" data-kind={channel.kind}>
@@ -91,6 +93,7 @@ function ChannelRow({
             ? [
                 usage.alerts ? plural(usage.alerts, "alert") : null,
                 usage.signals ? plural(usage.signals, "signal") : null,
+                usage.routines ? plural(usage.routines, "routine") : null,
               ]
                 .filter(Boolean)
                 .join(" · ")
@@ -140,7 +143,7 @@ export function ChannelsPanel({
   reload,
 }: {
   demo: boolean;
-  usage: Map<string, { alerts: number; signals: number }>;
+  usage: Map<string, Usage>;
   notify: (message: string, error?: boolean) => void;
   setup: (kind: ChannelKind) => void;
   reload: () => void;
@@ -171,7 +174,9 @@ export function ChannelsPanel({
             <ChannelRow
               key={item.id}
               channel={item}
-              usage={usage.get(item.id) ?? { alerts: 0, signals: 0 }}
+              usage={
+                usage.get(item.id) ?? { alerts: 0, signals: 0, routines: 0 }
+              }
               notify={notify}
               changed={changed}
             />

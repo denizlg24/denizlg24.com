@@ -17,6 +17,11 @@ export async function register() {
   setTimeout(purge, 60_000).unref();
   setInterval(purge, 6 * 60 * 60_000).unref();
   if (process.env.ALERT_MONITOR !== "1") return;
+  const { monitorRoutines } = await import("./lib/routine-runner");
+  const routines = () =>
+    void monitorRoutines().catch(() => console.error("Routine check failed"));
+  setTimeout(routines, 45_000).unref();
+  setInterval(routines, 5 * 60_000).unref();
   const { monitorAlerts } = await import("./lib/alert-monitor");
   const run = () =>
     void monitorAlerts().catch(() => console.error("Price alert check failed"));

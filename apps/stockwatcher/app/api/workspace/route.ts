@@ -123,6 +123,18 @@ export async function PUT(request: Request) {
         : { ...prior, enabled: false },
     ];
   });
+  // Routines too; resuming one skips the slots it missed while paused.
+  const resumedAt = new Date().toISOString();
+  data.routines = current.data.routines.flatMap((prior) => {
+    const sent = data.routines.find((item) => item.id === prior.id);
+    if (!sent) return [];
+    if (sent.enabled === prior.enabled) return [prior];
+    return [
+      sent.enabled
+        ? { ...prior, enabled: true, resumedAt }
+        : { ...prior, enabled: false },
+    ];
+  });
   data.alertLog = current.data.alertLog;
   const removed = current.data.signals
     .filter((prior) => !data.signals.some((item) => item.id === prior.id))

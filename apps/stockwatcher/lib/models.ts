@@ -284,6 +284,61 @@ export const signalRuntimeSchema = signalSchema.pick({
 });
 export type SignalRuntime = z.infer<typeof signalRuntimeSchema>;
 
+export const routineFrequencies = ["daily", "weekly", "monthly"] as const;
+export type RoutineFrequency = (typeof routineFrequencies)[number];
+export const maxRoutines = 10;
+export const routinePromptLimit = 4_000;
+
+/**
+ * When a routine runs, in its own time zone. `day` is the ISO weekday (1 =
+ * Monday) for weekly and the day of the month for monthly, capped at 28 so
+ * every month has it.
+ */
+export const routineScheduleSchema = z
+  .object({
+    frequency: z.enum(routineFrequencies),
+    day: z.int().min(1).max(28).default(1),
+    hour: z.int().min(0).max(23).default(9),
+    timeZone: z
+      .string()
+      .max(64)
+      .refine((zone) => {
+        try {
+          new Intl.DateTimeFormat("en-US", { timeZone: zone });
+          return true;
+        } catch {
+          return false;
+        }
+      }, "Unknown time zone")
+      .default("UTC"),
+  })
+  .refine(
+    (schedule) => schedule.frequency !== "weekly" || schedule.day <= 7,
+    "A weekly routine's day is 1 (Monday) to 7 (Sunday).",
+  );
+export type RoutineSchedule = z.infer<typeof routineScheduleSchema>;
+
+/** A saved prompt the assistant answers on a schedule, delivered like an alert. */
+export const routineSchema = z.object({
+  id,
+  name: title,
+  prompt: z.string().trim().min(1).max(routinePromptLimit),
+  schedule: routineScheduleSchema,
+  enabled: z.boolean(),
+  channels: z.array(z.uuid()).max(10).default([]),
+  createdAt: z.iso.datetime(),
+  /** Slots missed while paused are skipped, not caught up. */
+  resumedAt: z.iso.datetime().nullable().default(null),
+  /** Set when a run is claimed, before the model runs, so a slot never runs twice. */
+  lastRun: z.iso.datetime().nullable().default(null),
+  lastThreadId: z.string().max(64).nullable().default(null),
+  lastSummary: z.string().max(300).nullable().default(null),
+  lastError: z.string().max(300).nullable().default(null),
+  lastCredits: z.number().min(0).nullable().default(null),
+  runCount: z.int().min(0).default(0),
+});
+export type Routine = z.infer<typeof routineSchema>;
+
 export const workspaceSchema = z.object({
   watchlists: z
     .array(
@@ -328,6 +383,7 @@ export const workspaceSchema = z.object({
   alerts: z.array(alertSchema).max(60),
   alertLog: z.array(alertEventSchema).max(120).default([]),
   signals: z.array(signalSchema).max(maxSignals).default([]),
+  routines: z.array(routineSchema).max(maxRoutines).default([]),
   dashboard: dashboardSchema.optional(),
   desk: deskSchema.optional(),
   overlays: z

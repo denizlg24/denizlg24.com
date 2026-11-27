@@ -4,14 +4,21 @@ import { Check, CircleAlert, Plus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { describeRule } from "@/lib/alerts";
-import type { AlertEvent, AlertRule, ChannelKind, Signal } from "@/lib/models";
+import type {
+  AlertEvent,
+  AlertRule,
+  ChannelKind,
+  Routine,
+  Signal,
+} from "@/lib/models";
 import { cn } from "@/lib/utils";
 import { type AlertDraft, AlertEditor } from "./alerts/alert-editor";
 import { AlertHistory, type HistoryFocus } from "./alerts/alert-history";
 import { AlertList, alertState } from "./alerts/alert-list";
 import { ChannelGuide } from "./alerts/channel-guide";
-import { ChannelsPanel } from "./alerts/channels-panel";
+import { ChannelsPanel, type Usage } from "./alerts/channels-panel";
 import { ago, distance, latestEvents, nearCloseness } from "./alerts/format";
+import { RoutinesPanel } from "./alerts/routines-panel";
 import { SignalsPanel } from "./alerts/signals-panel";
 import { useChannels } from "./alerts/use-channels";
 import { RemoveDialog, type Save } from "./forms";
@@ -86,6 +93,8 @@ function ConnectOutcome({
 export function Alerts({
   alerts,
   signals,
+  routines,
+  openThread,
   log: unsorted,
   ticker,
   save,
@@ -100,6 +109,8 @@ export function Alerts({
 }: {
   alerts: AlertRule[];
   signals: Signal[];
+  routines: Routine[];
+  openThread?: (id: string) => void;
   log: AlertEvent[];
   ticker: string;
   save: Save;
@@ -134,14 +145,15 @@ export function Alerts({
   const logged = new Map<string, number>();
   for (const event of log)
     logged.set(event.alertId, (logged.get(event.alertId) ?? 0) + 1);
-  const usage = new Map<string, { alerts: number; signals: number }>();
+  const usage = new Map<string, Usage>();
   for (const [list, key] of [
     [alerts, "alerts"],
     [signals, "signals"],
+    [routines, "routines"],
   ] as const)
     for (const item of list)
       for (const id of item.channels) {
-        const entry = usage.get(id) ?? { alerts: 0, signals: 0 };
+        const entry = usage.get(id) ?? { alerts: 0, signals: 0, routines: 0 };
         entry[key] += 1;
         usage.set(id, entry);
       }
@@ -294,6 +306,16 @@ export function Alerts({
         notify={notify}
         monitoring={monitoring && !demo}
         history={(signal) => showHistory({ id: signal.id, label: signal.name })}
+      />
+      <RoutinesPanel
+        routines={routines}
+        channels={channels}
+        latest={latest}
+        save={save}
+        notify={notify}
+        reload={reload}
+        monitoring={monitoring && !demo}
+        openThread={openThread}
       />
       <AlertHistory
         log={log}

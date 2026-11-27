@@ -67,7 +67,7 @@ async function probe(
   };
 }
 
-async function resolveChannels(
+export async function resolveChannels(
   userId: string,
   requested: string[] | undefined,
 ) {

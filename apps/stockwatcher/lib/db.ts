@@ -445,6 +445,7 @@ function initialWorkspace(): Workspace {
     alerts: [],
     alertLog: [],
     signals: [],
+    routines: [],
     requests: [],
     settings: {
       theme: "system",
@@ -545,6 +546,49 @@ export async function alertWorkspaces(): Promise<
       id: String(row.user_id),
       ...decode({ revision: Number(row.revision), data: row.data }),
     }));
+}
+
+export async function routineWorkspaces(): Promise<
+  Array<{ id: string } & WorkspaceRecord>
+> {
+  const url = process.env.DATABASE_URL;
+  if (url) {
+    const sql = await pg(url);
+    const rows = await sql<({ user_id: string } & WorkspaceRow)[]>`
+      SELECT user_id, revision, data FROM stockwatcher_workspaces
+      WHERE user_id NOT LIKE 'demo:%' AND data->'routines' @> '[{"enabled":true}]'::jsonb
+    `;
+    return rows.map((row) => ({ id: row.user_id, ...decode(row) }));
+  }
+  return sqlite()
+    .prepare(
+      "SELECT user_id, revision, data FROM workspaces WHERE user_id NOT LIKE 'demo:%' AND EXISTS (SELECT 1 FROM json_each(data, '$.routines') WHERE json_extract(value, '$.enabled') = 1)",
+    )
+    .all()
+    .map((row) => ({
+      id: String(row.user_id),
+      ...decode({ revision: Number(row.revision), data: row.data }),
+    }));
+}
+
+/** The profile recorded at the user's last sign-in, for work that runs without a session. */
+export async function readIdentity(userId: string): Promise<Identity | null> {
+  const url = process.env.DATABASE_URL;
+  const row = url
+    ? (
+        await (await pg(url))<{ name: string; email: string | null }[]>`
+          SELECT name, email FROM stockwatcher_users WHERE id = ${userId}`
+      )[0]
+    : sqlite()
+        .prepare("SELECT name, email FROM users WHERE id = ?")
+        .get(userId);
+  if (!row) return null;
+  return {
+    id: userId,
+    name: String(row.name),
+    email: row.email == null ? null : String(row.email),
+    demo: userId.startsWith("demo:"),
+  };
 }
 
 type RuntimeRow = {

@@ -486,6 +486,26 @@ export function Dashboard({
     },
     [openAssistant],
   );
+  const openThread = useCallback(
+    (id: string) => {
+      openAssistant();
+      assistant.current?.openThread?.(id);
+    },
+    [openAssistant],
+  );
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const thread = params.get("thread");
+    if (!thread) return;
+    params.delete("thread");
+    const query = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`,
+    );
+    openThread(thread);
+  }, [openThread]);
 
   useEffect(() => {
     runCommandRef.current = runCommand;
@@ -786,6 +806,8 @@ export function Dashboard({
             <Alerts
               alerts={workspace.alerts}
               signals={workspace.signals}
+              routines={workspace.routines}
+              openThread={useAI ? openThread : undefined}
               log={workspace.alertLog}
               ticker={ticker}
               save={save}

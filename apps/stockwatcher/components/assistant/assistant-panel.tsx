@@ -114,6 +114,8 @@ export type AssistantContext = {
 export type AssistantHandle = {
   send: (text: string) => void;
   focus: () => void;
+  /** Absent on the legacy assistant, which has no saved threads. */
+  openThread?: (id: string) => void;
 };
 
 export type AssistantMode = "docked" | "full";
@@ -201,7 +203,12 @@ function requestBody(context: AssistantContext) {
   if (context.dashboard) clean.dashboard = context.dashboard;
   if (context.ticker) clean.ticker = context.ticker;
   if (context.view) clean.view = context.view.slice(0, 40);
-  return { context: clean };
+  return {
+    context: {
+      ...clean,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    },
+  };
 }
 
 function contextLabel(context: AssistantContext) {
@@ -325,6 +332,7 @@ export function AssistantPanel({
           case "tool-manageWatchlists":
           case "tool-manageAlerts":
           case "tool-manageSignals":
+          case "tool-manageRoutines":
           case "tool-manageNotes":
           case "tool-managePortfolios":
           case "tool-manageDrawings":
@@ -338,7 +346,8 @@ export function AssistantPanel({
               onWorkspaceChanged();
               if (
                 part.type === "tool-manageAlerts" ||
-                part.type === "tool-manageSignals"
+                part.type === "tool-manageSignals" ||
+                part.type === "tool-manageRoutines"
               )
                 void mutate(alertChannelsKey);
             }
@@ -395,6 +404,10 @@ export function AssistantPanel({
       requestAnimationFrame(() => input.current?.focus());
     },
     focus: () => input.current?.focus(),
+    openThread: (id) =>
+      void openThread(id).catch(() =>
+        setHeadError("That conversation could not be opened."),
+      ),
   }));
 
   const shownMode = useRef(mode);

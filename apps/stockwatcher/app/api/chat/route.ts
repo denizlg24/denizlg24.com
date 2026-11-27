@@ -63,6 +63,7 @@ const requestSchema = z.object({
       dashboard: dashboardSchema.optional(),
       ticker: z.string().regex(symbolPattern).optional(),
       view: z.string().max(40).optional(),
+      timeZone: z.string().max(64).optional(),
     })
     .optional(),
 });
