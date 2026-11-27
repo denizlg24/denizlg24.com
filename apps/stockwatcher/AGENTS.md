@@ -90,4 +90,16 @@ its history (`git subtree`). Product truth is `PRODUCT.md`, the visual system
   token means reconnecting. Browser push is the `push` channel kind
   (`web-push`, VAPID keys, `public/push-sw.js`). Each is hidden in the UI
   while its env is missing; the manual paths stay.
+- **`/mcp` is the users' MCP server, authenticated by personal access
+  tokens.** `/account` creates `swk_…` tokens (sha256 at rest, shown once,
+  `read` or `write`, ten per user); `app/mcp/route.ts` resolves the bearer,
+  rate-limits 120 requests a minute per token and container, and serves
+  `lib/mcp/server.ts`, which re-exposes an allowlist of the assistant's own
+  tools through `@modelcontextprotocol/server` (stateless, one server per
+  request). Tools that run a model (the security profile's supply-chain read,
+  web search) or drive the app's UI are left out, because they would bypass
+  credits or mean nothing outside the app; add a tool to the allowlist only
+  if it is neither. `scripts/mcp-e2e.ts` checks it against a running app.
+  OAuth for claude.ai connectors needs a tenant MCP resource in `apps/api`
+  first.
 

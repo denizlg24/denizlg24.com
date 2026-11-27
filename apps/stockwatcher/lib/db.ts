@@ -276,6 +276,13 @@ function pg(url: string) {
         state_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL,
         expires_at TIMESTAMPTZ NOT NULL
       )`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_access_tokens (
+        id UUID PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL,
+        scope TEXT NOT NULL, prefix TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL, last_used_at TIMESTAMPTZ,
+        revoked_at TIMESTAMPTZ
+      )`;
+      await sql`CREATE INDEX IF NOT EXISTS stockwatcher_access_tokens_user ON stockwatcher_access_tokens(user_id)`;
       await sql`CREATE TABLE IF NOT EXISTS stockwatcher_schedules (
         name TEXT PRIMARY KEY, next_run TIMESTAMPTZ NOT NULL
       )`;

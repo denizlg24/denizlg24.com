@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
+import { AccessTokens } from "@/components/account/access-tokens";
 import { BuyButton, PortalButton } from "@/components/account/billing-actions";
-import { currentUser } from "@/lib/auth";
+import { appOrigin, currentUser } from "@/lib/auth";
 import {
   balance,
   billingEnabled,
@@ -9,6 +10,7 @@ import {
   usageByDay,
 } from "@/lib/billing/credits";
 import { creditPacks, polarReady } from "@/lib/billing/polar";
+import { listTokens } from "@/lib/mcp/tokens";
 import { listThreads } from "@/lib/memory";
 
 const creditFormat = new Intl.NumberFormat("en-US", {
@@ -84,12 +86,13 @@ export default async function AccountPage({
     );
 
   const purchasable = polarReady();
-  const [current, entries, days, threads, packs] = await Promise.all([
+  const [current, entries, days, threads, packs, tokens] = await Promise.all([
     balance(user.id),
     ledger(user.id, 100),
     usageByDay(user.id, 30),
     listThreads(user.id).catch(() => []),
     purchasable ? creditPacks().catch(() => []) : Promise.resolve([]),
+    listTokens(user.id).catch(() => []),
   ]);
   const titles = new Map(threads.map((thread) => [thread.id, thread.title]));
   const spent30 = days.reduce((sum, day) => sum + day.credits, 0);
@@ -292,6 +295,19 @@ export default async function AccountPage({
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="section" aria-labelledby="mcp">
+        <header className="section-head">
+          <div>
+            <h2 id="mcp">MCP access</h2>
+            <p>
+              Tokens for your own agents at <code>{appOrigin()}/mcp</code>. Data
+              tools are free; revoke a token to cut it off.
+            </p>
+          </div>
+        </header>
+        <AccessTokens tokens={tokens} endpoint={`${appOrigin()}/mcp`} />
       </section>
     </>
   );
