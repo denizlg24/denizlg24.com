@@ -15,6 +15,7 @@ import {
   useState,
 } from "react";
 import { accountApi } from "@/lib/tenants-api";
+import { ReturnLinkLine } from "./return-link";
 import { loginHref } from "./session-gate";
 import { PageIntro, PageSkeleton, ShellFrame } from "./shell-frame";
 
@@ -136,7 +137,18 @@ export function AccountGate({ children }: { children: ReactNode }) {
 
 function SignedInAccountShell({ children }: { children: ReactNode }) {
   const account = useAccount();
-  return <ShellFrame user={account}>{children}</ShellFrame>;
+  // The sections render after the account loads, too late for the browser's
+  // own jump to `#password` or `#two-factor` when an app links straight there.
+  useEffect(() => {
+    const id = decodeURIComponent(window.location.hash.slice(1));
+    if (id) document.getElementById(id)?.scrollIntoView({ block: "start" });
+  }, []);
+  return (
+    <ShellFrame user={account}>
+      <ReturnLinkLine />
+      {children}
+    </ShellFrame>
+  );
 }
 
 /** The management shell for pages every account may open. */

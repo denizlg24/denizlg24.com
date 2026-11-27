@@ -2,37 +2,29 @@
 
 import {
   Brain,
-  Coins,
   Command,
   LogOut,
   Menu,
-  PanelRight,
   ScanSearch,
   Search,
   Settings2,
+  UserRound,
 } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import { useRef } from "react";
 import { BrandGlyph } from "@/components/brand-glyph";
-import { Benchmarks } from "@/components/market-widgets";
 import { Button } from "@/components/ui/button";
 import type { Command as TerminalCommand } from "@/lib/terminal";
 import { CommandLine } from "./command-line";
-import { MarketClock } from "./market-clock";
 import type { Account } from "./settings";
 
 export function Topbar({
   inert = false,
   account,
-  ticker,
-  refresh,
   navOpen,
-  assistantOpen,
   onMenu,
   onHome,
   onSearch,
-  onAssistant,
-  onSymbol,
   onSettings,
   onMemory,
   security,
@@ -40,17 +32,12 @@ export function Topbar({
 }: {
   inert?: boolean;
   account: Account;
-  ticker?: string;
   security?: string;
   onCommand: (command: TerminalCommand) => void;
-  refresh: boolean;
   navOpen: boolean;
-  assistantOpen: boolean;
   onMenu: () => void;
   onHome: () => void;
   onSearch: () => void;
-  onAssistant: () => void;
-  onSymbol: (symbol: string) => void;
   onSettings: () => void;
   onMemory: () => void;
 }) {
@@ -82,14 +69,7 @@ export function Topbar({
           <span className="brand-name">Stockwatcher</span>
         </a>
       </div>
-      <div className="topbar-tape">
-        <Benchmarks
-          selected={ticker ?? ""}
-          select={onSymbol}
-          refresh={refresh}
-        />
-      </div>
-      <div className="topbar-actions">
+      <div className="topbar-command">
         <CommandLine current={security} onCommand={onCommand} />
         <Button
           variant="outline"
@@ -104,19 +84,8 @@ export function Topbar({
             <Command size={10} />K
           </kbd>
         </Button>
-        <MarketClock />
-        <Button
-          variant={assistantOpen ? "secondary" : "ghost"}
-          size="sm"
-          className="ask-button"
-          aria-expanded={assistantOpen}
-          aria-controls="assistant-dock"
-          title="Assistant (⌘J)"
-          onClick={onAssistant}
-        >
-          <PanelRight />
-          <span>Ask Stockwatcher</span>
-        </Button>
+      </div>
+      <div className="topbar-actions">
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
             <button
@@ -124,7 +93,11 @@ export function Topbar({
               className="avatar"
               aria-label={`Account: ${account.name}`}
             >
-              {account.name.trim().slice(0, 1).toUpperCase()}
+              {account.picture ? (
+                <img src={account.picture} alt="" width={26} height={26} />
+              ) : (
+                account.name.trim().slice(0, 1).toUpperCase()
+              )}
             </button>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
@@ -151,7 +124,7 @@ export function Topbar({
               {account.demo ? null : (
                 <DropdownMenu.Item className="menu-item" asChild>
                   <a href="/account">
-                    <Coins /> Plan & credits
+                    <UserRound /> Account
                   </a>
                 </DropdownMenu.Item>
               )}

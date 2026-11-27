@@ -11,6 +11,7 @@ on:
     paths:
       - "apps/tally-macos/**"
       - ".github/workflows/release-tally.yml"
+      - "!**/*.md"
   push:
     branches: ["main"]
     paths:

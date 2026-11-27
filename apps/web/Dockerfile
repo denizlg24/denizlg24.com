@@ -2,24 +2,30 @@
 # node-latex-compiler ships is dynamically linked against glibc, libssl 3 and
 # graphite2, and bun installs the platform packages of sharp and resvg for the
 # libc it runs on, so an alpine install stage would hand a Debian runtime the
-# musl builds.
+# musl builds. The prune stage only emits text, so its libc is irrelevant.
+FROM oven/bun:1.4.4-alpine AS prune
+WORKDIR /workspace
+RUN bun add --global turbo@2.11.9
+COPY . .
+RUN turbo prune web --docker
+
 FROM oven/bun:1.4.4-slim AS dependencies
 WORKDIR /workspace
 
-COPY --parents package.json bun.lock apps/*/package.json packages/*/package.json ./
-RUN bun install --frozen-lockfile --ignore-scripts
+COPY --from=prune /workspace/out/json/ ./
+RUN --mount=type=cache,id=forge-bun-install,target=/root/.bun/install/cache,sharing=locked \
+  bun install --frozen-lockfile --ignore-scripts
 
 FROM dependencies AS build
-COPY apps apps
-COPY packages packages
-COPY scripts scripts
+COPY --from=prune /workspace/out/full/ ./
 RUN --mount=type=secret,id=forge-env,required=false \
+  --mount=type=cache,id=forge-next-web,target=/workspace/apps/web/.next/cache,sharing=locked \
   if [ -f /run/secrets/forge-env ]; then set -a; . /run/secrets/forge-env; set +a; fi; \
   bun run --cwd apps/web build
 # Tectonic lives in a platform package whose require Next cannot trace into the
 # standalone output. Pin it to a fixed path for the runtime stage, and fail the
 # build here rather than ship an image whose CV compile discovers the gap.
-RUN tectonic="$(find /workspace -path '*/@node-latex-compiler/bin-linux-x64/bin/tectonic' -print -quit)" \
+RUN tectonic="$(find /workspace/node_modules -path '*/@node-latex-compiler/bin-linux-x64/bin/tectonic' -print -quit)" \
   && test -n "$tectonic" \
   && cp "$tectonic" /workspace/tectonic
 # The Agent SDK starts Anthropic's unmodified native runtime. Optional platform

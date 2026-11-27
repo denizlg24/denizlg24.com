@@ -56,13 +56,21 @@ Cross-cutting auth (parties, superuser tokens, rollout order) is in the root CLA
   `auth_oauth_resource.tenant_id`; a first-party client may not bind one and
   a tenant client may bind nothing else. `/api/oauth/clients` (the owner's
   view) hides tenant clients; `/api/tenants/*` manages them.
+  `GET /api/public/tenants/client/:id/return?to=` confirms a "Back to {app}"
+  link for the auth app's account pages: 200 only when `to` is https (or
+  loopback http) on an origin of one of that tenant client's redirect URIs,
+  the same 404 otherwise (`auth/return-link.ts`).
 - **Two realms in `auth_user`: `cloud` (owner, family; has a `users` row) and
   `public` (self-service sign-up for a tenant's app).** The column defaults to
   `public`, so any new creation path that forgets to say `cloud` makes an
   account that reaches nothing of the cloud's; `createPendingAuthUser` and the
   cutover scripts set it. `resolveSession` refuses a non-cloud session even if
   a `users` row exists for it, mandatory TOTP applies to `cloud` only, and
-  password reset by email mails `public` accounts only. `/api/account` and
+  password reset by email mails `public` accounts only; `/two-factor/disable`
+  is refused for `cloud`, and for a `public` account that manages a tenant or
+  holds a consent or live grant on a tenant with `mfa: required`
+  (`auth/two-factor-disable.ts`). `/change-password` and `/update-user` are the
+  plugin's own, open to both realms. `/api/account` and
   `/api/tenants` serve both realms on cookie sessions (`auth/identity.ts`) and
   refuse a mutation without a trusted `Origin`.
 - **Public sign-up is off unless explicitly configured**: both

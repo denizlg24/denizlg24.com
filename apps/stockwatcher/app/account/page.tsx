@@ -1,7 +1,10 @@
+import { ArrowUpRight } from "lucide-react";
 import { redirect } from "next/navigation";
+import type { ReactNode } from "react";
 import { AccessTokens } from "@/components/account/access-tokens";
 import { BuyButton, PortalButton } from "@/components/account/billing-actions";
-import { appOrigin, currentUser } from "@/lib/auth";
+import { ProfilePicture } from "@/components/account/profile-picture";
+import { appOrigin, authAccountUrl, authAppUrl, currentUser } from "@/lib/auth";
 import {
   balance,
   billingEnabled,
@@ -12,6 +15,7 @@ import {
 import { creditPacks, polarReady } from "@/lib/billing/polar";
 import { listTokens } from "@/lib/mcp/tokens";
 import { listThreads } from "@/lib/memory";
+import { pictureUrl } from "@/lib/profile-picture";
 
 const creditFormat = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
@@ -63,63 +67,54 @@ function describe(entry: LedgerEntry, titles: Map<string, string>) {
   return kindLabel[entry.kind] ?? entry.kind;
 }
 
-export default async function AccountPage({
-  searchParams,
-}: PageProps<"/account">) {
-  const user = await currentUser();
-  if (!user) redirect("/");
-  const { checkout } = await searchParams;
+function AuthLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a href={href} className="account-auth-link">
+      {children}
+      <ArrowUpRight aria-hidden size={13} />
+    </a>
+  );
+}
 
-  if (!billingEnabled() || user.demo)
-    return (
-      <>
-        <header className="view-header">
-          <h1>Plan & credits</h1>
-        </header>
-        <p className="empty">
-          <strong>Credits are off.</strong>{" "}
-          {user.demo
-            ? "Preview workspaces do not use credits."
-            : "The assistant is not metered on this installation."}
-        </p>
-      </>
-    );
+type Credits = Awaited<ReturnType<typeof loadCredits>>;
 
+async function loadCredits(userId: string) {
   const purchasable = polarReady();
-  const [current, entries, days, threads, packs, tokens] = await Promise.all([
-    balance(user.id),
-    ledger(user.id, 100),
-    usageByDay(user.id, 30),
-    listThreads(user.id).catch(() => []),
+  const [current, entries, days, threads, packs] = await Promise.all([
+    balance(userId),
+    ledger(userId, 100),
+    usageByDay(userId, 30),
+    listThreads(userId).catch(() => []),
     purchasable ? creditPacks().catch(() => []) : Promise.resolve([]),
-    listTokens(user.id).catch(() => []),
   ]);
-  const titles = new Map(threads.map((thread) => [thread.id, thread.title]));
-  const spent30 = days.reduce((sum, day) => sum + day.credits, 0);
+  return {
+    purchasable,
+    current,
+    entries,
+    days,
+    packs,
+    titles: new Map(threads.map((thread) => [thread.id, thread.title])),
+    spent30: days.reduce((sum, day) => sum + day.credits, 0),
+  };
+}
 
+function CreditSections({
+  purchasable,
+  current,
+  entries,
+  days,
+  packs,
+  titles,
+  spent30,
+}: Credits) {
   return (
     <>
-      <header className="view-header">
-        <h1>Plan & credits</h1>
-        <p className="meta">
-          1 credit is 1 cent of assistant work. The assistant, the daily brief
-          and filing reads use credits; market data does not.
-        </p>
-      </header>
-
-      {checkout ? (
-        <p className="account-notice" role="status">
-          Payment received. Credits appear here as soon as Polar confirms the
-          order, usually within a minute. Refresh to see them.
-        </p>
-      ) : null}
-
-      <section className="section" aria-labelledby="balance">
+      <section className="section" id="credits" aria-labelledby="credits-title">
         <header className="section-head">
           <div>
-            <h2 id="balance">Balance</h2>
+            <h2 id="credits-title">Plan & credits</h2>
             <p>
-              {`Free credits reset to ${creditFormat.format(current.freeMonthly)} on ${dayFormat.format(new Date(current.resetsAt))}. Purchased credits do not expire.`}
+              {`1 credit is 1 cent of assistant work; market data is free. Free credits reset to ${creditFormat.format(current.freeMonthly)} on ${dayFormat.format(new Date(current.resetsAt))}. Purchased credits do not expire.`}
             </p>
           </div>
         </header>
@@ -296,19 +291,194 @@ export default async function AccountPage({
           </table>
         </div>
       </section>
+    </>
+  );
+}
 
-      <section className="section" aria-labelledby="mcp">
+export default async function AccountPage({
+  searchParams,
+}: PageProps<"/account">) {
+  const user = await currentUser();
+  if (!user) redirect("/");
+  const { checkout } = await searchParams;
+  const metered = billingEnabled() && !user.demo;
+  const tokensAvailable = !user.demo && Boolean(process.env.DATABASE_URL);
+  const [credits, tokens, picture] = await Promise.all([
+    metered ? loadCredits(user.id) : Promise.resolve(null),
+    tokensAvailable ? listTokens(user.id).catch(() => []) : Promise.resolve([]),
+    user.demo ? Promise.resolve(null) : pictureUrl(user.id),
+  ]);
+  const authHost = new URL(authAppUrl()).host;
+  const sections = [
+    { id: "profile", label: "Profile" },
+    ...(user.demo ? [] : [{ id: "security", label: "Security" }]),
+    { id: "credits", label: "Plan & credits" },
+    ...(tokensAvailable ? [{ id: "mcp", label: "MCP access" }] : []),
+  ];
+
+  return (
+    <>
+      <header className="view-header">
+        <h1>Account</h1>
+      </header>
+      <nav className="account-index" aria-label="Account sections">
+        {sections.map((section) => (
+          <a key={section.id} href={`#${section.id}`}>
+            {section.label}
+          </a>
+        ))}
+      </nav>
+
+      {checkout ? (
+        <p className="account-notice" role="status">
+          Payment received. Credits appear here as soon as Polar confirms the
+          order, usually within a minute. Refresh to see them.
+        </p>
+      ) : null}
+
+      <section className="section" id="profile" aria-labelledby="profile-title">
         <header className="section-head">
           <div>
-            <h2 id="mcp">MCP access</h2>
+            <h2 id="profile-title">Profile</h2>
             <p>
-              Tokens for your own agents at <code>{appOrigin()}/mcp</code>. Data
-              tools are free; revoke a token to cut it off.
+              {user.demo
+                ? "Preview workspaces have no account behind them."
+                : "Your name and email come from the deniz auth account you sign in with."}
             </p>
           </div>
         </header>
-        <AccessTokens tokens={tokens} endpoint={`${appOrigin()}/mcp`} />
+        <div className="account-profile">
+          {user.demo ? null : (
+            <ProfilePicture name={user.name} initial={picture} />
+          )}
+          <dl className="account-rows">
+            <div>
+              <dt>Name</dt>
+              <dd>
+                <span className="account-value">{user.name}</span>
+                {user.demo ? null : (
+                  <span className="account-hint">
+                    <AuthLink href={authAccountUrl("account")}>
+                      Change on deniz auth
+                    </AuthLink>
+                    <span>Updates here the next time you sign in.</span>
+                  </span>
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>Email</dt>
+              <dd>
+                <span className="account-value">
+                  {user.demo
+                    ? "Preview workspace"
+                    : (user.email ?? "Not shared")}
+                </span>
+                {user.demo || !user.email ? null : (
+                  <span className="account-hint">
+                    {user.emailVerified ? "Verified" : "Not verified yet"}
+                  </span>
+                )}
+              </dd>
+            </div>
+          </dl>
+        </div>
       </section>
+
+      {user.demo ? null : (
+        <section
+          className="section"
+          id="security"
+          aria-labelledby="security-title"
+        >
+          <header className="section-head">
+            <div>
+              <h2 id="security-title">Security</h2>
+              <p>
+                {`Stockwatcher signs you in with deniz auth, so your password and two-step sign-in are changed there, at ${authHost}. A link there brings you back.`}
+              </p>
+            </div>
+          </header>
+          <dl className="account-rows">
+            <div>
+              <dt>Password</dt>
+              <dd>
+                <span className="account-value account-note">
+                  Needs your current password
+                </span>
+                <span className="account-hint">
+                  <AuthLink href={authAccountUrl("security", "password")}>
+                    Change password
+                  </AuthLink>
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt>Two-factor</dt>
+              <dd>
+                <span className="account-value account-note">
+                  A code from an authenticator app after your password
+                </span>
+                <span className="account-hint">
+                  <AuthLink href={authAccountUrl("security", "two-factor")}>
+                    Set up or turn off
+                  </AuthLink>
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt>Devices</dt>
+              <dd>
+                <span className="account-value account-note">
+                  Passkeys, trusted devices and where you're signed in
+                </span>
+                <span className="account-hint">
+                  <AuthLink href={authAccountUrl("security", "passkeys")}>
+                    Review
+                  </AuthLink>
+                </span>
+              </dd>
+            </div>
+          </dl>
+        </section>
+      )}
+
+      {credits ? (
+        <CreditSections {...credits} />
+      ) : (
+        <section
+          className="section"
+          id="credits"
+          aria-labelledby="credits-title"
+        >
+          <header className="section-head">
+            <div>
+              <h2 id="credits-title">Plan & credits</h2>
+            </div>
+          </header>
+          <p className="empty">
+            <strong>Credits are off.</strong>{" "}
+            {user.demo
+              ? "Preview workspaces do not use credits."
+              : "The assistant is not metered on this installation."}
+          </p>
+        </section>
+      )}
+
+      {tokensAvailable ? (
+        <section className="section" id="mcp" aria-labelledby="mcp-title">
+          <header className="section-head">
+            <div>
+              <h2 id="mcp-title">MCP access</h2>
+              <p>
+                Tokens for your own agents at <code>{appOrigin()}/mcp</code>.
+                Data tools are free; revoke a token to cut it off.
+              </p>
+            </div>
+          </header>
+          <AccessTokens tokens={tokens} endpoint={`${appOrigin()}/mcp`} />
+        </section>
+      ) : null}
     </>
   );
 }

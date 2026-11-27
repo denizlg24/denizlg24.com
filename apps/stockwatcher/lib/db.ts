@@ -12,6 +12,7 @@ import {
   workspaceSchema,
 } from "./models";
 import { withRuntime } from "./signals";
+import { defaultTicker } from "./ticker";
 
 export type Identity = {
   id: string;
@@ -129,6 +130,10 @@ function sqlite() {
       last_checked TEXT, last_value REAL, last_message TEXT,
       last_error TEXT, error_count INTEGER NOT NULL,
       PRIMARY KEY (user_id, signal_id)
+    );
+    CREATE TABLE IF NOT EXISTS profile_pictures (
+      user_id TEXT PRIMARY KEY, mime TEXT NOT NULL, image BLOB NOT NULL,
+      updated_at INTEGER NOT NULL
     );
   `);
   try {
@@ -309,6 +314,10 @@ function pg(url: string) {
       await sql`CREATE TABLE IF NOT EXISTS stockwatcher_schedules (
         name TEXT PRIMARY KEY, next_run TIMESTAMPTZ NOT NULL
       )`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_profile_pictures (
+        user_id TEXT PRIMARY KEY, mime TEXT NOT NULL, image BYTEA NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )`;
     });
     return db;
   })().catch(async (error) => {
@@ -453,6 +462,7 @@ function initialWorkspace(): Workspace {
       refresh: true,
       baseCurrency: "USD",
       chart: defaultChartPreferences,
+      ticker: [...defaultTicker],
     },
     overlays: [],
     drawings: [],

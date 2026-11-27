@@ -1,17 +1,22 @@
+FROM oven/bun:1.4.4-alpine AS prune
+WORKDIR /workspace
+RUN bun add --global turbo@2.11.9
+COPY . .
+RUN turbo prune envoy --docker
+
 FROM oven/bun:1.4.4-alpine AS dependencies
 WORKDIR /workspace
-
-COPY --parents package.json bun.lock apps/*/package.json packages/*/package.json ./
-RUN bun install --frozen-lockfile --ignore-scripts
+COPY --from=prune /workspace/out/json/ ./
+RUN --mount=type=cache,id=forge-bun-install,target=/root/.bun/install/cache,sharing=locked \
+  bun install --frozen-lockfile --ignore-scripts
 
 FROM dependencies AS build
-COPY apps apps
-COPY packages packages
-COPY scripts scripts
+COPY --from=prune /workspace/out/full/ ./
 # Migrations run here, before the build, exactly as the target's old build
 # command did on nixpacks: the deploy env (ENVOY_DATABASE_URL among it) arrives
 # through the secret mount, and a build that cannot migrate must not ship.
 RUN --mount=type=secret,id=forge-env,required=false \
+  --mount=type=cache,id=forge-next-envoy,target=/workspace/apps/envoy/.next/cache,sharing=locked \
   if [ -f /run/secrets/forge-env ]; then set -a; . /run/secrets/forge-env; set +a; fi; \
   bun run --cwd apps/envoy db:migrate && bun run --cwd apps/envoy build
 

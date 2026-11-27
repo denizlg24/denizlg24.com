@@ -1,0 +1,140 @@
+/* ── Account (/account) ──────────────────────────────────────── */
+/* Credits, buy and MCP styles predate this file and stay in admin.css. */
+
+.account-index {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-4);
+  margin-top: calc(var(--stack) * -0.6);
+  font-size: var(--fs-xs);
+}
+.account-index a {
+  color: var(--muted-foreground);
+  font-weight: 550;
+}
+.account-index a:hover {
+  color: var(--foreground);
+}
+
+.account-profile {
+  display: grid;
+  grid-template-columns: minmax(0, 20rem) minmax(0, 1fr);
+  align-items: start;
+  gap: 0 var(--gutter);
+}
+.account-profile > .account-rows:only-child {
+  grid-column: 1 / -1;
+}
+
+.account-rows {
+  display: grid;
+  margin: 0;
+}
+.account-rows > div {
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+  gap: 2px var(--sp-4);
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--fs-sm);
+}
+.account-rows > div:last-child {
+  border-bottom: 0;
+}
+.account-rows dt {
+  color: var(--muted-foreground);
+}
+.account-rows dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px var(--sp-3);
+  min-width: 0;
+  margin: 0;
+}
+.account-value {
+  min-width: 0;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.account-note {
+  font-weight: 400;
+}
+.account-hint {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--sp-2);
+  color: var(--muted-foreground);
+  font-size: var(--fs-xs);
+}
+.account-auth-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--secondary-foreground);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.account-auth-link svg {
+  flex: none;
+}
+
+.profile-picture {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: 9px 0;
+}
+.profile-picture-frame {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  font-size: var(--fs-xl);
+  font-weight: 650;
+}
+.profile-picture-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.profile-picture-actions {
+  display: grid;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+.profile-picture-actions .meta {
+  max-width: 34ch;
+}
+
+@media (max-width: 760px) {
+  .account-profile {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 480px) {
+  .account-rows > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── Topbar avatar with a profile picture ────────────────────── */
+
+.avatar:has(> img) {
+  overflow: hidden;
+  background: var(--muted);
+}
+.avatar > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}

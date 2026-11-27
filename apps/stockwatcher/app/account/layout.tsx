@@ -7,7 +7,7 @@ import { currentUser } from "@/lib/auth";
 import { readWorkspace } from "@/lib/db";
 
 export const metadata: Metadata = {
-  title: "Plan & credits · Stockwatcher",
+  title: "Account · Stockwatcher",
   robots: { index: false, follow: false },
 };
 

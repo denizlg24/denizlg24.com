@@ -45,8 +45,10 @@ about who gets one and gentle with everyone else.
 - Every app sends a signed-out browser here with `returnTo`; the OAuth
   provider sends one with a signed authorization query. A visitor is always
   on the way somewhere, and the page knows where.
-- TOTP is mandatory for every account; enrollment happens on first sign-in
-  and shows backup codes exactly once. A passkey is an alternative that
+- TOTP is mandatory for every cloud account; enrollment happens on first
+  sign-in and shows backup codes exactly once. A public account turns it on
+  and off at `/security`; the API refuses "off" while the account manages an
+  app or uses one whose policy requires it, and the refusal names the app. A passkey is an alternative that
   answers both factors. A browser that has used one is prompted for it on
   arrival; a password sign-in headed to an app (not an authorization) is
   followed by a one-screen offer to add one when nothing suggests the
@@ -60,7 +62,12 @@ about who gets one and gentle with everyone else.
 - Consent only happens for dynamically registered clients (MCP); first-party
   clients skip it. The consent page is what Claude's users see.
 - Management: OAuth clients (create web/native/service, rotate, disable),
-  passkeys (add/rename/remove), trusted devices (count, forget), sessions.
+  passkeys (add/rename/remove), trusted devices (count, forget), sessions,
+  password change, display name (`/account`).
+- An app can send someone to `/account` or `/security` with `client_id` and
+  `returnTo`; the API confirms `returnTo` is on an origin that tenant client
+  registered a redirect on, and the page then shows "Back to {app}" for the
+  rest of the tab.
 
 ## Capabilities and Constraints
 

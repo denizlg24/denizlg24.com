@@ -175,10 +175,16 @@ stay rasters.
 ## Management shell
 
 `ShellFrame`: a strip with the brand (a link home), the section nav
-(Account · Security · Clients; active item on `surface` in `accent-strong`
+(Account · Security for everyone, Clients for the owner, Apps for anyone
+managing one; active item on `surface` in `accent-strong`
 with `aria-current`), the theme toggle and the account menu (avatar initial,
 username from `sm`, a dropdown with username/email and Sign out). Under
 `sm` the nav drops to a second row. Content sits in a 64 rem column.
+
+Above the page intro, `ReturnLinkLine` draws "← Back to {app}" with the host
+in mono when an app sent the visitor (see `lib/return-link.ts`). Password
+change, name edit and turning two-factor off are `Dialog`s with inline field
+errors; turning off shows the API's refusal as is, since it names the app.
 
 Page pattern: `PageIntro` (title, one line, actions) over a hairline; then
 `PageSection`s (title, count in muted tabular figures, actions) over a

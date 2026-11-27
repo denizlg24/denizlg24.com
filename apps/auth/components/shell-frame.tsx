@@ -40,12 +40,8 @@ function navItems(user: ShellUser): NavItem[] {
   const managesApps = owner || ("tenants" in user && user.tenants.length > 0);
   return [
     { href: "/account", label: "Account" },
-    ...(owner
-      ? [
-          { href: "/security", label: "Security" },
-          { href: "/clients", label: "Clients" },
-        ]
-      : []),
+    { href: "/security", label: "Security" },
+    ...(owner ? [{ href: "/clients", label: "Clients" }] : []),
     ...(managesApps ? [{ href: "/apps", label: "Apps" }] : []),
   ];
 }

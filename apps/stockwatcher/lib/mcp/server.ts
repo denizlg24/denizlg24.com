@@ -116,6 +116,7 @@ export function mcpHandler(user: Identity, scope: TokenScope, origin: string) {
     register(server, "getNote", t.getNote);
     register(server, "getTechnicals", t.getTechnicals);
     register(server, "getMarketOverview", t.getMarketOverview);
+    register(server, "getFearGreed", t.getFearGreed);
     register(server, "getMarketMovers", t.getMarketMovers);
     register(server, "getEarningsCalendar", t.getEarningsCalendar);
     register(server, "getMacroCalendar", t.getMacroCalendar);

@@ -33,10 +33,10 @@ const steps: Step[] = [
     side: "bottom",
   },
   {
-    element: ".topbar-tape",
-    title: "Market tape",
+    element: ".ticker-strip",
+    title: "Ticker",
     description:
-      "Benchmarks streaming across the top, with live quotes when the feed is on.",
+      "Your symbols scrolling under the top bar, live when the feed is on. Hover to pause, click a symbol to open it, and use the slider button at the end to choose and order the symbols.",
     side: "bottom",
   },
   {
@@ -47,18 +47,18 @@ const steps: Step[] = [
     side: "bottom",
   },
   {
-    element: ".ask-button",
+    element: ".nav-assistant",
     title: "Assistant",
     description:
-      "Ask in plain language — it builds dashboards, reports, slide decks and alerts, and remembers what matters to you (Memory). <kbd>⌘/Ctrl J</kbd> toggles it.",
-    side: "bottom",
+      "Ask in plain language — it builds dashboards, reports, slide decks and alerts, and remembers what matters to you (Memory). Open it here or toggle it with <kbd>⌘/Ctrl J</kbd>.",
+    side: "right",
   },
   {
     hash: "desk",
     element: ".desk-toolbar",
     title: "Desk",
     description:
-      "Your launchpad: morning brief, holdings, movers, watchlists, charts, news, alerts, heat maps, notes — and any terminal function (GC, RRG, CORR, TOP, EVTS, PRSK, FXC, CMDTY, CRYP, GRID) as a widget. Edit desk to add, resize and reorder.",
+      "Your launchpad: morning brief, holdings, movers, watchlists, charts, news, alerts, heat maps, market clocks, notes — and any terminal function (GC, RRG, CORR, TOP, EVTS, PRSK, FXC, CMDTY, CRYP, GRID) as a widget. Edit desk to add, resize and reorder.",
     side: "bottom",
   },
   {

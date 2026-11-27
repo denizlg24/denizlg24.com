@@ -29,17 +29,20 @@ jobs:
       envoy_cli: ${{ steps.select.outputs.envoy_cli }}
       ssh_server: ${{ steps.select.outputs.ssh_server }}
       workflow_lint: ${{ steps.select.outputs.workflow_lint }}
+      docker_prune: ${{ steps.select.outputs.docker_prune }}
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
           fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
       - name: Select checks from changed files
         id: select
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+          bun test scripts/ci/gate.test.ts
           python3 scripts/ci/check_release_workspaces.py
           if git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
             echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
@@ -66,6 +69,20 @@ jobs:
         with:
           args: -color -shellcheck=
 
+  docker-prune:
+    name: Verify Dockerfile prunes
+    needs: changes
+    if: needs.changes.outputs.docker_prune == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+      - name: Replay each pruned install
+        run: bash scripts/verify-docker-prune.sh
+
   # Build and the checks share nothing but the install, so they run side by
   # side: a change to a shared package rebuilds every app, and run in series
   # the two did not fit in the old 15-minute limit.
@@ -75,16 +92,6 @@ jobs:
     if: needs.changes.outputs.build == 'true'
     timeout-minutes: 30
     runs-on: ubuntu-latest
-    services: &js-services
-      mongodb:
-        image: mongo:8.2.11
-        ports:
-          - 27017:27017
-        options: >-
-          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok'"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     # CI uses disposable local services and placeholders. Production secrets
     # are intentionally not exposed to builds or pull requests.
     env: &js-env
@@ -140,8 +147,25 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
+      - name: Cache Bun downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      # Pull requests only read: a cache saved per PR run would evict main's.
+      - name: Restore Next.js build caches
+        uses: actions/cache/restore@v6
+        with:
+          path: apps/*/.next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            next-${{ runner.os }}-${{ hashFiles('bun.lock') }}-
+            next-${{ runner.os }}-
 
       - name: Select affected JavaScript packages
         id: scope
@@ -159,6 +183,19 @@ jobs:
             fi
           fi
 
+      # next build collects page data for web's generateStaticParams, which
+      # reads Mongo. Every other app builds without it, so a service container
+      # would cost those runs its startup for nothing.
+      - name: Start MongoDB
+        if: steps.scope.outputs.web == 'true'
+        run: |
+          docker run -d --name mongo -p 27017:27017 mongo:8.2.11
+          for _ in $(seq 1 30); do
+            docker exec mongo mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' && exit 0
+            sleep 1
+          done
+          exit 1
+
       - name: Build
         env:
           RUN_AFFECTED: ${{ steps.scope.outputs.affected }}
@@ -169,13 +206,29 @@ jobs:
             bunx turbo run build
           fi
 
+      - name: Save Next.js build caches
+        if: github.event_name == 'push'
+        uses: actions/cache/save@v6
+        with:
+          path: apps/*/.next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+
   checks:
     name: Typecheck, test, lint
     needs: changes
     if: needs.changes.outputs.build == 'true'
     timeout-minutes: 30
     runs-on: ubuntu-latest
-    services: *js-services
+    services:
+      mongodb:
+        image: mongo:8.2.11
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env: *js-env
     steps:
       - name: Check out code
@@ -185,6 +238,13 @@ jobs:
           fetch-depth: 0
 
       - uses: oven-sh/setup-bun@v2
+
+      - name: Cache Bun downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -296,6 +356,13 @@ jobs:
           persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
+
+      - name: Cache Bun downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile

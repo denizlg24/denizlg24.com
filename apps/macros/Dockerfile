@@ -1,13 +1,22 @@
+FROM oven/bun:1.4.4-alpine AS prune
+WORKDIR /workspace
+RUN bun add --global turbo@2.11.9
+COPY . .
+RUN turbo prune macros --docker
+
 FROM oven/bun:1.4.4-alpine AS dependencies
 WORKDIR /workspace
-
-COPY --parents package.json bun.lock apps/*/package.json packages/*/package.json ./
-RUN bun install --frozen-lockfile --ignore-scripts
+COPY --from=prune /workspace/out/json/ ./
+RUN --mount=type=cache,id=forge-bun-install,target=/root/.bun/install/cache,sharing=locked \
+  bun install --frozen-lockfile --ignore-scripts
 
 FROM dependencies AS build
-COPY apps apps
-COPY packages packages
+COPY --from=prune /workspace/out/full/ ./
+# Read at build by lib/changelog/load.ts; macros-mobile is not a dependency, so
+# the pruned tree does not carry it.
+COPY apps/macros-mobile/CHANGELOG.md apps/macros-mobile/CHANGELOG.md
 RUN --mount=type=secret,id=forge-env,required=false \
+  --mount=type=cache,id=forge-next-macros,target=/workspace/apps/macros/.next/cache,sharing=locked \
   if [ -f /run/secrets/forge-env ]; then set -a; . /run/secrets/forge-env; set +a; fi; \
   bun run --cwd apps/macros build
 

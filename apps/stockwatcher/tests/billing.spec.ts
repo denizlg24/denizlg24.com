@@ -95,7 +95,7 @@ test("a chat reply is charged at gateway cost and shown on the reply", async ({
 
   await page.goto("/account");
   await expect(
-    page.getByRole("heading", { name: "Plan & credits", level: 1 }),
+    page.getByRole("heading", { name: "Plan & credits", level: 2 }),
   ).toBeVisible();
   await expect(
     page
@@ -127,7 +127,9 @@ test("an empty balance refuses the next request with 402", async ({ page }) => {
   expect(await response.json()).toMatchObject({ code: "out_of_credits" });
 
   await page.goto("/");
-  await page.getByRole("button", { name: /Ask Stockwatcher/ }).click();
+  const toggle = page.locator(".nav-assistant");
+  if ((await toggle.getAttribute("aria-expanded")) !== "true")
+    await toggle.click();
   const input = page.getByRole("textbox", { name: "Message the assistant" });
   await input.fill("Hello");
   await input.press("Enter");

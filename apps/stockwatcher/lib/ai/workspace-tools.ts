@@ -1740,6 +1740,7 @@ export function workspaceTools({ user }: { user: Identity }) {
                 },
               });
               const next = {
+                ...settings,
                 theme: theme ?? settings.theme,
                 home: home ?? settings.home,
                 refresh: refresh ?? settings.refresh,

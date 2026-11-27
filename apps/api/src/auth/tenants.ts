@@ -19,6 +19,7 @@ import {
   type PublicTenant,
   type TenantDetail,
   type TenantMemberRole,
+  type TenantReturnLink,
   type TenantSummary,
   type TenantUserList,
   updateOAuthClientInputSchema,
@@ -46,6 +47,7 @@ import {
   registrationBody,
   setClientResources,
 } from "./oauth-clients";
+import { registeredReturnUrl } from "./return-link";
 import {
   clientTenancy,
   parseClientMetadata,
@@ -199,6 +201,35 @@ export function publicTenantRoutes(options: TenantRouteOptions) {
     if (!tenant || tenant.disabled) return context.json(notFound(), 404);
     context.header("Cache-Control", "public, max-age=60");
     return context.json({ data: publicTenant(tenant) });
+  });
+  /**
+   * Confirms a "Back to {app}" link for the account pages. Answers the same
+   * 404 for an unknown client, a first-party one and a URL off its registered
+   * origins, so it says nothing more than the client route above does.
+   */
+  app.get("/client/:clientId/return", async (context) => {
+    const clientId = context.req.param("clientId");
+    const to = context.req.query("to");
+    const tenancy = await clientTenancy(options.db, clientId);
+    if (!to || !tenancy?.tenantId || tenancy.disabled) {
+      return context.json(notFound(), 404);
+    }
+    const [tenant, client] = await Promise.all([
+      options.db.query.authTenant.findFirst({
+        where: eq(authTenant.id, tenancy.tenantId),
+      }),
+      options.db.query.authOauthClient.findFirst({
+        columns: { redirectUris: true },
+        where: eq(authOauthClient.clientId, clientId),
+      }),
+    ]);
+    const url = registeredReturnUrl(to, client?.redirectUris ?? []);
+    if (!tenant || tenant.disabled || !url) {
+      return context.json(notFound(), 404);
+    }
+    const body: TenantReturnLink = { url, tenant: publicTenant(tenant) };
+    context.header("Cache-Control", "no-store");
+    return context.json({ data: body });
   });
   return app;
 }

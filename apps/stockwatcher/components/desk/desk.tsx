@@ -22,6 +22,8 @@ import { cn } from "@/lib/utils";
 import { AddWidgetDialog, widgetCatalog } from "./add-widget";
 import { HoldingsWidget, MoversWidget } from "./book";
 import { BriefWidget } from "./brief";
+import { ClocksWidget } from "./clocks";
+import { FearGreedWidget } from "./fear-greed";
 import { AlertsWidget, InsightWidget, NewsWidget } from "./feeds";
 import { DeskEmpty, FrameContext, type WidgetContext } from "./frame";
 import { FunctionWidget } from "./functions";
@@ -69,6 +71,10 @@ function WidgetView({ widget, ctx }: { widget: Widget; ctx: WidgetContext }) {
       return <OverlayWidget widget={widget} ctx={ctx} />;
     case "function":
       return <FunctionWidget widget={widget} ctx={ctx} />;
+    case "clocks":
+      return <ClocksWidget widget={widget} ctx={ctx} />;
+    case "fearGreed":
+      return <FearGreedWidget widget={widget} ctx={ctx} />;
   }
 }
 

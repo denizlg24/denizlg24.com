@@ -4,6 +4,7 @@ import { Landing } from "@/components/landing/landing";
 import { aiEnabled } from "@/lib/ai/config";
 import { authReady, currentUser, demoEnabled, isAdmin } from "@/lib/auth";
 import { readWorkspaceView } from "@/lib/db";
+import { pictureUrl } from "@/lib/profile-picture";
 
 const messages: Record<string, string> = {
   retry:
@@ -28,6 +29,7 @@ async function Home({ searchParams }: PageProps<"/">) {
           email: user.email,
           demo: user.demo,
           admin: isAdmin(user),
+          picture: user.demo ? null : await pictureUrl(user.id),
         }}
       />
     );

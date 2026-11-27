@@ -11,6 +11,7 @@ on:
       - "bun.lock"
       - "package.json"
       - ".github/workflows/stream.yml"
+      - "!**/*.md"
   push:
     branches: [main]
     paths:
@@ -21,6 +22,7 @@ on:
       - "packages/auth-sdk/**"
       - "bun.lock"
       - ".github/workflows/stream.yml"
+      - "!**/*.md"
   workflow_dispatch:
 permissions:
   contents: read
@@ -28,7 +30,26 @@ concurrency:
   group: stream-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  gate:
+    name: Select affected code
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      any: ${{ steps.gate.outputs.any }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - name: Select affected code
+        id: gate
+        run: bun scripts/ci/gate.ts stream "$BASE_SHA" >> "$GITHUB_OUTPUT"
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
   verify:
+    needs: gate
+    if: needs.gate.outputs.any == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
@@ -50,6 +71,11 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.4"
+      - uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
       - run: bun run --cwd packages/auth-sdk build
       - run: bun run --cwd apps/stream typecheck
@@ -69,6 +95,8 @@ jobs:
         env:
           STREAM_URL: https://stream.denizlg24.com
   mobile-bundles:
+    needs: gate
+    if: needs.gate.outputs.any == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -78,6 +106,11 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.4"
+      - uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
       - name: Bundle iOS and Android
         run: bun run --cwd apps/stream-mobile bundle
@@ -89,6 +122,8 @@ jobs:
           path: apps/stream-mobile/dist
           retention-days: 14
   desktop-native:
+    needs: gate
+    if: needs.gate.outputs.any == 'true'
     strategy:
       fail-fast: false
       matrix:

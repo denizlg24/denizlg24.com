@@ -4,6 +4,7 @@ import { deskSchema } from "./desk";
 import { studyKeySchema } from "./indicators";
 import { overlayRanges, overlaySpecSchema } from "./overlay";
 import { screenSchema } from "./screens";
+import { defaultTicker, maxTickerSymbols } from "./ticker";
 import { rangeKeys, symbolPattern } from "./universes";
 
 export const symbolSchema = z
@@ -432,6 +433,10 @@ export const workspaceSchema = z.object({
       .regex(/^[A-Z]{3}$/)
       .default("USD"),
     chart: chartPreferencesSchema.default(defaultChartPreferences),
+    ticker: z
+      .array(symbolSchema)
+      .max(maxTickerSymbols)
+      .default(() => [...defaultTicker]),
   }),
 });
 

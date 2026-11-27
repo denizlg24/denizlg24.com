@@ -87,6 +87,7 @@ import {
   summarizeTrustedDevices,
 } from "./auth/trusted-devices";
 import { TURNSTILE_HEADER, type TurnstileVerifier } from "./auth/turnstile";
+import { twoFactorDisableRefusal } from "./auth/two-factor-disable";
 import {
   completePendingSignup,
   createPendingAuthUser,
@@ -1355,15 +1356,20 @@ export function createCloudApiApp(options: CloudApiOptions) {
       }
     },
   );
-  app.post("/api/auth/two-factor/disable", (context) =>
-    context.json(
-      dualShapeError(
-        "TWO_FACTOR_REQUIRED",
-        "Two-factor authentication is mandatory",
-      ),
-      403,
-    ),
-  );
+  // The plugin's own route checks the password and clears the factor; this
+  // decides whether the account may lose it at all. Signed out falls through
+  // to the plugin's 401.
+  app.post("/api/auth/two-factor/disable", async (context, next) => {
+    const session = await options.auth.api.getSession({
+      headers: context.req.raw.headers,
+    });
+    if (!session) return next();
+    const refusal = await twoFactorDisableRefusal(options.db, session.user.id);
+    if (refusal) {
+      return context.json(dualShapeError(refusal.code, refusal.message), 403);
+    }
+    return next();
+  });
   // The twoFactor plugin issues device trust but never lists or revokes it.
   // Revoking only ever narrows access, so any session may do it.
   // Every account, cloud or public, owns its device trust.

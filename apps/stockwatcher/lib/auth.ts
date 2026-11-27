@@ -29,6 +29,34 @@ export function appOrigin(request?: Request): string {
   throw new Error("APP_URL is required");
 }
 
+export const authAppUrl = () =>
+  (process.env.DENIZ_AUTH_APP_URL ?? "https://auth.denizlg24.com").replace(
+    /\/$/,
+    "",
+  );
+
+/**
+ * A page on deniz auth, where the account's name, password and two-factor are
+ * managed. With the client id and a return URL on one of this client's
+ * registered origins, deniz auth shows a "Back to Stockwatcher" link.
+ */
+export function authAccountUrl(
+  page: "account" | "security",
+  section?: string,
+): string {
+  const url = new URL(`/${page}`, authAppUrl());
+  const clientId = process.env.DENIZ_OIDC_CLIENT_ID;
+  if (clientId && process.env.APP_URL) {
+    url.searchParams.set("client_id", clientId);
+    url.searchParams.set(
+      "returnTo",
+      `${appOrigin()}/account#${page === "account" ? "profile" : "security"}`,
+    );
+  }
+  if (section) url.hash = section;
+  return url.toString();
+}
+
 export const sessionCookie = (origin: string) =>
   origin.startsWith("https:") ? "__Host-stockwatcher" : "stockwatcher";
 export const flowCookie = (origin: string) =>

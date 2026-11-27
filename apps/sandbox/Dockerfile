@@ -1,15 +1,17 @@
-# syntax=docker/dockerfile:1.7
+FROM oven/bun:1.4.4-alpine AS prune
+WORKDIR /workspace
+RUN bun add --global turbo@2.11.9
+COPY . .
+RUN turbo prune sandbox --docker
 
 FROM oven/bun:1.4.4-alpine AS dependencies
 WORKDIR /workspace
-
-COPY package.json bun.lock ./
-COPY apps apps
-COPY packages packages
-
-RUN bun install --frozen-lockfile --ignore-scripts
+COPY --from=prune /workspace/out/json/ ./
+RUN --mount=type=cache,id=forge-bun-install,target=/root/.bun/install/cache,sharing=locked \
+  bun install --frozen-lockfile --ignore-scripts
 
 FROM dependencies AS build
+COPY --from=prune /workspace/out/full/ ./
 RUN bun run --cwd apps/sandbox build
 
 FROM oven/bun:1.4.4-alpine AS runtime

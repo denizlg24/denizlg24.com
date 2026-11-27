@@ -185,6 +185,7 @@ const toolNames: Record<ToolPart["type"], string> = {
   "tool-getInsiderBuying": "Insider buying",
   "tool-getActivistStakes": "Activist stakes",
   "tool-getYieldCurve": "Yield curve",
+  "tool-getFearGreed": "Fear & Greed",
   "tool-readFiling": "Filing",
   "tool-getOptions": "Options",
 };
@@ -346,6 +347,8 @@ export function runningLabel(part: ToolPart): string {
       return "Scanning SEC 13D filings";
     case "tool-getYieldCurve":
       return "Loading the Treasury yield curve";
+    case "tool-getFearGreed":
+      return "Reading CNN Fear & Greed";
     case "tool-readFiling":
       return part.input?.symbol
         ? `Reading ${part.input.symbol} ${part.input.form ?? "filing"}${part.input.section ? ` · ${part.input.section}` : ""}`
@@ -694,6 +697,14 @@ function ToolOutput({ part }: { part: DonePart }) {
     case "tool-getYieldCurve": {
       const output = part.output;
       return isFailure(output) ? failed(output) : <YieldCurve data={output} />;
+    }
+    case "tool-getFearGreed": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <FearGreedRead data={output} />
+      );
     }
     case "tool-readFiling": {
       const output = part.output;
@@ -1918,6 +1929,34 @@ function OptionsSummary({ data }: { data: Success<"getOptions"> }) {
           </tbody>
         </table>
       </div>
+    </Block>
+  );
+}
+
+function FearGreedRead({ data }: { data: Success<"getFearGreed"> }) {
+  return (
+    <Block
+      title={`Fear & Greed · ${data.score} ${data.rating}`}
+      meta={`${data.source} · updated ${data.updatedAt}${data.stale ? " · stale" : ""}`}
+    >
+      <table className="data-table chat-table">
+        <thead>
+          <tr>
+            <th>Indicator</th>
+            <th className="num">Score</th>
+            <th>Rating</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.indicators.map((item) => (
+            <tr key={item.name}>
+              <td>{item.name}</td>
+              <td className="num">{item.score}</td>
+              <td>{item.rating}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </Block>
   );
 }
