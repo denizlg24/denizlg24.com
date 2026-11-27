@@ -138,3 +138,47 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## Moderation
+
+A food created in Macros with a barcode joins the shared nutrition catalogue,
+which makes it user-generated content under App Review guideline 1.2. The
+pieces, and what bites:
+
+- **Macros knows who contributed a food; the nutrition API never does.**
+  `food_contributions` is the only link, written when `POST /api/items/` answers
+  201 (not 409) and cascaded away with the account.
+  `bun run backfill:contributions` (dry run unless `--execute`) attributes
+  rows from before 0019 to the earliest `user_custom_foods` link.
+- **Sharing is a decision, not a side effect.** `createCustomFood` shares only
+  if the contributor is unrestricted and `screenSharedFoodText`
+  (`@repo/macros-core/content-filter`) passes; otherwise the food is created
+  privately and the response says `sharingWithheld`. A false positive costs
+  sharing, never the user's food.
+- **Removal lives in the nutrition API** (`items.removed_at`, migration 0011),
+  distinct from `quarantined`: a removed row leaves search *and* barcode lookup,
+  the OpenFoodFacts fallback refuses to re-import its code, and the barcode
+  cannot be contributed again (409 `BARCODE_REMOVED`). It stays readable by id.
+  Only the holder of `NUTRITION_MODERATION_TOKEN` (Macros' backend) may call
+  `PUT /api/items/:id/moderation`. Any API key can still create items.
+- **Three open reports for harm (offensive, spam, personal info) hide a food
+  for everyone** pending review (`removedBy: "auto"`); dismissing the case
+  restores it. A reporter stops seeing the food at once, and so does anyone
+  who hid its contributor (`hiddenItemIdsFor` filters search and barcode
+  results). The first report on a food emails `MACROS_MODERATION_EMAIL`.
+- **`/api/admin/*` on Macros accepts only deniz auth superuser user tokens**
+  for the `macros` resource (`https://macros.denizlg24.com`, seeded by the API
+  like the others). Macros' own Better Auth accounts never reach it, and
+  machine tokens are refused. The console shows contributors as an HMAC alias
+  (`C-XXXXXX`, keyed by `MACROS_BETTER_AUTH_SECRET`); the email appears only
+  through `POST …/contact`, which is audited in `moderation_events`.
+- **A suspended account cannot hold a session**: suspension deletes its
+  sessions, a `databaseHooks.session.create.before` refuses new ones, and
+  `getRequiredSession` answers 403 for one minted in between.
+- **Rollout order:** nutrition and Macros migrations (additive) → the API
+  release, which seeds the `macros` resource → a confidential client on
+  auth.denizlg24.com/clients holding only that resource, redirect
+  `https://macros-admin.denizlg24.com/auth/callback` → `DENIZ_AUTH_CLIENT_ID`,
+  `DENIZ_AUTH_CLIENT_SECRET`, `DENIZ_AUTH_SECRET` on the `macros-admin`
+  target. `NUTRITION_MODERATION_TOKEN` must be equal on `nutrition` and
+  `macros`, or every takedown fails with 403.

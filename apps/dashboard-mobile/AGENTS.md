@@ -76,3 +76,44 @@ this app's React Native build. Regenerate iOS after changing that setting.
 ```
 bun run typecheck && bun test
 ```
+
+## Server side and sign-in
+
+Design: `docs/internal/plans/029-native-dashboard-ios.md`; the app's
+`AGENTS.md` has the detail. The `/admin/dashboard` PWA install surface is
+gone (no manifest, no home-screen metadata); the page itself stays.
+
+- **Sign-in is the "iPhone apps" native client** with a third redirect,
+  `com.denizlg24.dashboard:/oauth/callback` — a hand row on
+  `auth_oauth_client.redirect_uris`, like Location's.
+- **Today mirrors the desktop's dashboard home**: a live clock, then
+  Events / Tasks / Alerts (agenda and alerts from `GET /api/admin/dashboard/today`,
+  tasks from `/kanban/upcoming`), then resources and LLM spend. The whiteboard
+  lives under More → Board. `dashboard/today` (`lib/dashboard-today.ts`) still
+  carries counts, budget and board todos because the widgets draw its App
+  Group snapshot; each source fails open, and widgets never refetch quotes.
+- **The query cache survives a launch** (`src/lib/query.ts`, a JSON file in
+  the app's cache directory), so tabs paint the last answer before the network
+  returns. Email bodies, authenticator codes, board renders and agent threads
+  are never written; sign-out deletes the file.
+- **Pushes are filtered on the server.** iOS shows an alert before app code
+  runs, so `MobileDevice.notifications` holds the phone's toggles and
+  `notifyDashboard` (`lib/mobile-push.ts`) skips devices with a kind off. The
+  kind table is `@repo/schemas` `dashboard-notifications`. Send on a
+  transition into a state, never on every re-evaluation; the collapse id is
+  per (kind, subject). Lock-screen text is sender, subject or a headline —
+  never a body, an amount or a code.
+- **Three ways in.** Web call sites call `scheduleDashboardPush`; the cloud
+  API's `MobileNotifier` and the status page post to `/api/mobile/notify`
+  (bearer `MOBILE_NOTIFY_TOKEN`, equal on api and web, or status's service
+  token). Cloud notification types map through `CLOUD_NOTIFICATION_KINDS`;
+  migration 0054 added `forge_deploy_failed`, `auth_sign_in` and
+  `auth_credential_changed`.
+- **The morning brief is `/api/jobs/morning-brief`**, idempotent per day via
+  `AppSettings.morningBriefSentOn`. Nothing in this repo calls it: point the
+  external scheduler at it at the hour it should arrive.
+- **Chat YOLO is per conversation**, off whenever a thread opens. Approvals
+  are answered against the stored conversation, never the streamed copy
+  (`@repo/utils/agent-stream`).
+- **The authenticator shows server-computed codes.** No code path to
+  `/authenticator/export` exists in the app.
