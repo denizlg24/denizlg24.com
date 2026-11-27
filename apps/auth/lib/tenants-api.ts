@@ -15,9 +15,11 @@ import {
   oauthClientCredentialsSchema,
   oauthResourceSummarySchema,
   type TenantDetail,
+  type TenantReturnLink,
   type TenantSummary,
   type TenantUserList,
   tenantDetailSchema,
+  tenantReturnLinkSchema,
   tenantSummarySchema,
   tenantUserListSchema,
   type UpdateTenantInput,
@@ -54,6 +56,12 @@ export const accountApi = {
       { method: "DELETE" },
     );
   },
+  /** Confirms a "Back to {app}" link; rejects when the URL is not the app's. */
+  returnLink: (clientId: string, url: string): Promise<TenantReturnLink> =>
+    requestData(
+      tenantReturnLinkSchema,
+      `/api/public/tenants/client/${encodeURIComponent(clientId)}/return?to=${encodeURIComponent(url)}`,
+    ),
 };
 
 export interface TenantUserQuery {

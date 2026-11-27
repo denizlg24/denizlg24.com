@@ -1,12 +1,17 @@
+FROM oven/bun:1.4.4-alpine AS prune
+WORKDIR /workspace
+RUN bun add --global turbo@2.11.9
+COPY . .
+RUN turbo prune nutrition nutrition-frontend --docker
+
 FROM oven/bun:1.4.4-alpine AS dependencies
 WORKDIR /workspace
-
-COPY --parents package.json bun.lock apps/*/package.json apps/nutrition/frontend/package.json packages/*/package.json ./
-RUN bun install --frozen-lockfile --ignore-scripts
+COPY --from=prune /workspace/out/json/ ./
+RUN --mount=type=cache,id=forge-bun-install,target=/root/.bun/install/cache,sharing=locked \
+  bun install --frozen-lockfile --ignore-scripts
 
 FROM dependencies AS build
-COPY apps/nutrition apps/nutrition
-COPY packages packages
+COPY --from=prune /workspace/out/full/ ./
 RUN bun run --cwd apps/nutrition build \
   && bun run --cwd apps/nutrition/frontend build
 

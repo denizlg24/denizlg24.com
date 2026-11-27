@@ -1,8 +1,14 @@
+FROM oven/bun:1.4.4-alpine AS prune
+WORKDIR /workspace
+RUN bun add --global turbo@2.11.9
+COPY . .
+RUN turbo prune cloud --docker
+
 FROM oven/bun:1.4.4-alpine AS dependencies
 WORKDIR /workspace
-
-COPY --parents package.json bun.lock apps/*/package.json packages/*/package.json ./
-RUN bun install --frozen-lockfile --ignore-scripts
+COPY --from=prune /workspace/out/json/ ./
+RUN --mount=type=cache,id=forge-bun-install,target=/root/.bun/install/cache,sharing=locked \
+  bun install --frozen-lockfile --ignore-scripts
 
 FROM dependencies AS build
 # The pages talk to the cloud API straight from the browser, so its URL is
@@ -10,10 +16,9 @@ FROM dependencies AS build
 # that forgot this breaks loudly instead of pointing at production.
 ARG NEXT_PUBLIC_CLOUD_API_URL=http://localhost:3001
 ENV NEXT_PUBLIC_CLOUD_API_URL=$NEXT_PUBLIC_CLOUD_API_URL
-COPY apps apps
-COPY packages packages
-COPY scripts scripts
+COPY --from=prune /workspace/out/full/ ./
 RUN --mount=type=secret,id=forge-env,required=false \
+  --mount=type=cache,id=forge-next-cloud,target=/workspace/apps/cloud/.next/cache,sharing=locked \
   if [ -f /run/secrets/forge-env ]; then set -a; . /run/secrets/forge-env; set +a; fi; \
   bun run --cwd apps/cloud build
 

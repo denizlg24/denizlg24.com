@@ -15,23 +15,37 @@ def select(paths: list[str]) -> dict[str, bool]:
         "envoy_cli": False,
         "ssh_server": False,
         "workflow_lint": False,
+        "docker_prune": False,
     }
     for path in paths:
         if path.endswith(".md"):
             continue
         if path.startswith((".github/workflows/", ".github/actions/")):
             checks["workflow_lint"] = True
+        name = path.rsplit("/", 1)[-1]
+        if (
+            path in {"bun.lock", ".dockerignore", "scripts/verify-docker-prune.sh"}
+            or name == "package.json"
+            or (path.startswith("apps/") and name.startswith("Dockerfile"))
+        ):
+            checks["docker_prune"] = True
         if path == ".github/workflows/ci.yml":
             for name in (
                 "build", "macros_db", "macros_vision", "email_classifier",
-                "sandbox_runtime", "envoy_cli", "ssh_server",
+                "sandbox_runtime", "envoy_cli", "ssh_server", "docker_prune",
             ):
                 checks[name] = True
             checks["full_js"] = True
             continue
-        if path in {"bun.lock", "package.json"}:
+        if path == "package.json":
             checks["build"] = True
             checks["full_js"] = True
+            checks["macros_db"] = True
+            continue
+        if path == "bun.lock":
+            # turbo diffs the lockfile per workspace, so --affected already
+            # narrows this to the packages whose dependencies moved.
+            checks["build"] = True
             checks["macros_db"] = True
             continue
         if path.startswith("scripts/ci/"):

@@ -1,12 +1,25 @@
+FROM oven/bun:1.4.4-debian AS prune
+WORKDIR /workspace
+RUN bun add --global turbo@2.11.9
+COPY . .
+RUN turbo prune browser --docker
+
 FROM oven/bun:1.4.4-debian AS dependencies
 WORKDIR /workspace
-
-COPY --parents package.json bun.lock apps/*/package.json packages/*/package.json ./
-RUN bun install --frozen-lockfile --ignore-scripts
+COPY --from=prune /workspace/out/json/ ./
+RUN --mount=type=cache,id=forge-bun-install,target=/root/.bun/install/cache,sharing=locked \
+  bun install --frozen-lockfile --ignore-scripts
 
 FROM dependencies AS build
-COPY apps/browser apps/browser
+COPY --from=prune /workspace/out/full/ ./
 RUN bun run --cwd apps/browser build
+
+# Only the two pinned versions reach the Chrome layer, so a version bump or a
+# devDependency edit elsewhere in apps/browser/package.json does not re-download Chrome.
+FROM oven/bun:1.4.4-debian AS runtime-manifest
+WORKDIR /out
+COPY apps/browser/package.json /tmp/manifest.json
+RUN bun -e 'const p = JSON.parse(await Bun.file("/tmp/manifest.json").text()); const keep = ["playwright", "@playwright/mcp"]; await Bun.write("package.json", JSON.stringify({ dependencies: Object.fromEntries(keep.map((name) => [name, p.dependencies[name]])) }))'
 
 # Debian, not alpine: Google Chrome is a glibc build and Playwright's
 # `install --with-deps` only knows apt. amd64 only — Chrome ships no linux/arm64.
@@ -27,10 +40,9 @@ ENV BROWSER_TIMEZONE=Europe/Lisbon
 # browser and read their own package tree — so those two are installed here
 # at the exact versions apps/browser/package.json pins. Everything else is in
 # dist, and the workspace devDependencies cannot resolve outside the monorepo.
-COPY apps/browser/package.json ./manifest.json
-RUN bun -e 'const p = JSON.parse(await Bun.file("manifest.json").text()); const keep = ["playwright", "@playwright/mcp"]; await Bun.write("package.json", JSON.stringify({ dependencies: Object.fromEntries(keep.map((name) => [name, p.dependencies[name]])) }))' \
-  && rm manifest.json \
-  && bun install \
+COPY --from=runtime-manifest /out/package.json ./package.json
+RUN --mount=type=cache,id=forge-bun-install,target=/root/.bun/install/cache,sharing=locked \
+  bun install \
   && bunx playwright install --with-deps chrome \
   && apt-get update \
   && apt-get install -y --no-install-recommends xvfb xauth fonts-liberation fonts-noto-core fonts-noto-color-emoji \

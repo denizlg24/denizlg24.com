@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { defaultClockExchanges, exchangeKeys } from "./exchanges";
 import { overlayWidgetSchema } from "./overlay";
 import { rangeKeys, symbolPattern, universeKeys } from "./universes";
 
@@ -81,6 +82,12 @@ export const widgetSchema = z.discriminatedUnion("kind", [
     fn: z.enum(deskFunctions),
     symbols: z.array(ticker).max(30).optional(),
   }),
+  z.object({
+    ...base,
+    kind: z.literal("clocks"),
+    exchanges: z.array(z.enum(exchangeKeys)).min(1).max(exchangeKeys.length),
+  }),
+  z.object({ ...base, kind: z.literal("fearGreed") }),
 ]);
 
 export const deskSchema = z.object({
@@ -100,6 +107,12 @@ export function defaultDesk(newId: () => string): Desk {
       { id: newId(), span: 1, kind: "watchlist" },
       { id: newId(), span: 1, kind: "news" },
       { id: newId(), span: 1, kind: "alerts" },
+      {
+        id: newId(),
+        span: 1,
+        kind: "clocks",
+        exchanges: [...defaultClockExchanges],
+      },
     ],
   };
 }

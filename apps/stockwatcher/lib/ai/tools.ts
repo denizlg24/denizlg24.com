@@ -61,6 +61,9 @@ const [
   market,
   insight,
   overlay,
+  _terminalFunction,
+  clocks,
+  fearGreed,
 ] = widgetSchema.options;
 export const widgetInputSchema = z.discriminatedUnion("kind", [
   brief.omit(omitId),
@@ -74,6 +77,8 @@ export const widgetInputSchema = z.discriminatedUnion("kind", [
   market.omit(omitId),
   insight.omit({ id: true, createdAt: true }),
   overlay.omit(omitId),
+  clocks.omit(omitId),
+  fearGreed.omit(omitId),
 ]);
 export type WidgetInput = z.infer<typeof widgetInputSchema>;
 

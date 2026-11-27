@@ -18,6 +18,7 @@ on:
       - "packages/schemas/src/macros/**"
       - "bun.lock"
       - ".github/workflows/macros-mobile.yml"
+      - "!**/*.md"
   workflow_dispatch:
 
 permissions:
@@ -67,10 +68,29 @@ jobs:
           fi
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
+  # Pull requests that only move the lockfile for other apps stop here.
+  gate:
+    name: Select affected code
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      any: ${{ steps.gate.outputs.any }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - name: Select affected code
+        id: gate
+        run: bun scripts/ci/gate.ts macros-mobile "$BASE_SHA" >> "$GITHUB_OUTPUT"
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+
   verify:
     name: Typecheck and test mobile code
-    needs: prepare
-    if: github.event_name == 'pull_request' || needs.prepare.outputs.publish == 'true' || github.event_name == 'workflow_dispatch'
+    needs: [prepare, gate]
+    if: needs.gate.outputs.any == 'true' && (github.event_name == 'pull_request' || needs.prepare.outputs.publish == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -78,6 +98,12 @@ jobs:
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
+      - name: Cache Bun downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Typecheck
@@ -123,6 +149,15 @@ jobs:
           node-version: 24
 
       - uses: oven-sh/setup-bun@v2
+
+      - name: Cache Bun and CocoaPods downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/Library/Caches/CocoaPods
+          key: ios-downloads-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: ios-downloads-${{ runner.os }}-
 
       - name: Install dependencies
         working-directory: .
@@ -217,6 +252,19 @@ jobs:
           node-version: 24
 
       - uses: oven-sh/setup-bun@v2
+
+      - name: Cache Bun downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      # Pull requests restore main's Gradle cache without writing their own.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Install dependencies
         working-directory: .

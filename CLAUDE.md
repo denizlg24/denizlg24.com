@@ -245,6 +245,17 @@ hint, not a platform ceiling.
   version off the crash report or `bun --version` in the build, never off that
   log line.
 
+- **App Dockerfiles install from `turbo prune <app> --docker`.** The install
+  layer is keyed on that app's pruned manifests and lockfile, and the source
+  layer on its own dependency closure, so another app's commit rebuilds
+  nothing. Install and `.next/cache` run under shared BuildKit cache mounts
+  (`forge-bun-install`, `forge-next-<app>`) that only the external
+  `forge-buildkit` daemon keeps. Two traps: a file read from outside the
+  closure at build time must be copied by hand (macros takes
+  `apps/macros-mobile/CHANGELOG.md`), and turbo can emit a lockfile bun
+  rejects — stockwatcher's does, so it filters the real lockfile instead.
+  `scripts/verify-docker-prune.sh` replays every prune's install.
+
 ## Auth
 
 One identity for everything: the cloud's Better Auth user, TOTP mandatory. The

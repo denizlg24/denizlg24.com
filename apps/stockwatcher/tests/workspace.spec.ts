@@ -12,6 +12,12 @@ async function openPreview(page: Page) {
   ).toBeVisible();
 }
 
+async function openAssistant(page: Page) {
+  const toggle = page.locator(".nav-assistant");
+  if ((await toggle.getAttribute("aria-expanded")) !== "true")
+    await toggle.click();
+}
+
 async function seedThread(page: Page, title: string) {
   const cookie = (await page.context().cookies()).find(
     (item) => item.name === "stockwatcher",
@@ -222,10 +228,7 @@ test("portfolio trades and notes can be recorded and assistant opens a prepared 
   await expect(
     page.getByRole("heading", { name: "Follow annual results" }),
   ).toBeVisible();
-  await page
-    .locator(".topbar-actions")
-    .getByRole("button", { name: "Ask Stockwatcher" })
-    .click();
+  await openAssistant(page);
   await page
     .getByRole("textbox", { name: "Request" })
     .fill("Alert me when AAPL goes below $100");
@@ -516,10 +519,7 @@ test("the chat API answers 503 JSON without AI and the assistant falls back clea
   expect(response.status()).toBe(503);
   expect(response.headers()["content-type"]).toContain("application/json");
   expect(typeof (await response.json()).error).toBe("string");
-  await page
-    .locator(".topbar-actions")
-    .getByRole("button", { name: "Ask Stockwatcher" })
-    .click();
+  await openAssistant(page);
   await expect(page.getByRole("textbox", { name: "Request" })).toBeVisible();
 });
 

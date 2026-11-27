@@ -32,6 +32,7 @@ on:
       - "packages/schemas/**"
       - "bun.lock"
       - "package.json"
+      - "!**/*.md"
 
 permissions:
   contents: read

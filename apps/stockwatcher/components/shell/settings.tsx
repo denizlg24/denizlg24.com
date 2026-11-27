@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut } from "lucide-react";
+import { LogOut, SlidersHorizontal } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { Field, type Save, value } from "@/components/forms";
 import { Failure } from "@/components/shared";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { studies, studyKeys } from "@/lib/indicators";
 import type { Workspace } from "@/lib/models";
 import { chartStyleLabels, chartStyles } from "@/lib/models";
+import { tickerLabel } from "@/lib/ticker";
 import { rangeKeys } from "@/lib/universes";
 import { homeOptions } from "./nav";
 
@@ -18,16 +19,20 @@ export type Account = {
   email: string | null;
   demo: boolean;
   admin?: boolean;
+  /** Same-origin URL of the uploaded profile picture, versioned per upload. */
+  picture?: string | null;
 };
 
 export function Settings({
   workspace,
   account,
   save,
+  onEditTicker,
 }: {
   workspace: Workspace;
   account: Account;
   save: Save;
+  onEditTicker: () => void;
 }) {
   const chart = workspace.settings.chart;
   const [error, setError] = useState<Error>();
@@ -43,6 +48,7 @@ export function Settings({
       await save((current) => ({
         ...current,
         settings: {
+          ...current.settings,
           theme: value(fields, "theme") as Workspace["settings"]["theme"],
           home: value(fields, "home") as Workspace["settings"]["home"],
           refresh: fields.has("refresh"),
@@ -192,6 +198,32 @@ export function Settings({
             </Button>
           </div>
         </form>
+      </section>
+      <section className="panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Ticker</h2>
+            <p>
+              {workspace.settings.ticker.length
+                ? `${workspace.settings.ticker.length} symbols scroll under the top bar.`
+                : "No symbols in the ticker."}
+            </p>
+          </div>
+        </div>
+        <div className="account-detail">
+          {workspace.settings.ticker.length ? (
+            <span className="settings-ticker">
+              {workspace.settings.ticker.map(tickerLabel).join(" · ")}
+            </span>
+          ) : null}
+          <Button
+            className="justify-self-start"
+            variant="outline"
+            onClick={onEditTicker}
+          >
+            <SlidersHorizontal /> Edit ticker
+          </Button>
+        </div>
       </section>
       <section className="panel">
         <div className="panel-heading">

@@ -58,20 +58,21 @@ function NavLinks({
 
 function AssistantLink({
   active,
-  open,
+  toggle,
 }: {
   active: boolean;
-  open: () => void;
+  toggle: () => void;
 }) {
   const { label, icon: Icon } = assistantNav;
   return (
     <button
       type="button"
-      className={active ? "active" : undefined}
+      className={active ? "nav-assistant active" : "nav-assistant"}
       aria-expanded={active}
       aria-controls="assistant-dock"
-      title={label}
-      onClick={open}
+      aria-keyshortcuts="Meta+J Control+J"
+      title={`${label} (⌘J)`}
+      onClick={toggle}
     >
       <Icon aria-hidden />
       <span>{label}</span>
@@ -94,7 +95,7 @@ export function Sidebar({
   badges: Partial<Record<View, number>>;
   go: (view: View) => void;
   close: () => void;
-  assistant: { active: boolean; open: () => void };
+  assistant: { active: boolean; toggle: () => void };
 }) {
   useEffect(() => {
     if (!open) return;
@@ -126,7 +127,7 @@ export function Sidebar({
           badges={badges}
           go={go}
         >
-          <AssistantLink active={assistant.active} open={assistant.open} />
+          <AssistantLink active={assistant.active} toggle={assistant.toggle} />
         </NavLinks>
         <NavLinks
           label="Preferences"

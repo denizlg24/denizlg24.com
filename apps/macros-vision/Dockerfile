@@ -1,6 +1,7 @@
 FROM python:3.12-slim-bookworm AS dependencies
 COPY --from=ghcr.io/astral-sh/uv:0.10.4 /uv /uvx /bin/
 WORKDIR /app
+ENV UV_LINK_MODE=copy
 
 COPY apps/macros-vision/pyproject.toml apps/macros-vision/uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -22,9 +23,9 @@ ENV OMP_NUM_THREADS=2 \
     PATH="/app/.venv/bin:$PATH"
 
 COPY --from=dependencies /app/.venv /app/.venv
-COPY apps/macros-vision/src /app/src
-
 RUN python -c "from rapidocr import RapidOCR; RapidOCR(); print('RapidOCR models verified and baked')"
+
+COPY apps/macros-vision/src /app/src
 
 EXPOSE 8090
 HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=5 \

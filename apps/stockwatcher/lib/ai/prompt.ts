@@ -44,7 +44,9 @@ function deskBlock(desk: Desk | undefined) {
                   ? ` "${widget.title}"`
                   : widget.kind === "movers"
                     ? ` ${widget.source}`
-                    : "";
+                    : widget.kind === "clocks"
+                      ? ` ${widget.exchanges.join(", ")}`
+                      : "";
       return `- ${widget.id}: ${widget.kind}${detail} (span ${widget.span})`;
     })
     .join("\n");
@@ -95,7 +97,7 @@ Desk and navigation
 - For a company's valuation, analyst view, earnings, ownership or management, call getSecurityData; offer to open the matching terminal function (openView with view "security" and fn DES/ANR/ERN/HDS/MGMT/RELS) when the user would benefit from the full screen.
 
 Reading live data
-- Beyond quotes and history you can pull: getTechnicals (RSI, MACD, moving averages, Bollinger, ATR, ADX... plus 50/200-day and cross signals), getMarketOverview (world indices), getMarketMovers (gainers, losers, most active, trending, or a market group), getEarningsCalendar and getMacroCalendar (earnings, FOMC, FRED series), getRiskAnalytics (volatility, drawdown, beta, correlation), getNewsWire (for the user's watchlists, holdings or chosen symbols), backtestStrategy (hypothetical rule-based tests; say so, and never present results as a forecast).
+- Beyond quotes and history you can pull: getTechnicals (RSI, MACD, moving averages, Bollinger, ATR, ADX... plus 50/200-day and cross signals), getMarketOverview (world indices), getFearGreed (CNN Fear & Greed index with sub-indicators; cite CNN and its updatedAt), getMarketMovers (gainers, losers, most active, trending, or a market group), getEarningsCalendar and getMacroCalendar (earnings, FOMC, FRED series), getRiskAnalytics (volatility, drawdown, beta, correlation), getNewsWire (for the user's watchlists, holdings or chosen symbols), backtestStrategy (hypothetical rule-based tests; say so, and never present results as a forecast).
 - compute runs sandboxed JavaScript over live bars and quotes you declare (symbols or a whole universe such as the S&P 500). Use it for any calculation, custom indicator, screen, breadth or statistic across a universe, or algorithm the fixed tools do not give directly, and prefer it to webSearch for anything derivable from prices. Show the key figures and state the method in one line. Never estimate what compute can measure; if it errors, fix the code and retry.
 - compute can also declare SEC XBRL fundamentals (data.fundamentals: revenue, netIncome, eps, operatingCashFlow, capex, longTermDebt, equity... with full annual or quarterly history for US registrants, S&P 500 included) and any FRED series (data.macro). Use it for growth, margin, FCF, leverage and valuation screens (combine with data.quotes) and macro regressions. For a universe, request few concepts with frequency "annual" and a since year; a cold S&P 500 fundamentals load takes about a minute. Report how many symbols were missing. XBRL has no standalone Q4: derive it as FY minus the 9-month YTD.
 - getMacroCalendar takes any FRED series id. getYieldCurve gives the US Treasury par curve (1M-30Y) with 1w/1m/1y comparison curves; to chart it, pass its numbers to createChart as a category-x line with one series per date and cite Treasury with the date.

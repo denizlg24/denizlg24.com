@@ -163,6 +163,17 @@ export const publicTenantSchema = z.object({
 });
 export type PublicTenant = z.infer<typeof publicTenantSchema>;
 
+/**
+ * A "Back to {app}" link the account pages may show: `url` is the requested
+ * page, confirmed to sit on an origin the client registered a redirect on.
+ * Public.
+ */
+export const tenantReturnLinkSchema = z.object({
+  url: z.url(),
+  tenant: publicTenantSchema,
+});
+export type TenantReturnLink = z.infer<typeof tenantReturnLinkSchema>;
+
 export const connectedAppSchema = z.object({
   clientId: z.string(),
   name: z.string().nullable(),

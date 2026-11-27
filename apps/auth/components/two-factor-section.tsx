@@ -8,12 +8,14 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@repo/ui/dialog";
 import { Input } from "@repo/ui/input";
 import { Label } from "@repo/ui/label";
-import { useState } from "react";
+import { Spinner } from "@repo/ui/spinner";
+import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { useAccount, useRefreshAccount } from "@/components/account-gate";
 import { PageSection } from "@/components/shell-frame";
@@ -22,9 +24,114 @@ import { enrollmentClient } from "@/lib/auth-client";
 type Stage = "password" | "enroll" | "codes";
 
 /**
+ * Turning the factor off needs the password. The API refuses it for a cloud
+ * account, for someone who manages an app, and while an app they use requires
+ * a second factor — its message names the app, so it is shown as is.
+ */
+function TurnOffDialog({
+  open,
+  onOpenChange,
+  onDone,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDone: () => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const change = (value: boolean) => {
+    onOpenChange(value);
+    if (!value) {
+      setPassword("");
+      setError(null);
+    }
+  };
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    const { error: disableError } = await enrollmentClient.twoFactor.disable({
+      password,
+    });
+    setBusy(false);
+    if (disableError) {
+      setError(
+        disableError.code === "INVALID_PASSWORD"
+          ? "That isn't your password."
+          : (disableError.message ?? "Couldn't turn it off. Try again."),
+      );
+      return;
+    }
+    change(false);
+    onDone();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={change}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-base">
+            Turn off the authenticator app?
+          </DialogTitle>
+          <DialogDescription>
+            Signing in will only ask for your password, and your backup codes
+            stop working. You can set it up again at any time.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="two-factor-off-password">Password</Label>
+            <Input
+              id="two-factor-off-password"
+              type="password"
+              autoComplete="current-password"
+              autoFocus
+              value={password}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? "two-factor-off-error" : undefined}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+            {error ? (
+              <p
+                id="two-factor-off-error"
+                role="alert"
+                className="text-xs text-destructive"
+              >
+                {error}
+              </p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() => change(false)}
+            >
+              Keep it on
+            </Button>
+            <Button
+              type="submit"
+              variant="destructive"
+              disabled={busy || password.length === 0}
+              aria-busy={busy || undefined}
+            >
+              {busy ? <Spinner aria-hidden="true" /> : null}
+              Turn off
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
  * A cloud account always has an authenticator app — sign-in will not finish
  * without one. A public account may add one here, which some apps require and
- * which managing an app always does.
+ * which managing an app always does, and turn it off again.
  */
 export function TwoFactorSection() {
   const account = useAccount();
@@ -34,6 +141,7 @@ export function TwoFactorSection() {
   const [password, setPassword] = useState("");
   const [codes, setCodes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [disabling, setDisabling] = useState(false);
 
   const close = () => {
     setOpen(false);
@@ -48,7 +156,17 @@ export function TwoFactorSection() {
       id="two-factor"
       title="Authenticator app"
       actions={
-        account.twoFactorEnabled ? null : (
+        account.twoFactorEnabled ? (
+          account.realm === "public" ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setDisabling(true)}
+            >
+              Turn off
+            </Button>
+          ) : null
+        ) : (
           <Button size="sm" onClick={() => setOpen(true)}>
             Set up
           </Button>
@@ -141,6 +259,14 @@ export function TwoFactorSection() {
           ) : null}
         </DialogContent>
       </Dialog>
+      <TurnOffDialog
+        open={disabling}
+        onOpenChange={setDisabling}
+        onDone={() => {
+          toast.success("Authenticator app is off");
+          void refreshAccount();
+        }}
+      />
     </PageSection>
   );
 }

@@ -4,13 +4,17 @@ FROM node:24-alpine AS dependencies
 WORKDIR /workspace
 COPY --from=oven/bun:1.4.4-alpine /usr/local/bin/bun /usr/local/bin/bun
 
-COPY --parents package.json bun.lock apps/*/package.json packages/*/package.json ./
-RUN bun install --frozen-lockfile --ignore-scripts
+COPY --parents package.json bun.lock apps/*/package.json apps/nutrition/frontend/package.json packages/*/package.json ./
+# turbo prune emits a lockfile bun rejects for this app (tailwindcss goes missing),
+# so the install filters the real lockfile instead.
+RUN --mount=type=cache,id=forge-bun-install,target=/root/.bun/install/cache,sharing=locked \
+  bun install --frozen-lockfile --ignore-scripts --filter stockwatcher
 
 FROM dependencies AS build
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY apps/stockwatcher apps/stockwatcher
-RUN bun run --cwd apps/stockwatcher build
+RUN --mount=type=cache,id=forge-next-stockwatcher,target=/workspace/apps/stockwatcher/.next/cache,sharing=locked \
+  bun run --cwd apps/stockwatcher build
 
 FROM node:24-alpine AS runtime
 WORKDIR /app

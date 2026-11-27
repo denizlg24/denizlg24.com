@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "./styles/chat.css";
 @import "./styles/desk.css";
+@import "./styles/fear-greed.css";
 @import "./styles/shell.css";
 @import "./styles/reports.css";
 @import "./styles/terminal.css";
@@ -9,6 +10,7 @@
 @import "./styles/channel-guide.css";
 @import "./styles/alerts.css";
 @import "./styles/admin.css";
+@import "./styles/account.css";
 @import "./styles/landing.css";
 @custom-variant dark (
   &:where(
@@ -97,6 +99,7 @@
   --shadow-pop: 0 10px 28px -12px #12181440, 0 2px 6px -2px #1218141a;
   --radius: 4px;
   --display: "Newsreader Variable", Georgia, serif;
+  --mono-ui: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --fs-2xs: 0.6875rem;
   --fs-xs: 0.75rem;
   --fs-sm: 0.8125rem;
@@ -706,74 +709,11 @@ a.chip:hover {
   background: var(--muted);
 }
 
-/* ── Benchmarks band ────────────────────────────────────────── */
-
-.benchmark-section {
-  margin-bottom: var(--stack);
-}
-.benchmark-strip {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  border-top: 1px solid var(--rule-strong);
-  border-bottom: 1px solid var(--rule);
-}
-.benchmark {
-  position: relative;
-  padding: 8px 12px 8px;
-  min-width: 0;
-  display: block;
-  text-align: left;
-  border-left: 1px solid var(--rule);
-}
-.benchmark:first-child {
-  border-left: 0;
-  padding-left: 0;
-}
-.benchmark:hover {
-  background: color-mix(in srgb, var(--muted) 70%, transparent);
-}
-.benchmark.chosen {
-  box-shadow: inset 0 2px 0 var(--term-header);
-}
-.benchmark.chosen > span {
-  color: var(--foreground);
-}
-.benchmark:focus-visible {
-  outline-offset: -2px;
-}
-.benchmark > span {
-  display: block;
-  color: var(--muted-foreground);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: var(--fs-2xs);
-  font-weight: 550;
-}
-.benchmark > div {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0 8px;
-  margin-top: 2px;
-}
-.benchmark strong {
-  font-size: var(--fs-md);
-  font-weight: 620;
-}
-.benchmark .change {
-  font-size: var(--fs-2xs);
-}
-
 /* ── Layout grids ───────────────────────────────────────────── */
 
 .stack-layout {
   display: grid;
   gap: var(--stack);
-}
-.stack-layout .benchmark-section {
-  margin-bottom: 0;
 }
 
 /* ── Chart ──────────────────────────────────────────────────── */
@@ -1842,9 +1782,6 @@ a.chip:hover {
   :root {
     --gutter: 24px;
   }
-  .benchmark {
-    padding-inline: 9px;
-  }
 }
 @media (max-width: 760px) {
   :root {
@@ -1854,16 +1791,6 @@ a.chip:hover {
   .research-grid,
   .settings-grid {
     grid-template-columns: 1fr;
-  }
-  .benchmark-strip {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-  .benchmark:nth-child(3n + 1) {
-    border-left: 0;
-    padding-left: 0;
-  }
-  .benchmark:nth-child(-n + 3) {
-    border-bottom: 1px solid var(--rule);
   }
   .watch-row {
     grid-template-columns: minmax(0, 1fr) minmax(72px, 0.65fr) minmax(
@@ -1893,11 +1820,6 @@ a.chip:hover {
   .section-head .row-actions {
     flex-wrap: wrap;
     justify-content: end;
-  }
-  .benchmark > span {
-    white-space: normal;
-    min-height: 2em;
-    line-height: 1.18;
   }
   .price-chart {
     height: 240px;

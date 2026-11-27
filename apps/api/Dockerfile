@@ -1,28 +1,17 @@
-# syntax=docker/dockerfile:1.7
-
-FROM oven/bun:1.4.4-alpine AS manifests
-WORKDIR /src
+FROM oven/bun:1.4.4-alpine AS prune
+WORKDIR /workspace
+RUN bun add --global turbo@2.11.9
 COPY . .
-# Bun 1.3.3 needs the complete workspace manifest set for a frozen install.
-# Expanding the root `workspaces` globs here means a new app needs no edit to
-# this file; the stage reruns on every source change, but the COPY --from below
-# is content-addressed, so the install layer is reused until a manifest changes.
-RUN bun -e 'const { mkdirSync, copyFileSync } = require("node:fs"); const { dirname } = require("node:path"); for (const pattern of require("./package.json").workspaces) for (const manifest of new Bun.Glob(`${pattern}/package.json`).scanSync(".")) { mkdirSync(`/manifests/${dirname(manifest)}`, { recursive: true }); copyFileSync(manifest, `/manifests/${manifest}`); }'
+RUN turbo prune api --docker
 
 FROM oven/bun:1.4.4-alpine AS dependencies
 WORKDIR /workspace
-
-COPY package.json bun.lock ./
-COPY --from=manifests /manifests/ ./
-
-RUN bun install --frozen-lockfile --ignore-scripts --filter api
+COPY --from=prune /workspace/out/json/ ./
+RUN --mount=type=cache,id=forge-bun-install,target=/root/.bun/install/cache,sharing=locked \
+  bun install --frozen-lockfile --ignore-scripts
 
 FROM dependencies AS build
-COPY apps/api apps/api
-COPY packages/cloud-auth-client packages/cloud-auth-client
-COPY packages/cloud-core packages/cloud-core
-COPY packages/markets packages/markets
-COPY packages/schemas packages/schemas
+COPY --from=prune /workspace/out/full/ ./
 RUN bun run --cwd apps/api build
 
 FROM oven/bun:1.4.4-alpine AS runtime

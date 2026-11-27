@@ -63,22 +63,17 @@ def check() -> list[str]:
     for workspace, (dockerfile, _) in SERVICES.items():
         name = json.loads((ROOT / workspace / "package.json").read_text())["name"]
         docker = (ROOT / dockerfile).read_text()
-        # Bun's --filter has no pnpm `name...` closure syntax: the suffix
-        # matches no workspace, and the install silently links nothing.
-        install = f"bun install --frozen-lockfile --ignore-scripts --filter {name}\n"
-        if install not in docker:
-            errors.append(f"{dockerfile}: expected `{install.strip()}`")
-        # The pinned Bun 1.3.3 image cannot reliably do a frozen install with
-        # missing workspace manifests, even when --filter selects one app, so
-        # every manifest the root `workspaces` globs match is staged.
-        for line in ('require("./package.json").workspaces', "COPY --from=manifests /manifests/ ./"):
+        # turbo prune stages exactly the workspace closure, so the image can
+        # only miss a dependency if the install or build skips the pruned
+        # output. scripts/verify-docker-prune.sh checks the install resolves.
+        for line in (
+            f"RUN turbo prune {name} --docker\n",
+            "COPY --from=prune /workspace/out/json/ ./\n",
+            "bun install --frozen-lockfile",
+            "COPY --from=prune /workspace/out/full/ ./\n",
+        ):
             if line not in docker:
-                errors.append(f"{dockerfile}: the manifests stage is missing `{line}`")
-        for dependency in sorted(closure(name, catalog, include_dev=False)):
-            directory, _ = catalog[dependency]
-            copy = f"COPY {directory} {directory}"
-            if copy not in docker:
-                errors.append(f"{dockerfile}: missing {copy}")
+                errors.append(f"{dockerfile}: expected `{line.strip()}`")
     return errors
 
 

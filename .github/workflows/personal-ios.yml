@@ -25,6 +25,7 @@ on:
       - "packages/tts/**"
       - "bun.lock"
       - ".github/workflows/personal-ios.yml"
+      - "!**/*.md"
   workflow_dispatch:
 
 permissions:
@@ -35,30 +36,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # A lockfile or shared-package change selects only the apps it reaches; the
+  # app list lives in scripts/ci/gates.ts.
+  gate:
+    name: Select affected apps
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      any: ${{ steps.gate.outputs.any }}
+      matrix: ${{ steps.gate.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - name: Select apps
+        id: gate
+        run: bun scripts/ci/gate.ts personal-ios "$BASE_SHA" >> "$GITHUB_OUTPUT"
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+
   build:
     name: Build ${{ matrix.app }} (unsigned)
+    needs: gate
+    if: needs.gate.outputs.any == 'true'
     runs-on: macos-26
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - app: Stream
-            directory: apps/stream-mobile
-            extension: ""
-          - app: Hours
-            directory: apps/hours-mobile
-            extension: HoursWidgetExtension
-          - app: Voice
-            directory: apps/voice-mobile
-            extension: VoiceWidgetExtension
-          - app: Location
-            directory: apps/location-mobile
-            extension: ""
-          - app: Dashboard
-            directory: apps/dashboard-mobile
-            extension: DashboardWidgetExtension
-            share: DashboardShareExtension
+      matrix: ${{ fromJSON(needs.gate.outputs.matrix) }}
     defaults:
       run:
         working-directory: ${{ matrix.directory }}
@@ -81,6 +88,15 @@ jobs:
           node-version: 24
 
       - uses: oven-sh/setup-bun@v2
+
+      - name: Cache Bun and CocoaPods downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/Library/Caches/CocoaPods
+          key: ios-downloads-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: ios-downloads-${{ runner.os }}-
 
       - name: Install dependencies
         working-directory: .

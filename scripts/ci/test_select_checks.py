@@ -7,7 +7,7 @@ class SelectChecksTest(unittest.TestCase):
     def test_python_only(self):
         self.assertEqual(
             select(["apps/macros-vision/service.py"]),
-            {"build": False, "full_js": False, "macros_db": False, "macros_vision": True, "email_classifier": False, "sandbox_runtime": False, "envoy_cli": False, "ssh_server": False, "workflow_lint": False},
+            {"build": False, "full_js": False, "macros_db": False, "macros_vision": True, "email_classifier": False, "sandbox_runtime": False, "envoy_cli": False, "ssh_server": False, "workflow_lint": False, "docker_prune": False},
         )
 
     def test_database_and_javascript(self):
@@ -20,7 +20,7 @@ class SelectChecksTest(unittest.TestCase):
     def test_bun_lockfile_skips_python_and_rust(self):
         checks = select(["bun.lock"])
         self.assertTrue(checks["build"])
-        self.assertTrue(checks["full_js"])
+        self.assertFalse(checks["full_js"])
         self.assertTrue(checks["macros_db"])
         self.assertFalse(checks["macros_vision"])
         self.assertFalse(checks["email_classifier"])
@@ -28,6 +28,10 @@ class SelectChecksTest(unittest.TestCase):
         self.assertFalse(checks["envoy_cli"])
         self.assertFalse(checks["ssh_server"])
         self.assertFalse(checks["workflow_lint"])
+
+    def test_root_manifest_runs_full_javascript(self):
+        checks = select(["package.json"])
+        self.assertTrue(checks["full_js"])
 
     def test_non_javascript_apps_use_their_own_checks(self):
         cases = {
@@ -58,6 +62,11 @@ class SelectChecksTest(unittest.TestCase):
         checks = select(["scripts/clean-next-dev-types.mjs"])
         self.assertTrue(checks["build"])
         self.assertTrue(checks["full_js"])
+
+    def test_dependency_and_dockerfile_changes_verify_prunes(self):
+        for path in ("bun.lock", "apps/web/package.json", "apps/stockwatcher/Dockerfile.worker", ".dockerignore"):
+            self.assertTrue(select([path])["docker_prune"], path)
+        self.assertFalse(select(["apps/web/app/page.tsx"])["docker_prune"])
 
     def test_docs_only_runs_none(self):
         self.assertFalse(any(select(["docs/guide.md"]).values()))

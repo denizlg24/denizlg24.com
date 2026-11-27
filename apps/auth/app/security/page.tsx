@@ -20,6 +20,7 @@ import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AccountShell } from "@/components/account-gate";
 import { PasskeyNameDialog } from "@/components/passkey-dialogs";
+import { PasswordSection } from "@/components/password-section";
 import { PageIntro, PageSection, SectionEmpty } from "@/components/shell-frame";
 import { TwoFactorSection } from "@/components/two-factor-section";
 import { api, errorMessage } from "@/lib/api";
@@ -437,6 +438,8 @@ function SecurityPanel() {
     return (
       <>
         {intro}
+        <PasswordSection />
+        <TwoFactorSection />
         <p className="text-sm text-destructive" role="alert">
           {error}
         </p>
@@ -457,6 +460,7 @@ function SecurityPanel() {
   return (
     <>
       {intro}
+      <PasswordSection />
       <TwoFactorSection />
       <PageSection
         id="passkeys"

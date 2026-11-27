@@ -110,7 +110,6 @@ type QuotesData = {
   source: string;
 };
 type SearchData = { instruments: Instrument[]; news: News[] };
-const benchmarkSymbols = Object.keys(benchmarks).join(",");
 const benchmarkLabels = benchmarks as Record<string, string>;
 export const marketURL = (query: Record<string, string>) =>
   `/api/market?${new URLSearchParams(query)}`;
@@ -162,55 +161,6 @@ export function useSearch(query: string, enabled = true) {
     enabled && query.trim() ? marketURL({ q: query.trim() }) : null,
     api,
     { errorRetryCount: 1 },
-  );
-}
-
-export function Benchmarks({
-  select,
-  selected,
-  refresh,
-}: {
-  select: (ticker: string) => void;
-  selected: string;
-  refresh: boolean;
-}) {
-  const { data, error, mutate, isLoading } = useQuotes(
-    benchmarkSymbols.split(","),
-    refresh,
-  );
-  const bySymbol = new Map(data?.quotes.map((quote) => [quote.symbol, quote]));
-  return (
-    <section aria-label="Market benchmarks" className="benchmark-section">
-      <div className="benchmark-strip">
-        {Object.entries(benchmarks).map(([ticker, label]) => {
-          const quote = bySymbol.get(ticker);
-          return (
-            <button
-              type="button"
-              key={ticker}
-              className={`benchmark ${ticker === selected ? "chosen" : ""}`}
-              onClick={() => select(ticker)}
-              aria-pressed={ticker === selected}
-            >
-              <span>{label}</span>
-              <div>
-                <strong>
-                  {isLoading ? (
-                    <i className="number-placeholder" />
-                  ) : quote ? (
-                    <Tick value={quote.price} />
-                  ) : (
-                    "—"
-                  )}
-                </strong>
-                <Change value={quote?.percent} />
-              </div>
-            </button>
-          );
-        })}
-      </div>
-      {error ? <Failure error={error} retry={mutate} /> : null}
-    </section>
   );
 }
 

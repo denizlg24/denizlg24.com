@@ -12,6 +12,8 @@ import {
 } from "@/lib/analytics";
 import { earningsCalendar, fomcMeetings } from "@/lib/calendar";
 import { type Identity, readWorkspace } from "@/lib/db";
+import { getFearGreed } from "@/lib/fear-greed";
+import { bandLabel, downsample, fearGreedSource } from "@/lib/fear-greed-model";
 import { fredSeries } from "@/lib/fred";
 import {
   computeStudies,
@@ -201,6 +203,73 @@ export function marketTools({ user }: { user: Identity }) {
             source: data.source ?? "Yahoo Finance",
           };
         }, "Technical indicators are temporarily unavailable."),
+    }),
+    getFearGreed: tool({
+      description:
+        "CNN Fear & Greed Index (0-100; Extreme Fear <25, Fear 25-45, Neutral 45-55, Greed 55-75, Extreme Greed >=75), refreshed about every minute during US market hours. Returns the current score and band, changes versus the previous close, 1 week, 1 month and 1 year ago, the seven sub-indicators (momentum, strength, breadth, put/call, junk bond demand, volatility, safe haven) each scored 0-100, and a downsampled one-year history with its high and low. Unofficial CNN data: cite 'CNN Fear & Greed' with updatedAt, and say so if stale is true.",
+      inputSchema: z.object({}),
+      execute: () =>
+        attempt(async () => {
+          const data = await getFearGreed();
+          const change = (from: number | null) =>
+            from == null ? null : round(data.score - from, 1);
+          const scores = data.history.map((point) => point.score);
+          const high = data.history.reduce((a, b) =>
+            b.score > a.score ? b : a,
+          );
+          const low = data.history.reduce((a, b) =>
+            b.score < a.score ? b : a,
+          );
+          return {
+            score: data.score,
+            rating: bandLabel(data.band),
+            updatedAt: new Date(data.updatedAt).toISOString(),
+            fetchedAt: new Date(data.fetchedAt).toISOString(),
+            stale: data.stale,
+            previous: {
+              close: {
+                score: data.previous.close,
+                change: change(data.previous.close),
+              },
+              week: {
+                score: data.previous.week,
+                change: change(data.previous.week),
+              },
+              month: {
+                score: data.previous.month,
+                change: change(data.previous.month),
+              },
+              year: {
+                score: data.previous.year,
+                change: change(data.previous.year),
+              },
+            },
+            indicators: data.indicators.map((item) => ({
+              name: item.label,
+              score: item.score,
+              rating: bandLabel(item.band),
+            })),
+            history: {
+              points: downsample(data.history, 26).map((point) => ({
+                date: new Date(point.time).toISOString().slice(0, 10),
+                score: point.score,
+              })),
+              average: round(
+                scores.reduce((a, b) => a + b, 0) / scores.length,
+                1,
+              ),
+              high: {
+                date: new Date(high.time).toISOString().slice(0, 10),
+                score: high.score,
+              },
+              low: {
+                date: new Date(low.time).toISOString().slice(0, 10),
+                score: low.score,
+              },
+            },
+            source: fearGreedSource,
+          };
+        }, "CNN Fear & Greed is temporarily unavailable."),
     }),
     getMarketOverview: tool({
       description:

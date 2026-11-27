@@ -56,6 +56,7 @@ Set these production runtime values in Forge.
 | -------------------------------------------------- | ---------------------------------------------------------------------- |
 | `APP_URL`                                          | Canonical public HTTPS origin                                          |
 | `DENIZ_OIDC_CLIENT_ID`, `DENIZ_OIDC_CLIENT_SECRET` | Stockwatcher OAuth client credentials                                  |
+| `DENIZ_AUTH_APP_URL`                               | deniz auth's web app, where `/account` links for password and two-factor. Defaults to `https://auth.denizlg24.com` |
 | `DATABASE_URL`                                     | Dedicated PostgreSQL database URL, with provider-required TLS settings |
 | `REQUIRE_DATABASE_URL`                             | `1`                                                                    |
 | `DEMO_MODE`                                        | `0`                                                                    |

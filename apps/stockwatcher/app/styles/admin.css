@@ -451,7 +451,7 @@
   }
 }
 
-/* Plan & credits (/account) reuses the admin shell. */
+/* Account (/account) reuses the admin shell. */
 .account-notice {
   margin: 0 0 var(--stack);
   padding: 6px var(--sp-2);

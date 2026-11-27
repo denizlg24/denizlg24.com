@@ -38,6 +38,7 @@ import {
 import { DockResizer } from "./assistant/dock-resizer";
 import { useDockWidth } from "./assistant/dock-width";
 import { Desk } from "./desk/desk";
+import { FearGreedPanel } from "./fear-greed";
 import type { Save } from "./forms";
 import { useLiveStatus } from "./live-quotes";
 import { ChartPanel, MarketMap } from "./market-widgets";
@@ -51,6 +52,8 @@ import { PanelTabs } from "./shell/panel-tabs";
 import { SearchDialog } from "./shell/search-dialog";
 import { type Account, Settings } from "./shell/settings";
 import { Sidebar } from "./shell/sidebar";
+import { TickerEditor } from "./shell/ticker-editor";
+import { TickerStrip } from "./shell/ticker-strip";
 import { Topbar } from "./shell/topbar";
 import { AddSymbolDialog, ListEditor } from "./watchlists";
 
@@ -155,6 +158,7 @@ export function Dashboard({
     initial.data.watchlists[0]?.id ?? "",
   );
   const [search, setSearch] = useState(false);
+  const [tickerEditing, setTickerEditing] = useState(false);
   const [help, setHelp] = useState(false);
   const liveStatus = useLiveStatus();
   const [modal, setModal] = useState<"symbol" | "list" | null>(null);
@@ -364,10 +368,6 @@ export function Dashboard({
     setSheet(false);
     if (!window.matchMedia(mobileQuery).matches) setDocked(false);
   }, [setDocked]);
-  const openFullAssistant = useCallback(() => {
-    if (!window.matchMedia(mobileQuery).matches) changeMode("full");
-    openAssistant();
-  }, [changeMode, openAssistant]);
   const toggleAssistant = useCallback(() => {
     if (assistantOpen) closeAssistant();
     else openAssistant();
@@ -559,15 +559,10 @@ export function Dashboard({
       <Topbar
         inert={fullScreen}
         account={account}
-        ticker={view === "markets" ? ticker : undefined}
-        refresh={refresh}
         navOpen={navOpen}
-        assistantOpen={assistantOpen}
         onMenu={() => setNavOpen(!navOpen)}
         onHome={() => go("desk")}
         onSearch={() => setSearch(true)}
-        onAssistant={openAssistant}
-        onSymbol={choose}
         onSettings={() => go("settings")}
         onMemory={() => go("memory")}
         security={
@@ -577,6 +572,14 @@ export function Dashboard({
         }
         onCommand={runCommand}
       />
+      <TickerStrip
+        inert={fullScreen}
+        symbols={workspace.settings.ticker}
+        selected={view === "markets" || view === "security" ? ticker : ""}
+        refresh={refresh}
+        onSymbol={choose}
+        onEdit={() => setTickerEditing(true)}
+      />
       <Sidebar
         inert={fullScreen}
         view={view}
@@ -584,7 +587,7 @@ export function Dashboard({
         badges={{ alerts: triggered }}
         go={go}
         close={() => setNavOpen(false)}
-        assistant={{ active: fullScreen, open: openFullAssistant }}
+        assistant={{ active: assistantOpen, toggle: toggleAssistant }}
       />
       <main
         className="shell-main"
@@ -660,6 +663,7 @@ export function Dashboard({
                 select={choose}
                 refresh={refresh}
               />
+              <FearGreedPanel refresh={refresh} />
               <ComparePanel
                 key={custom.length > 1 ? custom.join(",") : "empty"}
                 symbols={custom.slice(0, 6)}
@@ -831,7 +835,12 @@ export function Dashboard({
             </>
           ) : null}
           {view === "settings" ? (
-            <Settings workspace={workspace} account={account} save={save} />
+            <Settings
+              workspace={workspace}
+              account={account}
+              save={save}
+              onEditTicker={() => setTickerEditing(true)}
+            />
           ) : null}
           <footer className="workspace-footer">
             <span>
@@ -887,6 +896,13 @@ export function Dashboard({
           />
         )}
       </aside>
+      {tickerEditing ? (
+        <TickerEditor
+          symbols={workspace.settings.ticker}
+          save={save}
+          close={() => setTickerEditing(false)}
+        />
+      ) : null}
       {search ? (
         <SearchDialog
           close={() => setSearch(false)}

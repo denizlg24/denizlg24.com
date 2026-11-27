@@ -122,6 +122,19 @@ its history (`git subtree`). Product truth is `PRODUCT.md`, the visual system
   token means reconnecting. Browser push is the `push` channel kind
   (`web-push`, VAPID keys, `public/push-sw.js`). Each is hidden in the UI
   while its env is missing; the manual paths stay.
+- **`/account` owns the profile picture; deniz auth owns the rest.** The
+  picture is a 256 px square the browser crops and encodes (WebP, JPEG on
+  Safari), capped at 256 KB, sniffed by magic bytes and stored in
+  `stockwatcher_profile_pictures` (`profile_pictures` on SQLite); it is
+  served only to its owner at `/api/account/picture?v=<updated ms>`,
+  immutable per version. The identity's `image` was not used: the API has
+  no upload path, and a data URL there would ride in every session read and
+  ID token. Name, password and two-factor link out to deniz auth
+  (`DENIZ_AUTH_APP_URL`, default `https://auth.denizlg24.com`) with
+  `client_id` and a `returnTo` on `APP_URL`, which deniz auth verifies
+  against this client's registered redirect origins before drawing "Back to
+  Stockwatcher". The name is captured at sign-in, so a change shows after
+  the next sign-in.
 - **`/mcp` is the users' MCP server, authenticated by personal access
   tokens.** `/account` creates `swk_…` tokens (sha256 at rest, shown once,
   `read` or `write`, ten per user); `app/mcp/route.ts` resolves the bearer,

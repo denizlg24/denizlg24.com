@@ -27,9 +27,11 @@ import {
   type WidgetKind,
   widgetSchema,
 } from "@/lib/desk";
+import { defaultClockExchanges, type ExchangeKey } from "@/lib/exchanges";
 import type { Workspace } from "@/lib/models";
 import { monitorFunctions } from "@/lib/terminal";
 import { type Range, ranges, type Universe, universes } from "@/lib/universes";
+import { ExchangePicker } from "./clocks";
 import { parseSymbols } from "./frame";
 
 export const widgetCatalog: Record<
@@ -92,6 +94,16 @@ export const widgetCatalog: Record<
     description: "GC, RRG, CORR, TOP, EVTS, PRSK, FXC, CMDTY, CRYP or GRID",
     span: 2,
   },
+  clocks: {
+    label: "Market clocks",
+    description: "Local time, session state and countdown per exchange",
+    span: 1,
+  },
+  fearGreed: {
+    label: "Fear & Greed",
+    description: "CNN market sentiment gauge, 0 to 100, with its recent trend",
+    span: 1,
+  },
 };
 
 const kinds = Object.keys(widgetCatalog).filter(
@@ -139,6 +151,9 @@ export function AddWidgetDialog({
     universeKeys[0] ?? "S&P 500",
   );
   const [fn, setFn] = useState<DeskFunction>("RRG");
+  const [clockExchanges, setClockExchanges] = useState<ExchangeKey[]>(
+    defaultClockExchanges,
+  );
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [error, setError] = useState<Error>();
@@ -149,6 +164,7 @@ export function AddWidgetDialog({
     switch (kind) {
       case "brief":
       case "alerts":
+      case "fearGreed":
         return { ...base, kind };
       case "holdings":
         return {
@@ -179,6 +195,8 @@ export function AddWidgetDialog({
         const symbols = parseSymbols(symbolsText);
         return { ...base, kind, fn, ...(symbols.length ? { symbols } : {}) };
       }
+      case "clocks":
+        return { ...base, kind, exchanges: clockExchanges };
       case "insight":
         return {
           ...base,
@@ -443,6 +461,16 @@ export function AddWidgetDialog({
                 </SelectContent>
               </Select>
             </Row>
+          ) : null}
+
+          {kind === "clocks" ? (
+            <div className="field">
+              <span>Exchanges</span>
+              <ExchangePicker
+                selected={clockExchanges}
+                onChange={setClockExchanges}
+              />
+            </div>
           ) : null}
 
           {kind === "insight" ? (

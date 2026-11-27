@@ -21,6 +21,15 @@
 _archive
 apps/*/android
 apps/*/ios
+apps/desktop/src-tauri
+apps/envoy-cli
+apps/tally-macos
+apps/tv-launcher
+apps/ssh-server
+.claude
+.husky
+docs
+**/*.log
 coverage
 # Forge's scoped Nixpacks install layer copies every scripts directory it finds,
 # including infra/scripts and infra/compose/scripts. Keep those paths in the
