@@ -34,7 +34,12 @@ export async function modelsFor(userId: string) {
   return { chat: provider(chatModelId()), brief: provider(briefModelId()) };
 }
 
-/** Tags gateway reporting by user; budgets come from the key, not this. */
-export const gatewayOptions = (userId: string) => ({
-  gateway: { user: userId },
+/**
+ * Tags gateway reporting by user; budgets come from the key, not this.
+ * `cached` lets the gateway place a moving cache breakpoint on the latest
+ * message, which pays for multi-step turns; a one-shot call with a unique
+ * prompt would only pay the cache-write premium.
+ */
+export const gatewayOptions = (userId: string, cached = false) => ({
+  gateway: { user: userId, ...(cached ? { caching: "auto" as const } : {}) },
 });

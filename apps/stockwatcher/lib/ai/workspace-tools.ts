@@ -624,7 +624,7 @@ export function workspaceTools({ user }: { user: Identity }) {
     }),
     manageAlerts: tool({
       description:
-        "Create and manage alert rules directly (use proposeAlert instead when the user is only exploring). Metrics: price (absolute, quote currency), change (day % vs previous close), move (% move from the price when created; the live price is captured automatically), volume (shares today). create: symbol, direction, target (+ metric, repeat once|rearm, note, channels, expires). update: id + any rule fields (changing the symbol, metric, direction or target resets trigger history). pause / arm / delete: ids (arm re-enables and re-primes). clearActivity: wipes the fired-alert log, or only these ids' events. Channels default to all active notification channels; pass ids or labels from getWorkspace, or [] for in-app only. Trigger history is server-owned and cannot be set.",
+        "Create and manage alert rules directly (use proposeAlert instead when the user is only exploring). Metrics: price (absolute, quote currency), change (day % vs previous close), move (% move from the price when created; the live price is captured automatically), volume (shares today). create: symbol, direction, target (+ metric, repeat once|rearm, note, channels, expires), or `rules` with up to 30 alerts at once — always batch when creating more than one. update: id + any rule fields (changing the symbol, metric, direction or target resets trigger history). pause / arm / delete: ids (arm re-enables and re-primes). clearActivity: wipes the fired-alert log, or only these ids' events. Channels default to all active notification channels; pass ids or labels from getWorkspace, or [] for in-app only. Trigger history is server-owned and cannot be set.",
       inputSchema: z.object({
         action: z.enum([
           "create",
@@ -665,10 +665,109 @@ export function workspaceTools({ user }: { user: Identity }) {
           .nullable()
           .optional()
           .describe("YYYY-MM-DD, or null for no expiry"),
+        rules: z
+          .array(
+            z.object({
+              symbol: ticker,
+              metric: z.enum(alertMetrics).optional(),
+              direction: z.enum(["above", "below"]),
+              target: z.number().finite().min(-1e12).max(1e12),
+              repeat: z.enum(["once", "rearm"]).optional(),
+              note: z.string().trim().max(280).optional(),
+              channels: z.array(z.string().min(1).max(80)).max(10).optional(),
+              expires: z.iso.date().nullable().optional(),
+            }),
+          )
+          .min(1)
+          .max(30)
+          .optional()
+          .describe("create only: several alerts in one call"),
       }),
       execute: (input) =>
         attempt(async () => {
           const { action } = input;
+          if (action === "create") {
+            const drafts = input.rules ?? [
+              {
+                symbol: need(input.symbol, "Provide a symbol or rules."),
+                metric: input.metric,
+                direction: need(
+                  input.direction,
+                  "Provide a direction (above or below).",
+                ),
+                target: need(input.target, "Provide a target."),
+                repeat: input.repeat,
+                note: input.note,
+                channels: input.channels,
+                expires: input.expires,
+              },
+            ];
+            const labels = new Map(
+              (await listChannels(userId))
+                .map(publicChannel)
+                .map((channel) => [channel.id, channel.label]),
+            );
+            const routes = await Promise.all(
+              drafts.map((draft) => resolveChannels(userId, draft.channels)),
+            );
+            const moveSymbols = [
+              ...new Set(
+                drafts
+                  .filter((draft) => draft.metric === "move")
+                  .map((draft) => draft.symbol),
+              ),
+            ];
+            const live = new Map(
+              (moveSymbols.length
+                ? await quotes(moveSymbols).catch(() => [])
+                : []
+              ).map((quote) => [quote.symbol, quote.price]),
+            );
+            return write(userId, (workspace) => {
+              if (workspace.alerts.length + drafts.length > 60)
+                throw new Error(
+                  `At most 60 alerts are allowed; ${workspace.alerts.length} exist. Delete some first.`,
+                );
+              const created = drafts.map((draft, index): AlertRule => {
+                const metric = draft.metric ?? "price";
+                const reference =
+                  metric === "move"
+                    ? need(
+                        live.get(draft.symbol),
+                        `No live quote for ${draft.symbol}, so the move reference price cannot be set.`,
+                      )
+                    : null;
+                return {
+                  id: randomUUID(),
+                  symbol: draft.symbol,
+                  metric,
+                  direction: draft.direction,
+                  target: draft.target,
+                  reference,
+                  repeat: draft.repeat ?? "once",
+                  primed: true,
+                  enabled: true,
+                  note: draft.note ?? "",
+                  channels: routes[index] ?? [],
+                  expires: draft.expires ?? null,
+                  lastTriggered: null,
+                  triggeredPrice: null,
+                  triggerCount: 0,
+                };
+              });
+              return [
+                { ...workspace, alerts: [...created, ...workspace.alerts] },
+                changed(
+                  created.length === 1
+                    ? `Created ${created[0].symbol} alert: ${describeRule(created[0])}`
+                    : `Created ${created.length} alerts: ${created.map((rule) => `${rule.symbol} ${describeRule(rule)}`).join("; ")}`,
+                  {
+                    alerts: created.map((rule) => alertView(rule, labels)),
+                  },
+                ),
+              ];
+            });
+          }
           const channelRecords = (await listChannels(userId)).map(
             publicChannel,
           );
@@ -676,13 +775,12 @@ export function workspaceTools({ user }: { user: Identity }) {
             channelRecords.map((channel) => [channel.id, channel.label]),
           );
           const channelIds =
-            action === "create" || (action === "update" && input.channels)
+            action === "update" && input.channels
               ? await resolveChannels(userId, input.channels)
               : undefined;
           const needsQuote =
-            (action === "create" && (input.metric ?? "price") === "move") ||
-            (action === "update" &&
-              (input.metric === "move" || input.symbol !== undefined));
+            action === "update" &&
+            (input.metric === "move" || input.symbol !== undefined);
           const quoteSymbol =
             input.symbol ??
             (action === "update"
@@ -701,44 +799,6 @@ export function workspaceTools({ user }: { user: Identity }) {
               alerts: next,
             });
             switch (action) {
-              case "create": {
-                if (rules.length >= 60)
-                  throw new Error(
-                    "At most 60 alerts are allowed. Delete some first.",
-                  );
-                const metric = input.metric ?? "price";
-                const symbol = need(input.symbol, "Provide a symbol.");
-                if (metric === "move" && !quote)
-                  throw new Error(
-                    `No live quote for ${symbol}, so the move reference price cannot be set.`,
-                  );
-                const created: AlertRule = {
-                  id: randomUUID(),
-                  symbol,
-                  metric,
-                  direction: need(
-                    input.direction,
-                    "Provide a direction (above or below).",
-                  ),
-                  target: need(input.target, "Provide a target."),
-                  reference: metric === "move" ? (quote?.price ?? null) : null,
-                  repeat: input.repeat ?? "once",
-                  primed: true,
-                  enabled: true,
-                  note: input.note ?? "",
-                  channels: channelIds ?? [],
-                  expires: input.expires ?? null,
-                  lastTriggered: null,
-                  triggeredPrice: null,
-                  triggerCount: 0,
-                };
-                return [
-                  withRules([created, ...rules]),
-                  changed(`Created ${symbol} alert: ${describeRule(created)}`, {
-                    alert: alertView(created, labels),
-                  }),
-                ];
-              }
               case "update": {
                 const prior = pickById(rules, input.id, "alert");
                 const metric = input.metric ?? prior.metric;

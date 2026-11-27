@@ -536,17 +536,22 @@ export function createTools(ctx: { user: Identity; origin: string }) {
     ...documentTools({ user }),
     ...signalTools({ user }),
     ...optionsTools(),
+    // Results stay in context for every later step of the turn; 8 × 1024
+    // averaged 17k characters a call.
     webSearch: gateway().tools.perplexitySearch({
-      maxResults: 8,
-      maxTokensPerPage: 1024,
-      maxTokens: 10000,
+      maxResults: 6,
+      maxTokensPerPage: 640,
+      maxTokens: 5000,
     }),
   };
 }
 
 export type StockwatcherTools = ReturnType<typeof createTools>;
 export type StockwatcherDataParts = Record<string, never>;
-export type StockwatcherMessageMetadata = { credits?: number };
+export type StockwatcherMessageMetadata = {
+  credits?: number;
+  stopped?: "credits";
+};
 
 export type StockwatcherMessage = UIMessage<
   StockwatcherMessageMetadata,

@@ -1,4 +1,5 @@
 import "server-only";
+import type { SystemModelMessage } from "ai";
 import type { DashboardState } from "@/lib/assistant-types";
 import type { Desk } from "@/lib/desk";
 import type { Memory } from "@/lib/memory-types";
@@ -64,12 +65,14 @@ export function chatInstructions(input: {
   workspace: Workspace;
   memories: Memory[];
   context?: ChatContext;
-}) {
-  return `You are Stockwatcher's research assistant: a senior buy-side analyst working for ${input.name}, a professional portfolio manager. Current time: ${input.now.toISOString()} (UTC).
+}): SystemModelMessage[] {
+  // The rules block is byte-identical across turns, so it carries its own
+  // cache breakpoint; the per-turn state follows it and must stay out of it.
+  const rules = `You are Stockwatcher's research assistant: a senior buy-side analyst working for ${input.name}, a professional portfolio manager. The current time is given with the user's state below.
 
 How to work
 - Be concise and numbers-first. Lead with the answer, then the evidence. Prefer short tables or tight bullet lists over prose. No filler, no disclaimers boilerplate.
-- Use tools rather than guessing or relying on memory for anything market-related. Quotes, history, news and fundamentals change; fetch them. Call independent tools in parallel.
+- Use tools rather than guessing or relying on memory for anything market-related. Quotes, history, news and fundamentals change; fetch them. Call independent tools in parallel, and batch writes: every extra step re-sends the whole conversation, so creating ten alerts is one manageAlerts call with rules, not ten calls.
 - Every number you state needs its currency, its as-of time or period, and its source (e.g. "Yahoo Finance, 19 Nov 15:42 UTC", "10-K FY2025, SEC EDGAR"). Never add or net amounts across currencies yourself; the only converted figures are the ones getPortfolio returns in its base block and getPortfolioHistory returns (already in the base currency).
 - Use webSearch only for open-ended or current-events questions the other tools can't answer. Cite the URLs you rely on inline as markdown links. If sources are missing or conflict, say what is unresolved.
 - Distinguish reported facts from estimates, commentary and your own inference.
@@ -121,7 +124,9 @@ Charts, reports and decks
 - Only set share: true (or call shareReport) when the user asks to share, send or publish the document. A share link is public to anyone who has it; say so when you hand it over, and offer to revoke it with shareReport. Give the user the preview link either way.
 
 Safety
-- ${untrusted}
+- ${untrusted}`;
+
+  const state = `Current time: ${input.now.toISOString()} (UTC).
 
 User's dashboard context
 ${contextBlock(input.context)}
@@ -134,6 +139,15 @@ ${deskBlock(input.workspace.desk)}
 
 Saved memories ([id] (kind; symbols) content)
 ${memoryBlock(input.memories)}`;
+
+  return [
+    {
+      role: "system",
+      content: rules,
+      providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+    },
+    { role: "system", content: state },
+  ];
 }
 
 export function briefInstructions(input: { name: string; date: string }) {

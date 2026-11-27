@@ -20,15 +20,25 @@ import { createTools, type StockwatcherMessage } from "@/lib/ai/tools";
 import { dashboardSchema } from "@/lib/assistant-types";
 import { appOrigin, currentUser, json, sameOrigin } from "@/lib/auth";
 import {
+  createBudget,
+  firstStepCharge,
+  modelRates,
+  promptTokens,
+} from "@/lib/billing/budget";
+import {
   chargeFor,
+  creditConfig,
   credits,
   gatewayCost,
-  release,
   reserve,
 } from "@/lib/billing/credits";
 import { meter } from "@/lib/billing/meter";
 import { isQuotaExceeded } from "@/lib/billing/quota";
-import { type CostScope, withCostScope } from "@/lib/billing/scope";
+import {
+  type CostScope,
+  OutOfCreditsError,
+  withCostScope,
+} from "@/lib/billing/scope";
 import { readWorkspace } from "@/lib/db";
 import { listMemories, saveThread, threadIdSchema } from "@/lib/memory";
 import { symbolPattern } from "@/lib/universes";
@@ -39,6 +49,11 @@ const maxBodyBytes = 2_000_000;
 const maxMessages = 200;
 const modelWindow = 60;
 const maxUserText = 8_000;
+/**
+ * Tool definitions ride along on every step but are not in the prompt we can
+ * measure: the fixed prompt was 53k tokens with an empty workspace (2026-11-27).
+ */
+const toolDefinitionTokens = 46_000;
 
 const requestSchema = z.object({
   id: threadIdSchema,
@@ -194,51 +209,73 @@ async function chat(request: Request, scope: CostScope) {
       400,
     );
 
-  const reservation = await reserve(user);
-  if (!reservation.ok)
+  const [workspace, memories] = await Promise.all([
+    readWorkspace(user.id),
+    listMemories(user.id).catch(() => []),
+  ]);
+  const setup = {
+    instructions: chatInstructions({
+      name: user.name,
+      now: new Date(),
+      workspace: workspace.data,
+      memories,
+      context: input.data.context,
+    }),
+    modelMessages: await convertToModelMessages(modelHistory(messages), {
+      tools,
+      ignoreIncompleteToolCalls: true,
+    }),
+  };
+  const model = (await modelsFor(user.id)).chat;
+  const rates = await modelRates(model.modelId);
+  const firstStepMc = firstStepCharge(
+    promptTokens([setup.instructions, setup.modelMessages]) +
+      toolDefinitionTokens,
+    rates,
+  );
+
+  const reservation = await reserve(
+    user,
+    firstStepMc + creditConfig().reserve,
+    firstStepMc,
+  );
+  if (!reservation.ok) {
+    const { available } = reservation.balance;
     return json(
       {
-        error: "You are out of credits.",
+        error:
+          available > 0
+            ? `This reply needs about ${Math.ceil(reservation.requiredCredits)} credits and ${Math.floor(available)} are left. Start a new thread for a smaller context, or add credits.`
+            : "You are out of credits.",
         code: "out_of_credits",
         balance: reservation.balance,
       },
       402,
     );
-
-  // Until the stream's callbacks own the hold, a failure here must give it back.
-  let setup: {
-    instructions: string;
-    modelMessages: Awaited<ReturnType<typeof convertToModelMessages>>;
-  };
-  try {
-    const [workspace, memories] = await Promise.all([
-      readWorkspace(user.id),
-      listMemories(user.id).catch(() => []),
-    ]);
-    setup = {
-      instructions: chatInstructions({
-        name: user.name,
-        now: new Date(),
-        workspace: workspace.data,
-        memories,
-        context: input.data.context,
-      }),
-      modelMessages: await convertToModelMessages(modelHistory(messages), {
-        tools,
-        ignoreIncompleteToolCalls: true,
-      }),
-    };
-  } catch (error) {
-    await release(reservation).catch(() => undefined);
-    throw error;
   }
 
   const threadId = input.data.id;
   const responseId = last.role === "assistant" ? last.id : messageId();
   const lastUser = messages.findLast((message) => message.role === "user");
-  const model = (await modelsFor(user.id)).chat;
   const toolTimings = new Map<string, number>();
   const finishedSteps: StepResult<typeof tools>[] = [];
+  const budget = createBudget(user, reservation, rates, firstStepMc);
+  // A failed ledger read stops the turn: spending blind is how balances went negative.
+  const affords = (steps: Parameters<typeof budget.affords>[0], next: number) =>
+    budget.affords(steps, next).catch((error: unknown) => {
+      console.error("Stockwatcher credit budget check failed", {
+        name: error instanceof Error ? error.name : "UnknownError",
+      });
+      return false;
+    });
+  scope.guard = async (prompt) => {
+    const current = budget.projectNext(finishedSteps.at(-1));
+    const scoped = firstStepCharge(promptTokens(prompt), rates, 1_500);
+    if (!(await affords([...finishedSteps, ...scope.steps], current + scoped)))
+      throw new OutOfCreditsError(
+        "Stopped before reading the filing: not enough credits left for this turn.",
+      );
+  };
   let streamError: string | null = null;
   let recorded = false;
   const record = (
@@ -291,11 +328,18 @@ async function chat(request: Request, scope: CostScope) {
 
   const result = streamText({
     model,
-    providerOptions: gatewayOptions(user.id),
+    providerOptions: gatewayOptions(user.id, true),
     instructions: setup.instructions,
     messages: setup.modelMessages,
     tools,
-    stopWhen: isStepCount(14),
+    stopWhen: [
+      isStepCount(14),
+      async ({ steps }) =>
+        !(await affords(
+          [...steps, ...scope.steps],
+          budget.projectNext(steps.at(-1)),
+        )),
+    ],
     timeout: { totalMs: 110_000 },
     experimental_transform: smoothStream({ chunking: "word" }),
     onToolExecutionEnd: ({ toolCall, toolExecutionMs }) => {
@@ -349,12 +393,13 @@ async function chat(request: Request, scope: CostScope) {
       generateMessageId: () => responseId,
       messageMetadata: ({ part }) => {
         if (part.type !== "finish" || !reservation.metered) return undefined;
+        const stopped = budget.exhausted ? { stopped: "credits" as const } : {};
         // Shown only when every step carried its cost inline; otherwise the
         // settled charge comes from a lookup and appears on /account.
         const cost = gatewayCost([...finishedSteps, ...scope.steps]);
         return cost.missing
-          ? undefined
-          : { credits: credits(chargeFor(cost.costUsd)) };
+          ? stopped
+          : { ...stopped, credits: credits(chargeFor(cost.costUsd)) };
       },
       sendReasoning: true,
       sendSources: true,

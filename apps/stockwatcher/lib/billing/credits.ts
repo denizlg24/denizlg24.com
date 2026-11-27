@@ -109,27 +109,61 @@ export async function balance(userId: string): Promise<Balance> {
 }
 
 export type Reservation =
-  | { ok: true; holdId: string | null; metered: boolean }
-  | { ok: false; balance: Balance };
+  | { ok: true; holdId: string | null; metered: boolean; amountMc: number }
+  | { ok: false; balance: Balance; requiredCredits: number };
 
 export async function reserve(
   user: Pick<Identity, "id" | "demo">,
   amountMc = creditConfig().reserve,
+  requiredMc = creditConfig().floor,
 ): Promise<Reservation> {
   if (!billingEnabled() || user.demo)
-    return { ok: true, holdId: null, metered: false };
+    return { ok: true, holdId: null, metered: false, amountMc: 0 };
   const sql = await pg();
   return sql.begin(async (tx): Promise<Reservation> => {
     const state = await lockAccount(tx, user.id);
     const available = state.free + state.paid - state.held;
-    if (available < creditConfig().floor)
-      return { ok: false, balance: toBalance(state) };
+    if (available < Math.max(requiredMc, creditConfig().floor))
+      return {
+        ok: false,
+        balance: toBalance(state),
+        requiredCredits: credits(requiredMc),
+      };
     const holdId = randomUUID();
-    const expires = new Date(Date.now() + HOLD_MINUTES * 60_000);
+    const held = Math.min(amountMc, available);
     await tx`
       INSERT INTO stockwatcher_credit_holds (id, user_id, amount_mc, expires_at)
-      VALUES (${holdId}, ${user.id}, ${Math.min(amountMc, available)}, ${expires})`;
-    return { ok: true, holdId, metered: true };
+      VALUES (${holdId}, ${user.id}, ${held}, ${holdExpiry()})`;
+    return { ok: true, holdId, metered: true, amountMc: held };
+  });
+}
+
+const holdExpiry = () => new Date(Date.now() + HOLD_MINUTES * 60_000);
+
+/**
+ * Grows a hold toward `targetMc`, capped by what the account can still cover
+ * once every other hold is set aside. Returns the hold's size afterwards,
+ * which is below `targetMc` when the account cannot cover it.
+ */
+export async function extendHold(
+  userId: string,
+  holdId: string,
+  targetMc: number,
+): Promise<number> {
+  const sql = await pg();
+  return sql.begin(async (tx) => {
+    const state = await lockAccount(tx, userId);
+    const [own] = await tx<{ amount_mc: string }[]>`
+      SELECT amount_mc FROM stockwatcher_credit_holds WHERE id = ${holdId}`;
+    const current = Number(own?.amount_mc ?? 0);
+    const coverable = state.free + state.paid - (state.held - current);
+    const next = Math.max(current, Math.min(targetMc, coverable));
+    await tx`
+      INSERT INTO stockwatcher_credit_holds (id, user_id, amount_mc, expires_at)
+      VALUES (${holdId}, ${userId}, ${next}, ${holdExpiry()})
+      ON CONFLICT (id) DO UPDATE
+      SET amount_mc = EXCLUDED.amount_mc, expires_at = EXCLUDED.expires_at`;
+    return next;
   });
 }
 
