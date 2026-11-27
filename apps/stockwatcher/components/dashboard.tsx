@@ -32,8 +32,11 @@ import {
   type AlertProposal,
   type AssistantContext,
   type AssistantHandle,
+  type AssistantMode,
   AssistantPanel,
 } from "./assistant/assistant-panel";
+import { DockResizer } from "./assistant/dock-resizer";
+import { useDockWidth } from "./assistant/dock-width";
 import { Desk } from "./desk/desk";
 import type { Save } from "./forms";
 import { useLiveStatus } from "./live-quotes";
@@ -164,6 +167,18 @@ export function Dashboard({
   const mobile = useMediaQuery(mobileQuery);
   const assistantOpen = mobile ? sheet : docked;
   const useAI = aiEnabled && !aiDown;
+  const [fullPreferred, setFullPreferred] = useStoredFlag(
+    "stockwatcher.assistant.full",
+    false,
+  );
+  const assistantMode: AssistantMode =
+    mobile || fullPreferred ? "full" : "docked";
+  const fullScreen = useAI && assistantOpen && assistantMode === "full";
+  const dock = useDockWidth();
+  const changeMode = useCallback(
+    (next: AssistantMode) => setFullPreferred(next === "full"),
+    [setFullPreferred],
+  );
   const assistant = useRef<AssistantHandle>(null);
   const main = useRef<HTMLElement>(null);
 
@@ -500,6 +515,12 @@ export function Dashboard({
       className="app-shell"
       data-dock={docked ? "open" : "closed"}
       data-sheet={sheet ? "open" : "closed"}
+      data-assistant-full={fullScreen || undefined}
+      style={
+        dock.custom && dock.width !== null
+          ? { "--dock": `${dock.width}px` }
+          : undefined
+      }
     >
       <a
         href="#workspace-main"
@@ -512,6 +533,7 @@ export function Dashboard({
         Skip to workspace
       </a>
       <Topbar
+        inert={fullScreen}
         account={account}
         ticker={view === "markets" ? ticker : undefined}
         refresh={refresh}
@@ -532,13 +554,20 @@ export function Dashboard({
         onCommand={runCommand}
       />
       <Sidebar
+        inert={fullScreen}
         view={view}
         open={navOpen}
         badges={{ alerts: triggered }}
         go={go}
         close={() => setNavOpen(false)}
       />
-      <main className="shell-main" id="workspace-main" ref={main} tabIndex={-1}>
+      <main
+        className="shell-main"
+        id="workspace-main"
+        ref={main}
+        tabIndex={-1}
+        inert={fullScreen}
+      >
         <div className="shell-content">
           <PanelTabs hash={hash} />
           <header className="view-header">
@@ -793,9 +822,20 @@ export function Dashboard({
         aria-label="Assistant"
         data-open={assistantOpen || undefined}
       >
+        {mobile || fullScreen ? null : (
+          <DockResizer
+            width={dock.width}
+            min={dock.min}
+            max={dock.max}
+            onResize={dock.set}
+            onReset={dock.reset}
+          />
+        )}
         {useAI ? (
           <AssistantPanel
             ref={assistant}
+            mode={assistantMode}
+            onModeChange={mobile ? undefined : changeMode}
             context={context}
             onOpenView={openView}
             onProposeAlert={proposeAlert}

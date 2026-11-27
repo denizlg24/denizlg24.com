@@ -11,15 +11,20 @@ import {
   Check,
   Copy,
   History,
+  Maximize2,
+  Minimize2,
+  PanelLeft,
   Paperclip,
   Plus,
   RotateCcw,
   X,
 } from "lucide-react";
+import { Dialog as DialogPrimitive } from "radix-ui";
 import {
   type ClipboardEvent,
   type Ref,
   useEffect,
+  useId,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -66,6 +71,7 @@ import {
 import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
 import { isToolRunning, Tool, ToolStatus } from "@/components/ai-elements/tool";
 import { api } from "@/components/shared";
+import { useMediaQuery, useStoredFlag } from "@/components/shell/hooks";
 import { Button } from "@/components/ui/button";
 import type { StockwatcherMessage } from "@/lib/ai/tools";
 import type { AskUserOutput, DashboardState } from "@/lib/assistant-types";
@@ -79,7 +85,13 @@ import {
 import { errorMessage } from "./format";
 import { Markdown } from "./markdown";
 import { memoriesKey } from "./memory-panel";
-import { ThreadDrawer, threadsKey } from "./thread-drawer";
+import {
+  InlineName,
+  patchThread,
+  ThreadLibrary,
+  threadsKey,
+  useThreads,
+} from "./thread-library";
 import {
   type AlertProposal,
   isToolPart,
@@ -103,8 +115,13 @@ export type AssistantHandle = {
   focus: () => void;
 };
 
+export type AssistantMode = "docked" | "full";
+
 export type AssistantPanelProps = {
   ref?: Ref<AssistantHandle>;
+  mode?: AssistantMode;
+  /** Omitted where only one mode exists (phones), which hides the toggle. */
+  onModeChange?: (mode: AssistantMode) => void;
   context: AssistantContext;
   onOpenView: (state: DashboardState) => void;
   onProposeAlert: (proposal: AlertProposal) => void;
@@ -145,6 +162,8 @@ const marketStarters = [
   "Summarise Berkshire's latest 13F changes",
   "Pin a 6M chart of ^STOXX50E to my desk",
 ];
+
+const drawerQuery = "(max-width: 760px)";
 
 const viewLabels: Partial<Record<string, string>> = {
   markets: "Markets",
@@ -193,6 +212,8 @@ function contextLabel(context: AssistantContext) {
 
 export function AssistantPanel({
   ref,
+  mode = "docked",
+  onModeChange,
   context,
   onOpenView,
   onProposeAlert,
@@ -205,7 +226,22 @@ export function AssistantPanel({
   className,
 }: AssistantPanelProps) {
   const [session, setSession] = useState<Session>(newSession);
-  const [drawer, setDrawer] = useState(false);
+  const full = mode === "full";
+  const [library, setLibrary] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [railHidden, setRailHidden] = useStoredFlag(
+    "stockwatcher.assistant.sidebar-hidden",
+    false,
+  );
+  const narrow = useMediaQuery(drawerQuery);
+  const sidebarShown = !narrow && !railHidden;
+  const sidebarId = useId();
+  const modeButton = useRef<HTMLButtonElement>(null);
+  const sidebarButton = useRef<HTMLButtonElement>(null);
+  const historyButton = useRef<HTMLButtonElement>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [headError, setHeadError] = useState("");
+  const threads = useThreads();
   const [rejected, setRejected] = useState(false);
   const unavailable = !available || rejected;
   const [draft, setDraft] = useState("");
@@ -332,14 +368,19 @@ export function AssistantPanel({
     const element = input.current;
     if (!element) return;
     element.style.height = "auto";
-    element.style.height = `${Math.min(element.scrollHeight, 200)}px`;
+    element.style.height = `${Math.min(element.scrollHeight, full ? 320 : 200)}px`;
+  }
+
+  function closeOverlays() {
+    setLibrary(false);
+    setDrawerOpen(false);
   }
 
   function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed || busy || unavailable) return;
     if (error) clearError();
-    setDrawer(false);
+    closeOverlays();
     void conversation.current?.scrollToBottom();
     void sendMessage({ text: trimmed }, { body: requestBody(context) });
     setDraft("");
@@ -354,6 +395,29 @@ export function AssistantPanel({
     },
     focus: () => input.current?.focus(),
   }));
+
+  const shownMode = useRef(mode);
+  useEffect(() => {
+    if (shownMode.current === mode) return;
+    shownMode.current = mode;
+    if (mode === "full") input.current?.focus();
+    else modeButton.current?.focus();
+  }, [mode]);
+
+  useEffect(() => {
+    if (!full && !library) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      if (!full) {
+        setLibrary(false);
+        requestAnimationFrame(() => historyButton.current?.focus());
+      } else if (onModeChange) onModeChange("docked");
+      else onClose?.();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [full, library, onModeChange, onClose]);
 
   function onPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
     const files = [...event.clipboardData.files];
@@ -370,25 +434,49 @@ export function AssistantPanel({
 
   function startNew() {
     if (busy) void stop();
-    setDrawer(false);
+    closeOverlays();
+    setRenaming(false);
     setSession(newSession());
     setDraft("");
     requestAnimationFrame(() => input.current?.focus());
   }
 
   async function openThread(id: string) {
+    if (id === session.id) {
+      closeOverlays();
+      return;
+    }
     const thread = await api<StoredThread>(
       `/api/threads/${encodeURIComponent(id)}`,
     );
     if (busy) void stop();
     for (const callId of toolCallIds(thread.messages))
       handled.current.add(callId);
+    setRenaming(false);
     setSession({ id: thread.id, messages: thread.messages });
-    setDrawer(false);
+    closeOverlays();
   }
 
   function threadDeleted(id: string) {
-    if (id === session.id) setSession(newSession());
+    if (id === session.id) startNew();
+  }
+
+  function toggleSidebar() {
+    if (narrow) setDrawerOpen(true);
+    else setRailHidden(!railHidden);
+  }
+
+  function rename(next: string | null) {
+    setRenaming(false);
+    setHeadError("");
+    if (next)
+      patchThread(session.id, { title: next }).catch((reason: unknown) =>
+        setHeadError(
+          reason instanceof Error
+            ? reason.message
+            : "Could not rename the conversation.",
+        ),
+      );
   }
 
   const last = messages.at(-1);
@@ -403,17 +491,31 @@ export function AssistantPanel({
   const working =
     status === "submitted" ||
     (status === "streaming" && !writing && !toolRunning);
-  const title = useMemo(() => {
+  const firstPrompt = useMemo(() => {
     const first = messages.find((message) => message.role === "user");
     return first ? textOf(first) : "";
   }, [messages]);
+  const saved = threads.data?.find((thread) => thread.id === session.id);
+  const title = saved?.title ?? firstPrompt;
   const scope = contextLabel(context);
+  const sidebar = full && !unavailable;
+
+  const conversations = (
+    <ThreadLibrary
+      activeId={session.id}
+      onOpen={openThread}
+      onNew={startNew}
+      onDeleted={threadDeleted}
+    />
+  );
 
   return (
     <ToolActions value={actions}>
       <section
         className={["chat-panel", className].filter(Boolean).join(" ")}
         aria-label="Research assistant"
+        data-mode={mode}
+        data-sidebar={sidebar && sidebarShown && !narrow ? "" : undefined}
         data-dragging={dragging || undefined}
         onDragOver={(event) => {
           if (unavailable || !event.dataTransfer.types.includes("Files"))
@@ -433,196 +535,311 @@ export function AssistantPanel({
           void attachments.upload(event.dataTransfer.files);
         }}
       >
-        <header className="chat-head">
-          <div className="chat-head-title">
-            <h2 className="kicker">Assistant</h2>
-            {title ? (
-              <span className="chat-head-thread chat-truncate" title={title}>
-                {title}
-              </span>
-            ) : null}
-          </div>
-          <div className="row-actions">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="New thread"
-              title="New thread"
-              onClick={startNew}
-              disabled={unavailable}
+        {sidebar ? (
+          narrow ? (
+            <DialogPrimitive.Root
+              open={drawerOpen}
+              onOpenChange={setDrawerOpen}
             >
-              <Plus />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Conversation history"
-              title="History"
-              aria-pressed={drawer}
-              data-active={drawer || undefined}
-              onClick={() => setDrawer((open) => !open)}
-              disabled={unavailable}
-            >
-              <History />
-            </Button>
-            {onClose ? (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Close assistant"
-                title="Close"
-                onClick={onClose}
-              >
-                <X />
-              </Button>
-            ) : null}
-          </div>
-        </header>
+              <DialogPrimitive.Portal>
+                <DialogPrimitive.Overlay className="chat-sidebar-scrim" />
+                <DialogPrimitive.Content
+                  className="chat-sidebar chat-sidebar-drawer"
+                  aria-describedby={undefined}
+                >
+                  <DialogPrimitive.Title className="sr-only">
+                    Conversations
+                  </DialogPrimitive.Title>
+                  <DialogPrimitive.Close asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="chat-sidebar-close"
+                      aria-label="Close conversations"
+                    >
+                      <X />
+                    </Button>
+                  </DialogPrimitive.Close>
+                  {conversations}
+                </DialogPrimitive.Content>
+              </DialogPrimitive.Portal>
+            </DialogPrimitive.Root>
+          ) : sidebarShown ? (
+            <div className="chat-sidebar" id={sidebarId}>
+              {conversations}
+            </div>
+          ) : null
+        ) : null}
 
-        {unavailable ? (
-          <div className="chat-unavailable">
-            <p className="chat-unavailable-title">AI is not configured</p>
-            <p>
-              The research assistant needs an AI Gateway key on the server (
-              <code>AI_GATEWAY_API_KEY</code>). Demo sessions only get it when{" "}
-              <code>DEMO_AI=1</code>. Market data, portfolios and alerts work
-              without it.
+        <div className="chat-main">
+          <header className="chat-head">
+            <div className="chat-head-title">
+              {sidebar ? (
+                <Button
+                  ref={sidebarButton}
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={
+                    narrow || !sidebarShown
+                      ? "Show conversations"
+                      : "Hide conversations"
+                  }
+                  title="Conversations"
+                  aria-expanded={narrow ? drawerOpen : sidebarShown}
+                  aria-controls={narrow ? undefined : sidebarId}
+                  onClick={toggleSidebar}
+                >
+                  <PanelLeft />
+                </Button>
+              ) : (
+                <h2 className="kicker">Assistant</h2>
+              )}
+              {renaming && saved ? (
+                <InlineName
+                  initial={saved.title}
+                  label="Conversation name"
+                  maxLength={200}
+                  className="chat-head-rename-input"
+                  onDone={rename}
+                />
+              ) : saved ? (
+                <button
+                  type="button"
+                  className="chat-head-thread chat-head-rename chat-truncate"
+                  title={`${saved.title} · click to rename`}
+                  aria-label={`Rename “${saved.title}”`}
+                  onClick={() => setRenaming(true)}
+                >
+                  {saved.title}
+                </button>
+              ) : title || full ? (
+                <span className="chat-head-thread chat-truncate" title={title}>
+                  {title || "New conversation"}
+                </span>
+              ) : null}
+              {full && threadCredits ? (
+                <span className="meta chat-head-credits">
+                  {formatCredits(threadCredits)}
+                </span>
+              ) : null}
+            </div>
+            <div className="row-actions">
+              {!full || !sidebarShown || narrow ? (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="New conversation"
+                  title="New conversation"
+                  onClick={startNew}
+                  disabled={unavailable}
+                >
+                  <Plus />
+                </Button>
+              ) : null}
+              {full ? null : (
+                <Button
+                  ref={historyButton}
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Conversations"
+                  title="Conversations"
+                  aria-pressed={library}
+                  data-active={library || undefined}
+                  onClick={() => setLibrary((open) => !open)}
+                  disabled={unavailable}
+                >
+                  <History />
+                </Button>
+              )}
+              {onModeChange ? (
+                <Button
+                  ref={modeButton}
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={full ? "Exit full screen" : "Full screen"}
+                  title={full ? "Exit full screen (Esc)" : "Full screen"}
+                  onClick={() => onModeChange(full ? "docked" : "full")}
+                >
+                  {full ? <Minimize2 /> : <Maximize2 />}
+                </Button>
+              ) : null}
+              {onClose ? (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Close assistant"
+                  title="Close"
+                  onClick={onClose}
+                >
+                  <X />
+                </Button>
+              ) : null}
+            </div>
+          </header>
+          {headError ? (
+            <p className="chat-tool-error chat-head-error" role="alert">
+              {headError}
             </p>
-          </div>
-        ) : drawer ? (
-          <ThreadDrawer
-            activeId={session.id}
-            onOpen={openThread}
-            onDeleted={threadDeleted}
-          />
-        ) : (
-          <>
-            <Conversation
-              key={session.id}
-              className="chat-scroll"
-              contextRef={conversation}
-            >
-              <ConversationContent className="chat-log">
-                {messages.length ? (
-                  <>
-                    {messages.map((message, index) =>
-                      message.role === "user" ? (
-                        <Prompt key={message.id} text={textOf(message)} />
-                      ) : message.role === "assistant" ? (
-                        <Answer
-                          key={message.id}
-                          message={message}
-                          done={!busy || index < messages.length - 1}
-                          canRegenerate={!busy && index === messages.length - 1}
-                          latest={index === messages.length - 1}
-                          onRegenerate={retry}
-                        />
-                      ) : null,
+          ) : null}
+
+          {unavailable ? (
+            <div className="chat-unavailable">
+              <p className="chat-unavailable-title">AI is not configured</p>
+              <p>
+                The research assistant needs an AI Gateway key on the server (
+                <code>AI_GATEWAY_API_KEY</code>). Demo sessions only get it when{" "}
+                <code>DEMO_AI=1</code>. Market data, portfolios and alerts work
+                without it.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div
+                className="chat-body"
+                data-empty={messages.length ? undefined : ""}
+              >
+                <Conversation
+                  key={session.id}
+                  className="chat-scroll"
+                  contextRef={conversation}
+                  inert={!full && library}
+                >
+                  <ConversationContent className="chat-log">
+                    {messages.length ? (
+                      <>
+                        {messages.map((message, index) =>
+                          message.role === "user" ? (
+                            <Prompt key={message.id} text={textOf(message)} />
+                          ) : message.role === "assistant" ? (
+                            <Answer
+                              key={message.id}
+                              message={message}
+                              done={!busy || index < messages.length - 1}
+                              canRegenerate={
+                                !busy && index === messages.length - 1
+                              }
+                              latest={index === messages.length - 1}
+                              onRegenerate={retry}
+                            />
+                          ) : null,
+                        )}
+                        {working ? (
+                          <ToolStatus
+                            text={
+                              status === "submitted"
+                                ? "Thinking"
+                                : "Working through it"
+                            }
+                          />
+                        ) : null}
+                        {error && isOutOfCredits(error) ? (
+                          <div className="chat-error" role="alert">
+                            <span>
+                              You are out of credits. Free credits reset on the
+                              1st of the month.
+                            </span>
+                            <Button variant="ghost" size="xs" asChild>
+                              <a href="/account">Buy credits</a>
+                            </Button>
+                          </div>
+                        ) : error ? (
+                          <div className="chat-error" role="alert">
+                            <span>{errorMessage(error)}</span>
+                            <Button variant="ghost" size="xs" onClick={retry}>
+                              <RotateCcw /> Retry
+                            </Button>
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <Starters
+                        full={full}
+                        hasBook={hasBook}
+                        onPick={send}
+                        onAddBook={() => onOpenView({ view: "portfolio" })}
+                      />
                     )}
-                    {working ? (
-                      <ToolStatus
-                        text={
-                          status === "submitted"
-                            ? "Thinking"
-                            : "Working through it"
-                        }
+                  </ConversationContent>
+                  <ConversationScrollButton />
+                </Conversation>
+                {!full && library ? (
+                  <div className="chat-library-overlay">
+                    <ThreadLibrary
+                      activeId={session.id}
+                      onOpen={openThread}
+                      onDeleted={threadDeleted}
+                      autoFocusSearch
+                    />
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="chat-composer">
+                <UploadList
+                  items={attachments.items}
+                  onDismiss={attachments.dismiss}
+                />
+                <PromptInput onSubmit={() => send(draft)}>
+                  <PromptInputBody>
+                    <PromptInputTextarea
+                      ref={input}
+                      rows={full ? 3 : 1}
+                      value={draft}
+                      placeholder="Ask about your book, a ticker, a filing…"
+                      aria-label="Message the assistant"
+                      maxLength={8000}
+                      onChange={(event) => {
+                        setDraft(event.target.value);
+                        resize();
+                      }}
+                      onPaste={onPaste}
+                    />
+                  </PromptInputBody>
+                  <PromptInputFooter>
+                    <PromptInputTools>
+                      <PromptInputButton
+                        aria-label="Attach a document"
+                        title="Attach a PDF, DOCX, text, CSV or HTML file"
+                        onClick={() => picker.current?.click()}
+                      >
+                        <Paperclip />
+                      </PromptInputButton>
+                      <input
+                        ref={picker}
+                        type="file"
+                        multiple
+                        hidden
+                        accept={documentExtensions}
+                        onChange={(event) => {
+                          if (event.target.files?.length)
+                            void attachments.upload(event.target.files);
+                          event.target.value = "";
+                        }}
+                      />
+                      <span className="meta chat-truncate chat-composer-scope">
+                        {scope
+                          ? `Context: ${scope}`
+                          : "Enter to send · Shift+Enter for a new line"}
+                      </span>
+                    </PromptInputTools>
+                    {creditsLeft !== null ? (
+                      <CreditMeter
+                        left={creditsLeft}
+                        thread={threadCredits}
+                        last={lastCredits}
                       />
                     ) : null}
-                    {error && isOutOfCredits(error) ? (
-                      <div className="chat-error" role="alert">
-                        <span>
-                          You are out of credits. Free credits reset on the 1st
-                          of the month.
-                        </span>
-                        <Button variant="ghost" size="xs" asChild>
-                          <a href="/account">Buy credits</a>
-                        </Button>
-                      </div>
-                    ) : error ? (
-                      <div className="chat-error" role="alert">
-                        <span>{errorMessage(error)}</span>
-                        <Button variant="ghost" size="xs" onClick={retry}>
-                          <RotateCcw /> Retry
-                        </Button>
-                      </div>
-                    ) : null}
-                  </>
-                ) : (
-                  <Starters
-                    hasBook={hasBook}
-                    onPick={send}
-                    onAddBook={() => onOpenView({ view: "portfolio" })}
-                  />
-                )}
-              </ConversationContent>
-              <ConversationScrollButton />
-            </Conversation>
-
-            <div className="chat-composer">
-              <UploadList
-                items={attachments.items}
-                onDismiss={attachments.dismiss}
-              />
-              <PromptInput onSubmit={() => send(draft)}>
-                <PromptInputBody>
-                  <PromptInputTextarea
-                    ref={input}
-                    rows={1}
-                    value={draft}
-                    placeholder="Ask about your book, a ticker, a filing…"
-                    aria-label="Message the assistant"
-                    maxLength={8000}
-                    onChange={(event) => {
-                      setDraft(event.target.value);
-                      resize();
-                    }}
-                    onPaste={onPaste}
-                  />
-                </PromptInputBody>
-                <PromptInputFooter>
-                  <PromptInputTools>
-                    <PromptInputButton
-                      aria-label="Attach a document"
-                      title="Attach a PDF, DOCX, text, CSV or HTML file"
-                      onClick={() => picker.current?.click()}
-                    >
-                      <Paperclip />
-                    </PromptInputButton>
-                    <input
-                      ref={picker}
-                      type="file"
-                      multiple
-                      hidden
-                      accept={documentExtensions}
-                      onChange={(event) => {
-                        if (event.target.files?.length)
-                          void attachments.upload(event.target.files);
-                        event.target.value = "";
-                      }}
+                    <PromptInputSubmit
+                      status={status}
+                      onStop={() => void stop()}
+                      disabled={!busy && !draft.trim()}
                     />
-                    <span className="meta chat-truncate chat-composer-scope">
-                      {scope
-                        ? `Context: ${scope}`
-                        : "Enter to send · Shift+Enter for a new line"}
-                    </span>
-                  </PromptInputTools>
-                  {creditsLeft !== null ? (
-                    <CreditMeter
-                      left={creditsLeft}
-                      thread={threadCredits}
-                      last={lastCredits}
-                    />
-                  ) : null}
-                  <PromptInputSubmit
-                    status={status}
-                    onStop={() => void stop()}
-                    disabled={!busy && !draft.trim()}
-                  />
-                </PromptInputFooter>
-              </PromptInput>
-            </div>
-          </>
-        )}
+                  </PromptInputFooter>
+                </PromptInput>
+              </div>
+            </>
+          )}
+        </div>
       </section>
     </ToolActions>
   );
@@ -811,16 +1028,21 @@ function Answer({
 }
 
 function Starters({
+  full,
   hasBook,
   onPick,
   onAddBook,
 }: {
+  full: boolean;
   hasBook: boolean;
   onPick: (text: string) => void;
   onAddBook: () => void;
 }) {
   return (
     <ConversationEmptyState className="chat-empty">
+      {full ? (
+        <h2 className="chat-empty-title">What are you looking into?</h2>
+      ) : null}
       <p className="chat-empty-lead">
         Reads your ledger, live quotes, SEC filings and the news, and computes
         any indicator or statistic from live prices. Every number comes back

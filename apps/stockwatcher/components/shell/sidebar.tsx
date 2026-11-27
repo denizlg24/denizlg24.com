@@ -49,12 +49,14 @@ function NavLinks({
 }
 
 export function Sidebar({
+  inert = false,
   view,
   open,
   badges,
   go,
   close,
 }: {
+  inert?: boolean;
   view: View;
   open: boolean;
   badges: Partial<Record<View, number>>;
@@ -81,6 +83,7 @@ export function Sidebar({
       ) : null}
       <aside
         className={`sidebar ${open ? "sidebar-open" : ""}`}
+        inert={inert}
         aria-label="Sidebar"
       >
         <NavLinks
