@@ -70,3 +70,13 @@ its history (`git subtree`). Product truth is `PRODUCT.md`, the visual system
   `quota_for_entity_exceeded` reaches the client as out-of-credits. Supply-chain
   extraction stays on the app key: its results are cached and shared across
   users.
+- **The news wire is `lib/news`, not Yahoo alone.** `companyNews` fans out to
+  SEC EDGAR submissions (8-K/6-K items, Form 4), PR Newswire and Business
+  Wire feeds (matched by `(NASDAQ: SYM)` tags), Finnhub (`FINNHUB_API_KEY`),
+  Yahoo, Google News RSS and GDELT, caches each source fetch in
+  `stockwatcher_news_cache` (in memory on SQLite), answers within 9 s with
+  what arrived, and merges one story per event (`dedupe`: canonical URL or
+  75% headline-word overlap; the filing or wire keeps the headline). A failing
+  source sits out five minutes. GlobeNewswire and Reddit refuse server
+  requests and are left out; GDELT allows one request per five seconds.
+

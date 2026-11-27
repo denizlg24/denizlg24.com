@@ -268,6 +268,10 @@ function pg(url: string) {
         limit_usd NUMERIC(12, 2) NOT NULL, created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL
       )`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_news_cache (
+        source TEXT NOT NULL, key TEXT NOT NULL, items JSONB NOT NULL,
+        fetched_at TIMESTAMPTZ NOT NULL, PRIMARY KEY (source, key)
+      )`;
       await sql`CREATE TABLE IF NOT EXISTS stockwatcher_schedules (
         name TEXT PRIMARY KEY, next_run TIMESTAMPTZ NOT NULL
       )`;
