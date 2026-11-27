@@ -420,6 +420,27 @@ export async function quotes(
     for (const result of results)
       if (result.status === "fulfilled") found.push(...result.value);
   }
+  // A thinly traded listing can return a single daily bar, which leaves no
+  // previous close; the intraday chart's previous close fills the day change.
+  const changeless = found
+    .filter((quote) => quote.previous == null)
+    .slice(0, 12);
+  if (changeless.length) {
+    const refilled = await Promise.allSettled(
+      changeless.map((quote) => series(quote.symbol, "1D", since)),
+    );
+    refilled.forEach((result, i) => {
+      const fresh = result.status === "fulfilled" ? result.value.quote : null;
+      if (!fresh || fresh.previous == null) return;
+      const at = found.indexOf(changeless[i]);
+      found[at] = {
+        ...changeless[i],
+        previous: fresh.previous,
+        change: fresh.change,
+        percent: fresh.percent,
+      };
+    });
+  }
   if (found.length === 0 && ordered.length <= 8) {
     const fallback = await Promise.allSettled(
       ordered.map((symbol) => series(symbol, "1D", since)),
@@ -583,13 +604,16 @@ export type History = {
 /**
  * Long daily, weekly or monthly history for analytics. Closes are adjusted
  * for splits and dividends when Yahoo provides an adjusted series, so
- * returns are total returns.
+ * returns are total returns; `adjusted: false` keeps the traded closes, for
+ * valuing a holding on a past date.
  */
 export async function history(
   symbol: string,
   years: number,
   interval: HistoryInterval,
+  options: { adjusted?: boolean } = {},
 ): Promise<History> {
+  const adjust = options.adjusted ?? true;
   const end = Math.floor(Date.now() / 1000);
   const result = await yahoo<{ chart?: { result?: SourceBars[] } }>(
     `/v8/finance/chart/${encodeURIComponent(symbol)}`,
@@ -613,7 +637,7 @@ export async function history(
       close = values?.close?.[i];
     if (finite(open) && finite(high) && finite(low) && finite(close)) {
       const adj = adjusted?.[i];
-      const adjustment = finite(adj) ? adj / close : 1;
+      const adjustment = adjust && finite(adj) ? adj / close : 1;
       points.push({
         time,
         open: open * adjustment,
