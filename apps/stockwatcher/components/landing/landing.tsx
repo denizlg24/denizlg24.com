@@ -1,59 +1,48 @@
-import { Mail, Webhook } from "lucide-react";
-import { BrandGlyph } from "@/components/brand-glyph";
+import { ArrowRight } from "lucide-react";
+import Link from "next/link";
+import { AnimatedMark } from "@/components/marketing/animated-mark";
+import { CountUp } from "@/components/marketing/count-up";
+import {
+  MarketingFooter,
+  MarketingNav,
+  MarketingPage,
+} from "@/components/marketing/shell";
+import { Turn } from "@/components/marketing/turn";
 import { DenizSignIn, PreviewSignIn } from "@/components/sign-in-actions";
 import { quotes } from "@/lib/market";
 import type { Quote } from "@/lib/models";
+import { freeMonthlyCredits, pricedPacks } from "@/lib/pricing";
+import { AlertsFan } from "./alerts-fan";
 import { AskDemo } from "./ask-demo";
 import { AutoplayVideo } from "./autoplay-video";
 import { Converge } from "./converge";
+import { HeroLine } from "./hero-line";
+import { TerminalDemo } from "./terminal-demo";
+import { WireList } from "./wire-list";
 
 const tape = [
-  ["^GSPC", "S&P 500"],
-  ["^IXIC", "Nasdaq"],
-  ["^DJI", "Dow"],
-  ["^STOXX50E", "Euro Stoxx 50"],
-  ["^FTSE", "FTSE 100"],
-  ["^N225", "Nikkei 225"],
-  ["^TNX", "US 10Y"],
-  ["EURUSD=X", "EUR/USD"],
-  ["GC=F", "Gold"],
+  ["^GSPC", "SPX"],
+  ["^IXIC", "CCMP"],
+  ["^DJI", "INDU"],
+  ["^STOXX50E", "SX5E"],
+  ["^FTSE", "UKX"],
+  ["^N225", "NKY"],
+  ["^TNX", "US10Y"],
+  ["EURUSD=X", "EURUSD"],
+  ["GC=F", "GOLD"],
   ["CL=F", "WTI"],
-  ["BTC-USD", "Bitcoin"],
+  ["BTC-USD", "BTC"],
 ] as const;
 
-const facts = [
-  ["500+", "companies' financials in a single calculation"],
-  ["8", "primary sources, each cited inline"],
-  ["7", "alert channels, from email to webhooks"],
-  ["0", "numbers without a source and a time"],
-] as const;
-
-const channels = [
-  { name: "Email", icon: "mail" },
-  { name: "Telegram", src: "/brand/telegram.svg" },
-  { name: "WhatsApp", src: "/brand/whatsapp.svg" },
-  { name: "Slack", src: "/brand/slack.svg" },
-  { name: "Discord", src: "/brand/discord.svg" },
-  { name: "ntfy", src: "/brand/ntfy.svg" },
-  { name: "Webhooks", icon: "webhook" },
-] as const;
-
-const capabilities = [
-  ["Charts", "Indicators, drawings, comparisons and saved templates."],
+const coming = [
   [
-    "Portfolios",
-    "A trade ledger with CSV import, P/L per currency and one net value.",
+    "Live earnings calls",
+    "Alerts fire on a phrase while the call is still running.",
   ],
-  [
-    "Reports and decks",
-    "Written from live data, every figure sourced, shareable by link.",
-  ],
-  ["Morning brief", "What moved, your book and the news that matters."],
-  ["Memory", "Theses, constraints and positions held elsewhere."],
-  ["Backtests", "Rule-based strategies on history, labelled hypothetical."],
-  ["Supply chains", "Customers and suppliers named in 10-K filings."],
-  ["Screens", "Insider clusters and activist stakes across the S&P 500."],
-  ["Command line", "Terminal functions: AAPL DES, MOST, ECO."],
+  ["Filing redlines", "What changed in a 10-K since last year’s."],
+  ["Scenarios", "“Oil at $120?” reprices your book."],
+  ["Voice brief", "Your morning, read to you."],
+  ["Stockwatcher for iPhone", "A Live Activity counting down to earnings."],
 ] as const;
 
 async function liveTape(): Promise<Quote[]> {
@@ -85,7 +74,7 @@ function Tape({ items }: { items: Quote[] }) {
             })}
           </strong>
           {quote.percent != null ? (
-            <span className="landing-change" data-up={quote.percent >= 0}>
+            <span data-sign={quote.percent >= 0 ? "up" : "down"}>
               {quote.percent >= 0 ? "+" : "−"}
               {Math.abs(quote.percent).toFixed(2)}%
             </span>
@@ -95,8 +84,8 @@ function Tape({ items }: { items: Quote[] }) {
     </ul>
   );
   return (
-    <div className="landing-tape" aria-label="Live markets">
-      <div className="landing-tape-track">
+    <div className="mk-tape" data-tone="night" aria-label="Live markets">
+      <div className="mk-tape-track">
         {list(false)}
         {list(true)}
       </div>
@@ -107,16 +96,21 @@ function Tape({ items }: { items: Quote[] }) {
 function Actions({
   signIn,
   demo,
-  label = "Sign in",
+  pricing = true,
 }: {
   signIn: boolean;
   demo: boolean;
-  label?: string;
+  pricing?: boolean;
 }) {
   return (
-    <div className="landing-actions">
-      {signIn ? <DenizSignIn label={label} /> : null}
-      {demo ? <PreviewSignIn /> : null}
+    <div className="mk-actions">
+      {signIn ? <DenizSignIn label="Start free" /> : null}
+      {demo ? <PreviewSignIn label="Preview" /> : null}
+      {pricing ? (
+        <Link href="/pricing" className="mk-link">
+          Pricing <ArrowRight size={15} aria-hidden />
+        </Link>
+      ) : null}
     </div>
   );
 }
@@ -130,213 +124,256 @@ export async function Landing({
   signIn: boolean;
   demo: boolean;
 }) {
-  const live = await liveTape();
-  return (
-    <div className="landing">
-      <div className="landing-dark landing-top">
-        <header className="landing-nav">
-          <a className="brand" href="#top">
-            <span className="brand-mark">
-              <BrandGlyph size={16} />
-            </span>
-            <span>Stockwatcher</span>
-          </a>
-          <nav aria-label="Sections">
-            <a href="#sources">Sources</a>
-            <a href="#ask">Assistant</a>
-            <a href="#alerts">Alerts</a>
-          </nav>
-          {signIn ? <DenizSignIn label="Sign in" size="default" /> : null}
-        </header>
-        <Tape items={live} />
+  const [live, packs] = await Promise.all([liveTape(), pricedPacks()]);
+  const free = freeMonthlyCredits();
+  const cheapest = packs[0];
 
-        <section className="landing-hero" id="top">
-          <p className="landing-kicker">
-            <span className="landing-pulse" aria-hidden /> Market research
-            workspace
-          </p>
-          <h1>
-            <span>Every source.</span>
-            <span className="landing-accent">One place to think.</span>
-          </h1>
-          <p className="landing-lede">
-            Filings, macro data, options, insider trades, your broker positions
-            and your own research, together in one workspace. Ask a question and
-            an assistant reads all of it, does the maths and shows you where
-            every number came from.
-          </p>
-          {notice ? (
-            <p className="landing-notice" role="alert">
-              {notice}
+  return (
+    <MarketingPage>
+      <MarketingNav signIn={signIn} />
+      <Tape items={live} />
+
+      <section
+        className="hero"
+        id="top"
+        data-tone="night"
+        aria-labelledby="hero-title"
+      >
+        <HeroLine />
+        <div className="hero-grid">
+          <div className="hero-copy">
+            <h1 id="hero-title">
+              <span>Terminal power.</span> <span>No terminal price.</span>
+            </h1>
+            <p className="hero-lede">
+              A terminal’s functions, a news wire and an analyst that cites
+              every number, free to start.
             </p>
-          ) : null}
-          <Actions signIn={signIn} demo={demo} label="Get started" />
-        </section>
-        <div className="landing-stage">
+            {notice ? (
+              <p className="mk-notice" role="alert">
+                {notice}
+              </p>
+            ) : null}
+            <Actions signIn={signIn} demo={demo} />
+          </div>
+          <div className="hero-w" data-hero-w />
+        </div>
+        <div className="hero-film">
           <AutoplayVideo
             name="pm"
             label="Stockwatcher: terminal functions, a news wire and an agent that cites every number, without the $30,000 terminal seat."
+            className="mk-media"
           />
         </div>
-      </div>
+      </section>
 
-      <main className="landing-body">
-        <section className="landing-section" id="sources">
-          <header className="landing-head">
-            <p>Sources</p>
-            <h2>Twelve tabs in. One answer out.</h2>
-            <span>
-              Stockwatcher reads from where the numbers start, not from a
-              summary of a summary, and keeps every source attached.
-            </span>
+      <TerminalDemo />
+      <AskDemo />
+
+      <Turn
+        from="night"
+        to="paper"
+        id="sources"
+        className="mk-section sources-section"
+        labelledBy="sources-title"
+      >
+        <header className="mk-head">
+          <h2 id="sources-title">Twelve tabs in. One answer out.</h2>
+          <p>
+            Stockwatcher reads from where the numbers start, not from a summary
+            of a summary, and keeps every source attached.
+          </p>
+        </header>
+        <Converge />
+        <div className="mk-split mk-split-wire">
+          <header className="mk-subhead">
+            <h3>The wire, de-duplicated.</h3>
+            <p>
+              Headlines for your watchlists and holdings, merged by story, with
+              publisher and time on every line.
+            </p>
           </header>
-          <Converge />
-        </section>
+          <WireList />
+        </div>
+      </Turn>
 
-        <section className="landing-section" id="ask">
-          <header className="landing-head">
-            <p>Assistant</p>
-            <h2>Ask like you would ask an analyst.</h2>
-            <span>
-              It fetches the data, runs the calculation and answers with the
-              figure, the method and the source. These are real answers from the
-              app.
-            </span>
-          </header>
-          <AskDemo />
-        </section>
-      </main>
+      <section
+        className="mk-section"
+        id="alerts"
+        data-tone="paper"
+        aria-labelledby="alerts-title"
+      >
+        <header className="mk-head">
+          <h2 id="alerts-title">
+            If you can calculate it, you can be alerted on it.
+          </h2>
+          <p>
+            One rule, checked after every close, delivered to seven channels.
+            Every trigger is logged.
+          </p>
+        </header>
+        <AlertsFan />
+        <p className="mk-caption">Example delivery times, UTC</p>
+      </section>
 
-      <section className="landing-dark landing-facts" aria-label="In numbers">
-        <dl>
-          {facts.map(([figure, text]) => (
-            <div key={text}>
-              <dt>{figure}</dt>
-              <dd>{text}</dd>
+      <section
+        className="mk-section"
+        data-tone="paper"
+        aria-labelledby="who-title"
+      >
+        <header className="mk-head">
+          <h2 id="who-title">
+            Built for a desk. Just as good for your own account.
+          </h2>
+        </header>
+        <div className="who">
+          <article aria-labelledby="who-pm">
+            <AutoplayVideo
+              name="pm"
+              label="Stockwatcher for portfolio managers."
+              className="who-phone"
+              vertical
+              lazy
+            />
+            <div>
+              <h3 id="who-pm">Portfolio managers</h3>
+              <dl className="who-figures">
+                <div>
+                  <dt>
+                    <CountUp value={297} /> of 501
+                  </dt>
+                  <dd>S&amp;P 500 members above their 50-day average</dd>
+                </div>
+                <div>
+                  <dt>
+                    <CountUp value={-34.46} decimals={2} suffix="%" signed />
+                  </dt>
+                  <dd>a sample book in the 2020 Covid replay</dd>
+                </div>
+                <div>
+                  <dt>
+                    β <CountUp value={1.15} decimals={2} />
+                  </dt>
+                  <dd>market beta, Fama-French 5 + momentum</dd>
+                </div>
+              </dl>
+              <ul className="who-list">
+                <li>Breadth, screens and factor exposure on demand</li>
+                <li>Filing language read and cited by section</li>
+                <li>Stress tests and VaR on the actual book</li>
+              </ul>
             </div>
+          </article>
+          <article aria-labelledby="who-retail">
+            <AutoplayVideo
+              name="retail"
+              label="Stockwatcher for self-directed investors."
+              className="who-phone"
+              vertical
+              lazy
+            />
+            <div>
+              <h3 id="who-retail">Self-directed investors</h3>
+              <dl className="who-figures">
+                <div>
+                  <dt>
+                    <CountUp value={7.64} decimals={2} prefix="±" suffix="%" />
+                  </dt>
+                  <dd>move priced into Apple’s 28 Jan report</dd>
+                </div>
+                <div>
+                  <dt>
+                    <CountUp value={7} />
+                  </dt>
+                  <dd>alert channels, from email to webhooks</dd>
+                </div>
+                <div>
+                  <dt>
+                    <CountUp value={free} />
+                  </dt>
+                  <dd>assistant credits every month, free</dd>
+                </div>
+              </dl>
+              <ul className="who-list">
+                <li>One net value across accounts and currencies</li>
+                <li>Interactive Brokers synced, nothing retyped</li>
+                <li>What options price in before earnings</li>
+              </ul>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section
+        className="mk-section"
+        data-tone="paper"
+        aria-labelledby="next-title"
+      >
+        <header className="mk-head">
+          <h2 id="next-title">This is only the beginning.</h2>
+        </header>
+        <ul className="coming">
+          {coming.map(([name, text]) => (
+            <li key={name}>
+              <span className="mk-coming">Coming</span>
+              <strong>{name}</strong>
+              <span>{text}</span>
+            </li>
           ))}
-        </dl>
+        </ul>
       </section>
 
-      <div className="landing-body">
-        <section className="landing-section">
-          <header className="landing-head">
-            <p>Who it is for</p>
-            <h2>Built for a desk. Just as good for your own account.</h2>
-          </header>
-          <div className="landing-audiences">
-            <article>
-              <AutoplayVideo
-                name="pm"
-                label="Stockwatcher for portfolio managers."
-                className="landing-phone"
-                vertical
-                lazy
-              />
-              <div>
-                <h3>For portfolio managers</h3>
-                <ul>
-                  <li>Breadth, screens and factor exposure on demand</li>
-                  <li>Filing language read and cited by section</li>
-                  <li>Stress tests and VaR on the actual book</li>
-                </ul>
-              </div>
-            </article>
-            <article>
-              <AutoplayVideo
-                name="retail"
-                label="Stockwatcher for self-directed investors."
-                className="landing-phone"
-                vertical
-                lazy
-              />
-              <div>
-                <h3>For self-directed investors</h3>
-                <ul>
-                  <li>One net value across accounts and currencies</li>
-                  <li>Interactive Brokers synced, nothing retyped</li>
-                  <li>What options price in before earnings</li>
-                </ul>
-              </div>
-            </article>
-          </div>
-        </section>
-
-        <section className="landing-section" id="alerts">
-          <header className="landing-head">
-            <p>Alerts</p>
-            <h2>If you can calculate it, you can be alerted on it.</h2>
-            <span>
-              Price and volume rules, or a script checked after every close.
-              Every trigger is logged and delivered where you will see it.
-            </span>
-          </header>
-          <div className="landing-alerts">
-            <ol className="landing-rules">
-              <li>
-                <code>breadth(S&amp;P 500, 50d) &lt; 40%</code>
-                <span>Daily after the US close</span>
-              </li>
-              <li>
-                <code>RSI(NVDA, 14) &lt; 30 and close &gt; SMA(200)</code>
-                <span>Daily after the US close</span>
-              </li>
-              <li>
-                <code>insiders(holdings, 30d) ≥ 3 buyers</code>
-                <span>Daily</span>
-              </li>
-            </ol>
-            <ul className="landing-channels" aria-label="Delivery channels">
-              {channels.map((channel) => (
-                <li key={channel.name}>
-                  {"src" in channel ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={channel.src} alt="" width={22} height={22} />
-                  ) : channel.icon === "mail" ? (
-                    <Mail size={22} aria-hidden />
-                  ) : (
-                    <Webhook size={22} aria-hidden />
-                  )}
-                  <span>{channel.name}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
-
-        <section className="landing-section">
-          <header className="landing-head">
-            <p>Also inside</p>
-            <h2>The rest of the workspace.</h2>
-          </header>
-          <dl className="landing-grid">
-            {capabilities.map(([name, text]) => (
-              <div key={name}>
-                <dt>{name}</dt>
-                <dd>{text}</dd>
-              </div>
-            ))}
-          </dl>
-        </section>
-      </div>
-
-      <section className="landing-dark landing-close">
-        <h2>
-          <span>Stop tab-hopping.</span>
-          <span className="landing-accent">Start thinking.</span>
+      <section
+        className="mk-section teaser-section"
+        data-tone="paper"
+        aria-labelledby="pricing-teaser"
+      >
+        <h2 id="pricing-teaser" className="mk-label">
+          Pricing
         </h2>
-        <Actions signIn={signIn} demo={demo} label="Get started" />
-        <footer className="landing-foot">
-          <span className="brand">
-            <span className="brand-mark">
-              <BrandGlyph size={14} />
-            </span>
-            <span>Stockwatcher</span>
-          </span>
-          <span>For information only. Not investment advice.</span>
-          <span>Filings: SEC EDGAR · Macro: FRED · Yields: U.S. Treasury</span>
-        </footer>
+        <div className="teaser">
+          <dl>
+            <div>
+              <dt>Watch</dt>
+              <dd>
+                <strong>Free</strong>
+                <span>{free} credits a month</span>
+              </dd>
+            </div>
+            <div>
+              <dt>Top-up</dt>
+              <dd>
+                <strong>from {cheapest?.price ?? "€9"}</strong>
+                <span>packs never expire</span>
+              </dd>
+            </div>
+            <div>
+              <dt>Desk</dt>
+              <dd>
+                <strong>Talk to us</strong>
+                <span>pooled credits, invoiced</span>
+              </dd>
+            </div>
+          </dl>
+          <Link href="/pricing" className="mk-link">
+            Compare plans <ArrowRight size={15} aria-hidden />
+          </Link>
+        </div>
       </section>
-    </div>
+
+      <Turn
+        from="paper"
+        to="night"
+        className="mk-close"
+        labelledBy="close-title"
+      >
+        <AnimatedMark size={88} trigger="view" className="mk-close-mark" />
+        <h2 id="close-title">
+          <span>Terminal power.</span> <span>No terminal price.</span>
+        </h2>
+        <Actions signIn={signIn} demo={demo} pricing={false} />
+        <MarketingFooter />
+      </Turn>
+    </MarketingPage>
   );
 }

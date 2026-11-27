@@ -1,3 +1,9 @@
+"use client";
+
+import { useRef } from "react";
+import { AnimatedMark } from "@/components/marketing/animated-mark";
+import { useMotion } from "@/components/marketing/motion";
+
 const inputs = [
   { name: "SEC EDGAR", note: "Filings, XBRL, Form 4, 13D" },
   { name: "FRED", note: "Every economic series" },
@@ -20,24 +26,78 @@ const height = inputs.length * row;
 const middle = height / 2;
 const outputRow = height / outputs.length;
 
-function inPath(index: number) {
+const inPath = (index: number) => {
   const y = index * row + row / 2;
   return `M0 ${y} C 140 ${y}, 160 ${middle}, 300 ${middle}`;
-}
+};
 
-function outPath(index: number) {
+const outPath = (index: number) => {
   const y = index * outputRow + outputRow / 2;
   return `M0 ${middle} C 90 ${middle}, 110 ${y}, 200 ${y}`;
-}
+};
 
 export function Converge() {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useMotion(ref, ({ motion }, { gsap }) => {
+    const root = ref.current;
+    if (!root || !motion) return;
+    const trails = root.querySelectorAll<SVGPathElement>(".converge-trail");
+    const pulses = root.querySelectorAll<SVGPathElement>(".converge-pulse");
+    const sources = root.querySelectorAll(".converge-inputs li");
+    const results = root.querySelectorAll(".converge-outputs li");
+
+    gsap
+      .timeline({
+        scrollTrigger: {
+          trigger: root,
+          start: "top 80%",
+          end: "top 30%",
+          scrub: 0.5,
+        },
+      })
+      .from(
+        sources,
+        { opacity: 0.25, x: -12, stagger: 0.05, ease: "power2.out" },
+        0,
+      )
+      .fromTo(
+        trails,
+        { strokeDashoffset: 1 },
+        { strokeDashoffset: 0, stagger: 0.04, ease: "none" },
+        0.1,
+      )
+      .from(
+        results,
+        { opacity: 0.25, x: 12, stagger: 0.08, ease: "power2.out" },
+        0.55,
+      );
+
+    // Signals keep travelling while the section is on screen.
+    const signals = gsap.timeline({ repeat: -1, paused: true });
+    pulses.forEach((pulse, index) => {
+      signals.fromTo(
+        pulse,
+        { strokeDashoffset: 0.08 },
+        { strokeDashoffset: -1, duration: 2.2, ease: "power1.inOut" },
+        pulse.dataset.out ? 1.4 + index * 0.05 : index * 0.32,
+      );
+    });
+    gsap.set(pulses, { opacity: 1 });
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry?.isIntersecting) signals.play();
+      else signals.pause();
+    });
+    observer.observe(root);
+    return () => observer.disconnect();
+  });
+
   return (
-    <div className="converge">
+    <div className="converge" ref={ref}>
       <ul className="converge-inputs">
         {inputs.map((input) => (
           <li key={input.name}>
             {"logo" in input ? (
-              // eslint-disable-next-line @next/next/no-img-element
               <img src={input.logo} alt={input.name} height={15} />
             ) : (
               <strong>{input.name}</strong>
@@ -54,38 +114,14 @@ export function Converge() {
       >
         {inputs.map((input, index) => (
           <g key={input.name}>
-            <path id={`in-${index}`} d={inPath(index)} />
-            <circle r="3">
-              <animateMotion
-                dur="3.2s"
-                begin={`${index * 0.4}s`}
-                repeatCount="indefinite"
-              >
-                <mpath href={`#in-${index}`} />
-              </animateMotion>
-            </circle>
+            <path className="converge-trail" d={inPath(index)} pathLength={1} />
+            <path className="converge-pulse" d={inPath(index)} pathLength={1} />
           </g>
         ))}
       </svg>
       <div className="converge-core">
-        <svg viewBox="0 0 64 64" aria-hidden>
-          <rect width="64" height="64" fill="#174e3a" />
-          <g
-            fill="none"
-            stroke="#f3f8f1"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="3"
-          >
-            <path d="M13 18C22 18 23 34 30 37" opacity=".5" />
-            <path d="M13 30C21 30 24 36 30 37" opacity=".72" />
-            <path d="M13 46C22 46 24 39 30 37" opacity=".5" />
-            <path d="M30 37L38 30L43 34L51 21" strokeWidth="4.2" />
-          </g>
-          <circle cx="30" cy="37" r="3.4" fill="#f3f8f1" />
-          <circle cx="51" cy="21" r="3.4" fill="#f3f8f1" />
-        </svg>
-        <span>Stockwatcher</span>
+        <AnimatedMark size={44} trigger="view" />
+        <span>stockwatcher</span>
       </div>
       <svg
         className="converge-lines converge-out"
@@ -95,16 +131,17 @@ export function Converge() {
       >
         {outputs.map((output, index) => (
           <g key={output}>
-            <path id={`out-${index}`} d={outPath(index)} />
-            <circle r="3">
-              <animateMotion
-                dur="2.4s"
-                begin={`${1.6 + index * 0.6}s`}
-                repeatCount="indefinite"
-              >
-                <mpath href={`#out-${index}`} />
-              </animateMotion>
-            </circle>
+            <path
+              className="converge-trail"
+              d={outPath(index)}
+              pathLength={1}
+            />
+            <path
+              className="converge-pulse"
+              d={outPath(index)}
+              pathLength={1}
+              data-out="true"
+            />
           </g>
         ))}
       </svg>

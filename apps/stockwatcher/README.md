@@ -63,6 +63,7 @@ Set these production runtime values in Forge.
 | `SEC_USER_AGENT`                                   | Application name and an operator contact email                         |
 | `WORKSPACE_ALLOWED_EMAILS`                         | Optional list of permitted, verified email addresses                   |
 | `STOCKWATCHER_ADMIN_SUBJECTS`                      | Optional comma-separated Deniz Cloud user ids that can open `/admin`. Empty means nobody. |
+| `ENQUIRY_NOTIFY_EMAIL` | Optional address that receives each Desk enquiry from `/enquire` (sent through Resend, so `RESEND_API_KEY` is also needed). Enquiries are always stored and listed at `/admin/enquiries`; the email is only a notification. |
 | `AI_GATEWAY_API_KEY`                               | Server-side Vercel AI Gateway key. Enables the assistant, brief and memory. |
 | `AI_GATEWAY_MODEL`                                 | Optional chat model ID. Defaults to `anthropic/claude-sonnet-5.5`.     |
 | `AI_GATEWAY_BRIEF_MODEL`                           | Optional daily-brief model ID. Defaults to `AI_GATEWAY_MODEL`.         |

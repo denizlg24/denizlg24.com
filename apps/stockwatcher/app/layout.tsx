@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
 import "@fontsource-variable/inter";
 import "@fontsource-variable/newsreader";
+import "@fontsource/ibm-plex-mono/400.css";
+import "@fontsource/ibm-plex-mono/500.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Stockwatcher | Market workspace",
+  title: "Stockwatcher | Terminal power. No terminal price.",
   description:
-    "Follow markets, research companies, and keep your investment work in one place.",
+    "Terminal functions, a news wire and an analyst that cites every number. Free to start with 100 credits a month.",
   icons: { icon: "/stockwatcher.svg" },
 };
 

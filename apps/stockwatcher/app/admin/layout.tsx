@@ -25,6 +25,7 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
         </Link>
         <nav aria-label="Admin">
           <Link href="/admin">Assistant audit</Link>
+          <Link href="/admin/enquiries">Enquiries</Link>
         </nav>
         <span className="admin-masthead-meta">
           Signed in as {admin.name} · times in UTC
