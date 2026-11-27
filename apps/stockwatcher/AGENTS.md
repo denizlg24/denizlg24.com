@@ -31,9 +31,20 @@ its history (`git subtree`). Product truth is `PRODUCT.md`, the visual system
   `REQUIRE_DATABASE_URL=1`); the app creates its prefixed tables on first
   connection. SQLite under `/app/data` is container-local and only serves
   `DEMO_MODE` previews.
-- **Background work runs in-process** from `instrumentation.ts`: alert checks
-  every two minutes (`ALERT_MONITOR=1`) and the IBKR Flex sync every 30
-  minutes (`BROKER_SYNC`), in every container Forge runs.
+- **Background work runs on the worker when one is deployed.**
+  `STOCKWATCHER_WORKER=1` on web (with `DATABASE_URL`) sends compute runs —
+  the QuickJS sandbox and its data load — to the `stockwatcher_jobs` queue
+  (`lib/jobs`: `FOR UPDATE SKIP LOCKED`, 60 s leases, one running job and at
+  most five queued per user, dead-letter after two attempts) and turns off the
+  in-process schedulers. The worker (`Dockerfile.worker`, one bundled file
+  built by `scripts/build-worker.ts`, `/healthz`) runs the jobs plus the
+  schedules: alerts every two minutes (`ALERT_MONITOR=1`), IBKR Flex every 30
+  (`BROKER_SYNC`), run and job retention. A schedule fires once per period
+  across every worker through a `stockwatcher_schedules` row, not a lock.
+  Without the flag everything stays in-process in each web container, as
+  before. The worker bundle must not import Next (`lib/auth`, `lib/admin`):
+  the build fails if it does. Check it with `bun run worker:build && bun
+  --env-file=.env.local scripts/worker-e2e.ts`.
 - **Lint is Biome at the root.** The override in `biome.json` turns off the
   a11y, `!important` and control-character rules the app's old ESLint config
   never enforced; tighten it as components are touched.

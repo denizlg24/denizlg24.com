@@ -9,11 +9,11 @@ import {
   listRuns,
   listUserThreads,
   requireAdmin,
-  runRetentionDays,
   userFromSlug,
   userSlug,
 } from "@/lib/admin";
 import { threadIdSchema } from "@/lib/memory";
+import { runRetentionDays } from "@/lib/run-retention";
 
 function RunTelemetry({ run }: { run: ChatRun }) {
   return (

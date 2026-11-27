@@ -49,8 +49,12 @@ const storedData = (request: z.infer<typeof dataRequest> | undefined) =>
     .record(z.string(), z.json())
     .parse(JSON.parse(JSON.stringify(dataRequest.parse(request ?? {}))));
 
-async function probe(data: Signal["data"], code: string): Promise<Reading> {
-  const outcome = await runCompute(data, code);
+async function probe(
+  userId: string,
+  data: Signal["data"],
+  code: string,
+): Promise<Reading> {
+  const outcome = await runCompute(data, code, userId);
   if (!outcome.ok) throw new Error(`The script failed: ${outcome.error}`);
   const reading = interpret(outcome.result);
   if (!reading.ok) throw new Error(reading.error);
@@ -188,7 +192,7 @@ export function signalTools({ user }: { user: Identity }) {
               "Provide code, or the id of a saved signal.",
             );
             const started = Date.now();
-            const reading = await probe(data, code);
+            const reading = await probe(userId, data, code);
             return {
               summary: `Tested: ${reading.trigger ? "TRIGGERED" : "not triggered"}${reading.value != null ? ` (value ${reading.value})` : ""}`,
               trigger: reading.trigger,
@@ -258,7 +262,7 @@ export function signalTools({ user }: { user: Identity }) {
               );
             const data = storedData(input.data);
             const code = need(input.code, "Provide the code.");
-            const reading = await probe(data, code);
+            const reading = await probe(userId, data, code);
             const created = signalSchema.parse({
               id: randomUUID(),
               name: need(input.name, "Provide a name."),
@@ -303,7 +307,9 @@ export function signalTools({ user }: { user: Identity }) {
             item.code === code &&
             JSON.stringify(item.data) === JSON.stringify(data);
           const scriptChanged = !sameAs(prior);
-          const reading = scriptChanged ? await probe(data, code) : undefined;
+          const reading = scriptChanged
+            ? await probe(userId, data, code)
+            : undefined;
           // Merge onto the record as it is at write time so a concurrent monitor fire is never clobbered.
           const record = await updateWorkspace(userId, (workspace) => {
             const fresh = workspace.signals.find(

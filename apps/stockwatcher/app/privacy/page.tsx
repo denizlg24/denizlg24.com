@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { ContactLink, LegalPage } from "@/components/marketing/legal-page";
-import { runRetentionDays } from "@/lib/admin";
 import { legal } from "@/lib/legal";
+import { runRetentionDays } from "@/lib/run-retention";
 
 export const metadata: Metadata = {
   title: "Privacy · Stockwatcher",

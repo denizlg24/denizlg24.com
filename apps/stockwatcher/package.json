@@ -8,7 +8,9 @@
     "start": "next start -p 3013",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "bun test lib",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "worker:build": "bun scripts/build-worker.ts",
+    "worker": "node dist/worker.mjs"
   },
   "dependencies": {
     "@ai-sdk/react": "4.0.181",

@@ -253,6 +253,19 @@ function pg(url: string) {
         message TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL
       )`;
       await sql`CREATE INDEX IF NOT EXISTS stockwatcher_enquiries_created ON stockwatcher_enquiries(created_at)`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_jobs (
+        id UUID PRIMARY KEY, kind TEXT NOT NULL, user_id TEXT,
+        payload JSONB NOT NULL, status TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL,
+        run_after TIMESTAMPTZ NOT NULL, lease_until TIMESTAMPTZ, worker TEXT,
+        result JSONB, error TEXT, created_at TIMESTAMPTZ NOT NULL,
+        finished_at TIMESTAMPTZ
+      )`;
+      await sql`CREATE INDEX IF NOT EXISTS stockwatcher_jobs_ready ON stockwatcher_jobs(status, run_after)`;
+      await sql`CREATE INDEX IF NOT EXISTS stockwatcher_jobs_user ON stockwatcher_jobs(user_id, status)`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_schedules (
+        name TEXT PRIMARY KEY, next_run TIMESTAMPTZ NOT NULL
+      )`;
     });
     return db;
   })().catch(async (error) => {
