@@ -319,6 +319,7 @@
 }
 .chat-tool-foot {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: var(--sp-3);
@@ -326,6 +327,27 @@
   border-top: 1px solid var(--rule);
   color: var(--muted-foreground);
   font-size: var(--fs-2xs);
+}
+
+.chat-news > a,
+.chat-sources a,
+.chat-tool-foot > span,
+.chat-quiet,
+.chat-compute-title,
+.chat-question-answered,
+.chat-doc-title a,
+.chat-tool-error span,
+.chat-chip-line {
+  overflow-wrap: anywhere;
+}
+.chat-table-scroll {
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.chat-table-scroll :focus-visible,
+.chat-compute-scroll :focus-visible {
+  outline-offset: -2px;
 }
 
 .chat-table {
@@ -381,7 +403,7 @@
 
 .chat-history {
   display: grid;
-  grid-template-columns: auto auto 1fr;
+  grid-template-columns: auto minmax(0, 132px) 1fr;
   grid-template-areas:
     "sym spark figures"
     "range range range";
@@ -395,6 +417,8 @@
 }
 .chat-history > .chat-spark {
   grid-area: spark;
+  width: 100%;
+  height: auto;
 }
 .chat-history-figures {
   grid-area: figures;
@@ -460,8 +484,9 @@
   color: var(--muted-foreground);
 }
 
-.chat-kv {
+.kv.chat-kv {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0;
   padding: 2px 0 4px;
 }
@@ -475,6 +500,13 @@
 }
 .chat-kv-row:last-child {
   border-bottom: 0;
+}
+.chat-kv dt {
+  min-width: 0;
+}
+.chat-kv dd {
+  flex: none;
+  white-space: nowrap;
 }
 .chat-kv dt .chat-ccy {
   margin-left: 4px;
@@ -546,9 +578,13 @@
   min-width: 0;
 }
 .chat-chip-line .chip {
-  color: var(--muted-foreground);
-  border-color: var(--rule);
+  height: auto;
+  min-height: 22px;
   max-width: 100%;
+  padding-block: 2px;
+  border-color: var(--rule);
+  color: var(--muted-foreground);
+  white-space: normal;
 }
 .chat-chip-line .chip svg {
   flex: none;

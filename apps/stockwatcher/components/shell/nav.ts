@@ -7,6 +7,7 @@ import {
   FileText,
   LayoutGrid,
   type LucideIcon,
+  MessageSquareText,
   MonitorDot,
   Newspaper,
   Settings2,
@@ -38,6 +39,11 @@ export type View = (typeof views)[number]["view"];
 
 export const workspaceViews = views.filter((item) => item.view !== "settings");
 export const preferenceViews = views.filter((item) => item.view === "settings");
+
+export const assistantNav = {
+  label: "Assistant",
+  icon: MessageSquareText,
+} as const satisfies { label: string; icon: LucideIcon };
 
 export const viewLabel = (view: View) =>
   views.find((item) => item.view === view)?.label ?? "Desk";
