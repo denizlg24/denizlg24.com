@@ -14,6 +14,10 @@
   padding: 12px var(--gutter);
   border-bottom: 1px solid var(--rule);
 }
+.admin-masthead nav {
+  display: flex;
+  gap: var(--sp-4);
+}
 .admin-masthead nav a {
   font-size: var(--fs-sm);
   font-weight: 600;
@@ -464,4 +468,15 @@
 .billing-error {
   color: var(--loss);
   font-size: var(--fs-xs);
+}
+
+.admin-enquiries td {
+  vertical-align: top;
+  padding-block: 7px;
+}
+.admin-enquiry-message {
+  min-width: 280px;
+  max-width: 520px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

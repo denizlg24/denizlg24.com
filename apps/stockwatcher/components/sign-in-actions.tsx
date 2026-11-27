@@ -35,7 +35,13 @@ export function DenizSignIn({
   );
 }
 
-export function PreviewSignIn({ size = "lg" }: { size?: "default" | "lg" }) {
+export function PreviewSignIn({
+  size = "lg",
+  label = "Open preview",
+}: {
+  size?: "default" | "lg";
+  label?: string;
+}) {
   return (
     <form
       action="/auth/demo"
@@ -48,7 +54,7 @@ export function PreviewSignIn({ size = "lg" }: { size?: "default" | "lg" }) {
     >
       <input type="hidden" name="from" />
       <Button type="submit" variant="outline" size={size}>
-        Open preview <ArrowRight />
+        {label} <ArrowRight />
       </Button>
     </form>
   );

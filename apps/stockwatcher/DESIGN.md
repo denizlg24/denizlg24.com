@@ -207,3 +207,46 @@ Focus: every interactive element shows a 2px `--ring` outline at 2px offset (`:f
 
 - Under 1100px the assistant column stacks above the result. Under 980px the sidebar becomes a drawer. Under 760px every grid collapses to one column, benchmarks wrap to three per row, and the page side gutter is 16px. Under 480px the topbar collapses to icons.
 - Wide tables scroll inside their own container (`[data-slot="table-container"]` is `overflow-x: auto`). The page never scrolls horizontally.
+
+## Marketing surfaces
+
+The signed-out home (`components/landing`), `/pricing` and `/enquire` use a darker, more expressive variant of this system. Everything above still applies (rules not boxes, no radius above 4px, no gradients or glass, signed values with a sign). Styles live in `app/styles/landing.css` under `.mk`; shared pieces in `components/marketing`.
+
+### Tones
+
+Every block carries `data-tone="night"` or `data-tone="paper"`, which sets the `--mk-*` tokens and remaps the app tokens (`--primary`, `--foreground`, `--card`, …) so `Button` and friends follow. The page opens at night, turns to paper as you scroll ("opening the morning paper") and returns to night for the close. `Turn` (`components/marketing/turn.tsx`) scrubs a section between tones with GSAP: the surface over the whole range, the ink over a short window in the middle so text is never grey on grey for long. The values are duplicated in `tone` in `components/marketing/motion.ts`; change both.
+
+| Token | Night | Paper | Use |
+|---|---|---|---|
+| `--mk-bg` | `#0c0f0d` | `#f5f5ef` | Surface |
+| `--mk-ink` | `#e6ebe5` | `#121814` | Text |
+| `--mk-muted` | `#9aa49d` | `#566059` | Secondary text |
+| `--mk-rule` / `--mk-rule-strong` | `#272e29` / `#6b756e` | `#dcddd4` / `#1f2622` | Hairlines / section-opening rule |
+| `--mk-accent` | `#a7d7b4` mint | `#174e3a` forest | The mark and the primary action only |
+| `--mk-amber` | `#e3b665` | `#94600f` | The last-print dot and live values only (and the `COMING` tag) |
+| `--mk-gain` / `--mk-loss` | `#6ccf95` / `#ff958c` | `#1b6e45` / `#b0342f` | Signed values, always with a sign |
+| `--term` | `#fb8b1e` | | Terminal demo only: amber on black |
+
+Texture: a 1px baseline grid every 24px at 4% ink, night only (`--mk-grid` fades it out on paper).
+
+### Type
+
+- **Newsreader** 500, -0.03em, 64–120px for headlines (`clamp`, down to 46px on phones). Section headings 40–80px.
+- **Inter** for body. Prose uses proportional figures; data keeps the tabular default.
+- **IBM Plex Mono** (`@fontsource/ibm-plex-mono` 400/500, `var(--mono)`) for terminal lines, function codes, tickers, timestamps and source lines. Not as decoration.
+- Wordmark: the mark plus lowercase `stockwatcher`, Inter 600, -0.02em.
+
+### Mark motion
+
+`AnimatedMark` (`components/marketing/animated-mark.tsx`): on load (or on view) the W draws left to right in 0.9s `power2.inOut`, the dot lands amber, pulses once and settles to the accent. Hovering the nearest `[data-mark-hover]` ancestor redraws from the second trough. The hero draws a full-bleed price line (`hero-line.tsx`) that becomes the W at `[data-hero-w]` and leans toward the pointer once drawn.
+
+### Motion rules
+
+- GSAP loads only in client islands, through `useMotion` (`gsap.matchMedia`, reverted on unmount). It exposes `motion` (no reduced-motion preference), `wide` (≥760px) and `fine` (hover pointer).
+- Content renders in its final state on the server; motion only runs from there. The hero headline is the LCP and never animates.
+- Reduced motion: no pins, lines fully drawn, counters at their final values, no pointer effects, the tape stops and scrolls by hand.
+- Pins (the terminal) only at ≥760px.
+
+### Voice
+
+State the number, name the source, cut adjectives. No "revolutionary", no exclamation marks. Canned demo figures are real prints with their date and source (`components/landing/terminal-data.ts`); illustrative values are labelled as such.

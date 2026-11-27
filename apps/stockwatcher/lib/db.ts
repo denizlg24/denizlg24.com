@@ -88,6 +88,11 @@ function sqlite() {
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT, last_seen TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS enquiries (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL,
+      company TEXT, role TEXT, seats TEXT, interest TEXT NOT NULL,
+      message TEXT NOT NULL, created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS chat_runs (
       id TEXT PRIMARY KEY, user_id TEXT NOT NULL, thread_id TEXT NOT NULL,
       message_id TEXT, started_at TEXT NOT NULL, duration_ms INTEGER NOT NULL,
@@ -242,6 +247,12 @@ function pg(url: string) {
       )`;
       await sql`CREATE INDEX IF NOT EXISTS stockwatcher_credit_ledger_user ON stockwatcher_credit_ledger(user_id, created_at)`;
       await sql`CREATE INDEX IF NOT EXISTS stockwatcher_credit_ledger_thread ON stockwatcher_credit_ledger(user_id, thread_id)`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_enquiries (
+        id UUID PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL,
+        company TEXT, role TEXT, seats TEXT, interest TEXT NOT NULL,
+        message TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL
+      )`;
+      await sql`CREATE INDEX IF NOT EXISTS stockwatcher_enquiries_created ON stockwatcher_enquiries(created_at)`;
     });
     return db;
   })().catch(async (error) => {
