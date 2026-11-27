@@ -1422,20 +1422,23 @@ function Mentions({ items }: { items: Success<"getSocialMentions"> }) {
 }
 
 function PortfolioHistory({ data }: { data: Success<"getPortfolioHistory"> }) {
+  const [all, setAll] = useState(false);
   const curve = [
     ...data.days.map((day) => ({
       t: Date.parse(`${day.date}T00:00:00Z`) / 1000,
       c: day.value,
     })),
   ];
+  const listed = data.focus ? data.focus.positions : data.positions;
+  const limit = all ? listed.length : 12;
   const rows = data.focus
-    ? data.focus.positions.slice(0, 12).map((position) => ({
+    ? data.focus.positions.slice(0, limit).map((position) => ({
         symbol: position.symbol,
         change: position.change,
         sub: position.priceChangePercent,
         stale: position.stale,
       }))
-    : data.positions.slice(0, 12).map((position) => ({
+    : data.positions.slice(0, limit).map((position) => ({
         symbol: position.symbol,
         change: position.pnl,
         sub: position.contributionPercent,
@@ -1444,7 +1447,7 @@ function PortfolioHistory({ data }: { data: Success<"getPortfolioHistory"> }) {
   return (
     <Block
       title={`Book · ${data.window.from} → ${data.window.to}`}
-      meta={`${data.base} · ${data.sampled ? "weekly" : "daily"} · Yahoo Finance`}
+      meta={`${data.base} · ${data.sampled ?? "daily"} · ${data.source} · as of ${data.asOf}`}
     >
       <div className="stat-row chat-totals">
         <div className="figure">
@@ -1460,13 +1463,21 @@ function PortfolioHistory({ data }: { data: Success<"getPortfolioHistory"> }) {
           </span>
         </div>
         <div className="figure">
-          <span className="figure-label">Unrealised incl. FX</span>
+          <span className="figure-label">
+            Unrealised incl. FX
+            {data.costBasis.unrealized != null && !data.costBasis.complete
+              ? " · partial"
+              : ""}
+          </span>
           <strong className={`figure-value ${tone(data.costBasis.unrealized)}`}>
-            {amount(data.costBasis.unrealized)}
+            {data.costBasis.unrealized == null
+              ? "n/a"
+              : amount(data.costBasis.unrealized)}
           </strong>
           <span className="figure-sub">
-            price {amount(data.costBasis.priceEffect)} · FX{" "}
-            {amount(data.costBasis.fxEffect)}
+            {data.costBasis.unrealized == null
+              ? "no purchase dates"
+              : `price ${amount(data.costBasis.priceEffect)} · FX ${amount(data.costBasis.fxEffect)}`}
           </span>
         </div>
         {data.focus ? (
@@ -1513,6 +1524,25 @@ function PortfolioHistory({ data }: { data: Success<"getPortfolioHistory"> }) {
             ))}
           </tbody>
         </table>
+      ) : null}
+      {listed.length > 12 ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={() => setAll((open) => !open)}
+        >
+          {all ? "Show fewer" : `Show all ${listed.length}`}
+        </Button>
+      ) : null}
+      {data.costBasis.excluded.length ? (
+        <p className="chat-quiet">
+          Left out of the FX-inclusive figure:{" "}
+          {data.costBasis.excluded
+            .map((item) => `${item.symbol} (${item.reason})`)
+            .join(", ")}
+          .
+        </p>
       ) : null}
       {data.missing.length ? (
         <p className="chat-quiet">

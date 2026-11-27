@@ -421,23 +421,25 @@ export async function quotes(
       if (result.status === "fulfilled") found.push(...result.value);
   }
   // A thinly traded listing can return a single daily bar, which leaves no
-  // previous close; the intraday chart's previous close fills the day change.
+  // previous close; the intraday chart's previous close fills the day change,
+  // measured against the price this quote already reports.
   const changeless = found
     .filter((quote) => quote.previous == null)
     .slice(0, 12);
   if (changeless.length) {
     const refilled = await Promise.allSettled(
-      changeless.map((quote) => series(quote.symbol, "1D", since)),
+      changeless.map((quote) => series(quote.symbol, "1D")),
     );
     refilled.forEach((result, i) => {
+      const quote = changeless[i];
       const fresh = result.status === "fulfilled" ? result.value.quote : null;
-      if (!fresh || fresh.previous == null) return;
-      const at = found.indexOf(changeless[i]);
-      found[at] = {
-        ...changeless[i],
+      if (!fresh?.previous || fresh.currency !== quote.currency) return;
+      const change = quote.price - fresh.previous;
+      found[found.indexOf(quote)] = {
+        ...quote,
         previous: fresh.previous,
-        change: fresh.change,
-        percent: fresh.percent,
+        change,
+        percent: (change / fresh.previous) * 100,
       };
     });
   }
@@ -599,6 +601,8 @@ export type History = {
   name: string | null;
   currency: string | null;
   points: ChartPoint[];
+  /** Share splits in the window; factor 2 means one share became two. */
+  splits: { time: number; factor: number }[];
 };
 
 /**
@@ -626,7 +630,8 @@ export async function history(
     interval === "1d" ? 900 : 3600,
   );
   const bars = result.chart?.result?.[0];
-  if (!bars) return { symbol, name: null, currency: null, points: [] };
+  if (!bars)
+    return { symbol, name: null, currency: null, points: [], splits: [] };
   const values = bars.indicators?.quote?.[0];
   const adjusted = bars.indicators?.adjclose?.[0]?.adjclose;
   const points: ChartPoint[] = [];
@@ -653,6 +658,15 @@ export async function history(
     name: bars.meta?.longName ?? bars.meta?.shortName ?? null,
     currency: bars.meta?.currency ?? null,
     points,
+    splits: Object.values(bars.events?.splits ?? {}).flatMap((split) =>
+      finite(split.date) &&
+      finite(split.numerator) &&
+      finite(split.denominator) &&
+      split.numerator > 0 &&
+      split.denominator > 0
+        ? [{ time: split.date, factor: split.numerator / split.denominator }]
+        : [],
+    ),
   };
 }
 
