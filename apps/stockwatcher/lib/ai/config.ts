@@ -1,5 +1,6 @@
 import "server-only";
 import { createGateway } from "ai";
+import { userGateway } from "@/lib/billing/ai-keys";
 import type { Identity } from "@/lib/db";
 
 const defaultModel = "anthropic/claude-sonnet-5.5";
@@ -19,12 +20,21 @@ export function gateway() {
   return provider;
 }
 
-export const chatModel = () =>
-  gateway()(process.env.AI_GATEWAY_MODEL?.trim() || defaultModel);
+export const briefModel = () => gateway()(briefModelId());
 
-export const briefModel = () =>
-  gateway()(
-    process.env.AI_GATEWAY_BRIEF_MODEL?.trim() ||
-      process.env.AI_GATEWAY_MODEL?.trim() ||
-      defaultModel,
-  );
+const chatModelId = () => process.env.AI_GATEWAY_MODEL?.trim() || defaultModel;
+const briefModelId = () =>
+  process.env.AI_GATEWAY_BRIEF_MODEL?.trim() ||
+  process.env.AI_GATEWAY_MODEL?.trim() ||
+  defaultModel;
+
+/** The user's own budgeted key once they have bought credits, else the app key. */
+export async function modelsFor(userId: string) {
+  const provider = (await userGateway(userId)) ?? gateway();
+  return { chat: provider(chatModelId()), brief: provider(briefModelId()) };
+}
+
+/** Tags gateway reporting by user; budgets come from the key, not this. */
+export const gatewayOptions = (userId: string) => ({
+  gateway: { user: userId },
+});

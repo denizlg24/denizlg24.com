@@ -61,3 +61,12 @@ its history (`git subtree`). Product truth is `PRODUCT.md`, the visual system
   below a request (a tool that calls `generateText`) is added with
   `addScopedCost` inside `withCostScope`. Plan:
   `docs/internal/plans/035-stockwatcher-multi-user.md`.
+- **Per-user gateway keys are a backstop, not the meter.** With
+  `VERCEL_API_TOKEN` and `AI_GATEWAY_TEAM_ID`, the Polar webhook creates a
+  user's own AI Gateway key on their first purchase (name is a hash of the
+  user id, team-attributed, sealed at rest) and re-fits its budget after every
+  purchase or refund to all credits ever granted at cost plus $0.50, refresh
+  `none`. Chat and the daily brief then run on that key (`modelsFor`); a 402
+  `quota_for_entity_exceeded` reaches the client as out-of-credits. Supply-chain
+  extraction stays on the app key: its results are cached and shared across
+  users.

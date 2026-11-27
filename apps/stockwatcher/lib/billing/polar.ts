@@ -1,5 +1,6 @@
 import "server-only";
 import { createPolar, webhooks } from "@polar-sh/sdk/2026-10";
+import { syncUserKey } from "./ai-keys";
 import { adjustPaid, MC_PER_CREDIT, reverseOrder } from "./credits";
 
 export const polarReady = () =>
@@ -149,6 +150,7 @@ export async function handleWebhook(
         product: order.product?.name ?? null,
       },
     });
+    if (granted) await keepKeyInStep(userId);
     return { status: 202, result: granted ? "granted" : "duplicate" };
   }
 
@@ -173,5 +175,15 @@ export async function handleWebhook(
       currency: order.currency,
     },
   });
+  if (reversed) await keepKeyInStep(userId);
   return { status: 202, result: reversed ? "reversed" : "duplicate" };
+}
+
+/** A failed key sync must not fail the webhook: the credits are already booked. */
+async function keepKeyInStep(userId: string) {
+  await syncUserKey(userId).catch((error: unknown) =>
+    console.error("Stockwatcher AI key sync failed", {
+      error: error instanceof Error ? error.message.slice(0, 300) : "unknown",
+    }),
+  );
 }

@@ -8,7 +8,7 @@ import {
 } from "ai";
 import { z } from "zod";
 import { briefDataPack } from "@/lib/ai/brief";
-import { aiEnabled, briefModel } from "@/lib/ai/config";
+import { aiEnabled, gatewayOptions, modelsFor } from "@/lib/ai/config";
 import { briefInstructions } from "@/lib/ai/prompt";
 import { currentUser, json, sameOrigin } from "@/lib/auth";
 import { release, reserve } from "@/lib/billing/credits";
@@ -92,7 +92,8 @@ export async function POST(request: Request) {
   };
 
   const result = streamText({
-    model: briefModel(),
+    model: (await modelsFor(user.id)).brief,
+    providerOptions: gatewayOptions(user.id),
     instructions: briefInstructions({ name: user.name, date }),
     prompt: `Data pack (JSON):\n${pack}\n\nWrite the brief for ${date}.`,
     maxOutputTokens: 1200,

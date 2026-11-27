@@ -263,6 +263,11 @@ function pg(url: string) {
       )`;
       await sql`CREATE INDEX IF NOT EXISTS stockwatcher_jobs_ready ON stockwatcher_jobs(status, run_after)`;
       await sql`CREATE INDEX IF NOT EXISTS stockwatcher_jobs_user ON stockwatcher_jobs(user_id, status)`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_ai_keys (
+        user_id TEXT PRIMARY KEY, key_id TEXT NOT NULL, sealed_key TEXT NOT NULL,
+        limit_usd NUMERIC(12, 2) NOT NULL, created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )`;
       await sql`CREATE TABLE IF NOT EXISTS stockwatcher_schedules (
         name TEXT PRIMARY KEY, next_run TIMESTAMPTZ NOT NULL
       )`;
