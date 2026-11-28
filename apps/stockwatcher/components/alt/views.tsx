@@ -2,14 +2,7 @@
 
 import type { AltMonitorFunction, AltSecurityFunction } from "@/lib/terminal";
 import { CongressFeed, CongressTickerView, TrumpFeed } from "./congress";
-import {
-  ContractsFeed,
-  ContractsView,
-  LobbyingFeed,
-  LobbyingView,
-  PacFeed,
-  PacView,
-} from "./gov";
+import { ContractsFeed, ContractsView, PacFeed, PacView } from "./gov";
 import {
   AppRatingsView,
   AttentionView,
@@ -17,7 +10,6 @@ import {
   FlightsView,
   OffExchangeBoard,
   OffExchangeView,
-  PatentsView,
   PolymarketBoard,
   WarnFeed,
   WarnView,
@@ -47,8 +39,6 @@ export function AltMonitor({
       return <ManagerPortfolio />;
     case "CONT":
       return <ContractsFeed select={select} />;
-    case "LOBY":
-      return <LobbyingFeed select={select} />;
     case "PACS":
       return <PacFeed select={select} />;
     case "DARK":
@@ -84,14 +74,10 @@ export function AltSecurity({
       return <EtfHoldings ticker={ticker} select={select} />;
     case "CONT":
       return <ContractsView ticker={ticker} />;
-    case "LOBY":
-      return <LobbyingView ticker={ticker} />;
     case "PACS":
       return <PacView ticker={ticker} />;
     case "DARK":
       return <OffExchangeView ticker={ticker} />;
-    case "PATN":
-      return <PatentsView ticker={ticker} />;
     case "APPR":
       return <AppRatingsView ticker={ticker} />;
     case "WIKI":

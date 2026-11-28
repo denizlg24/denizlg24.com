@@ -297,6 +297,13 @@ const merge = (
 
 const currentYear = () => new Date().getFullYear();
 
+/**
+ * Senate eFD answers 403 (Akamai) to every client tried from the owner's
+ * networks, so the Senate side stays off unless a host that can reach it
+ * sets CONGRESS_SENATE=1.
+ */
+export const senateEnabled = () => process.env.CONGRESS_SENATE === "1";
+
 /** Aggregates are per source so one publisher being down does not hide the others. */
 async function part(
   label: string,
@@ -343,7 +350,7 @@ export async function congressFeed(options: {
           warnings,
         ),
       );
-  if (chamber === "senate" || chamber === "all")
+  if (senateEnabled() && (chamber === "senate" || chamber === "all"))
     jobs.push(
       part("Senate", "senate", 60_000, () => senateAll(budget), warnings),
     );
@@ -375,7 +382,9 @@ export async function refreshCongress(budget: Budget) {
         cacheAggregate(`house:${year}`, agg),
       ),
     ),
-    senateAll(budget).then((agg) => cacheAggregate("senate", agg)),
+    ...(senateEnabled()
+      ? [senateAll(budget).then((agg) => cacheAggregate("senate", agg))]
+      : []),
     executiveAll(budget).then((agg) => cacheAggregate("executive", agg)),
   ]);
   return results.map((r) => r.status);

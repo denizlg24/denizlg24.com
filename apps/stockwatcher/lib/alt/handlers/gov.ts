@@ -90,6 +90,5 @@ export const warmers: AltWarmer[] = [
     everyMs: 30 * 60_000,
     run: () => recentContracts(7, 0),
   },
-  { name: "gov.lobbying.recent", everyMs: 30 * 60_000, run: lobbyingFeedDoc },
   { name: "gov.pac.top", everyMs: 24 * 3_600_000, run: () => topPacs() },
 ];

@@ -55,7 +55,7 @@ export function congressTools() {
   return {
     getCongressTrades: tool({
       description:
-        "Latest US Congress stock trades from STOCK Act periodic transaction reports: House (House Clerk PDFs) and Senate (Senate eFD). Filter by symbol, member (bioguide id like P000197 or a name), chamber, party and buy/sell over the last N days by filing date. Amounts are disclosure ranges; filings lag trades by up to 45 days. Scanned paper filings are listed as unparsed with a link, not read. Returns at most 40 rows plus totals.",
+        "Latest US Congress stock trades from STOCK Act periodic transaction reports: House (House Clerk PDFs; Senate eFD is not reachable, so Senate trades are not covered). Filter by symbol, member (bioguide id like P000197 or a name), chamber, party and buy/sell over the last N days by filing date. Amounts are disclosure ranges; filings lag trades by up to 45 days. Scanned paper filings are listed as unparsed with a link, not read. Returns at most 40 rows plus totals.",
       inputSchema: z.object({
         symbol: ticker.optional(),
         member: z.string().trim().min(2).max(60).optional(),

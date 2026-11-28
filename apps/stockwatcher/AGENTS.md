@@ -136,8 +136,11 @@ its history (`git subtree`). Product truth is `PRODUCT.md`, the visual system
   `FEC_API_KEY` (DEMO_KEY allows ~10 calls an hour), `LDA_API_KEY`,
   `USPTO_API_KEY` (patents are off without it), `OPENFIGI_API_KEY`
   optional. LDA and Senate eFD answer 403 (Akamai) to every client tried on
-  2026-11-28, headless Chromium included, so they are likely blocked from
-  the home network that hosts Forge too; plan 037 lists paid replacements. 13F reports keep every
+  2026-11-28, headless Chromium included, so lobbying (LOBY, revolving
+  door) and patents (PATN, no USPTO key) are unwired from the terminal,
+  desk, assistant and MCP, and Senate trades sit behind `CONGRESS_SENATE=1`;
+  their code stays in `lib/alt` for re-wiring, and plan 037 lists paid
+  replacements. 13F reports keep every
   position, roughly 0.7 MB a filing in the cache.
 - **One-click channels need their provider apps.** Telegram, Discord and
   Slack connect through `lib/notify/connect.ts`: a one-time state in

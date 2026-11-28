@@ -130,14 +130,11 @@ export function mcpHandler(user: Identity, scope: TokenScope, origin: string) {
     register(server, "getCongressHolders", t.getCongressHolders);
     register(server, "getTrumpTrades", t.getTrumpTrades);
     register(server, "getGovernmentContracts", t.getGovernmentContracts);
-    register(server, "getLobbying", t.getLobbying);
-    register(server, "getRevolvingDoor", t.getRevolvingDoor);
     register(server, "getCorporatePacs", t.getCorporatePacs);
     register(server, "getOffExchangeVolume", t.getOffExchangeVolume);
     register(server, "getOffExchangeLeaders", t.getOffExchangeLeaders);
     register(server, "getPolymarketTrades", t.getPolymarketTrades);
     register(server, "getPolymarketMarkets", t.getPolymarketMarkets);
-    register(server, "getPatentActivity", t.getPatentActivity);
     register(server, "getWarnNotices", t.getWarnNotices);
     register(server, "getAppStoreRatings", t.getAppStoreRatings);
     register(server, "getWikipediaAttention", t.getWikipediaAttention);

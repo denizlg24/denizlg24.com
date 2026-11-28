@@ -24,7 +24,6 @@ export const deskFunctions = [
   "TRMP",
   "FUND",
   "CONT",
-  "LOBY",
   "PACS",
   "DARK",
   "PMKT",

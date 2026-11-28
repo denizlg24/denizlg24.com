@@ -11,6 +11,7 @@ import {
   refreshAnnual,
   refreshCongress,
   senateAnnualFilings,
+  senateEnabled,
 } from "../congress/store";
 import {
   type Chamber,
@@ -26,8 +27,10 @@ import {
 import type { AltHandlers, AltWarmer } from "../handler-types";
 import { AltBadRequest, type AltResult } from "../types";
 
-const SOURCE =
-  "House Clerk, Senate eFD, OGE, unitedstates/congress-legislators";
+const SOURCE = () =>
+  senateEnabled()
+    ? "House Clerk, Senate eFD, OGE, unitedstates/congress-legislators"
+    : "House Clerk, OGE, unitedstates/congress-legislators";
 
 const int = (
   params: URLSearchParams,
@@ -70,7 +73,7 @@ const cutoff = (days: number) =>
 function wrap<T>(feed: Feed, data: T): AltResult<T> {
   return {
     data,
-    source: SOURCE,
+    source: SOURCE(),
     asOf: feed.asOf,
     fetchedAt: feed.fetchedAt,
     stale: feed.stale,
@@ -199,7 +202,7 @@ const handlers: AltHandlers = {
       } catch {
         warnings.push("Annual report could not be read right now.");
       }
-    } else if (person?.chamber === "senate") {
+    } else if (person?.chamber === "senate" && senateEnabled()) {
       extra = await senateAnnualFilings(person).catch(() => []);
       warnings.push(
         "Senate annual reports are linked, not parsed; no net-worth estimate.",

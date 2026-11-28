@@ -194,14 +194,11 @@ const toolNames: Record<ToolPart["type"], string> = {
   "tool-getCongressHolders": "Congress holders",
   "tool-getTrumpTrades": "Presidential trades",
   "tool-getGovernmentContracts": "Government contracts",
-  "tool-getLobbying": "Lobbying",
-  "tool-getRevolvingDoor": "Revolving door",
   "tool-getCorporatePacs": "Corporate PACs",
   "tool-getOffExchangeVolume": "Off-exchange volume",
   "tool-getOffExchangeLeaders": "Off-exchange leaders",
   "tool-getPolymarketTrades": "Polymarket trades",
   "tool-getPolymarketMarkets": "Polymarket markets",
-  "tool-getPatentActivity": "Patents",
   "tool-getWarnNotices": "Layoff notices",
   "tool-getAppStoreRatings": "App ratings",
   "tool-getWikipediaAttention": "Wikipedia attention",
@@ -390,14 +387,11 @@ export function runningLabel(part: ToolPart): string {
     case "tool-getCongressHolders":
     case "tool-getTrumpTrades":
     case "tool-getGovernmentContracts":
-    case "tool-getLobbying":
-    case "tool-getRevolvingDoor":
     case "tool-getCorporatePacs":
     case "tool-getOffExchangeVolume":
     case "tool-getOffExchangeLeaders":
     case "tool-getPolymarketTrades":
     case "tool-getPolymarketMarkets":
-    case "tool-getPatentActivity":
     case "tool-getWarnNotices":
     case "tool-getAppStoreRatings":
     case "tool-getWikipediaAttention":

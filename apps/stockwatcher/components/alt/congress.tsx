@@ -264,7 +264,7 @@ type SideFilter = "all" | "buy" | "sell";
 type ChamberFilter = "all" | "house" | "senate";
 
 export function CongressFeed({ select }: { select: (symbol: string) => void }) {
-  const [chamber, setChamber] = useState<ChamberFilter>("all");
+  const chamber: ChamberFilter = "all";
   const [party, setParty] = useState<Party>("all");
   const [side, setSide] = useState<SideFilter>("all");
   const [days, setDays] = useState(30);
@@ -292,16 +292,6 @@ export function CongressFeed({ select }: { select: (symbol: string) => void }) {
     <div className="term-stack">
       <div className="term-toolbar">
         <div className="row-actions">
-          <Segmented<ChamberFilter>
-            label="Chamber"
-            value={chamber}
-            onChange={setChamber}
-            options={[
-              ["all", "Both"],
-              ["house", "House"],
-              ["senate", "Senate"],
-            ]}
-          />
           <Segmented<Party>
             label="Party"
             value={party}

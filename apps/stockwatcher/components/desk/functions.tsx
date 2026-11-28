@@ -84,7 +84,6 @@ export function FunctionWidget({ widget, ctx }: WidgetProps<"function">) {
       case "TRMP":
       case "FUND":
       case "CONT":
-      case "LOBY":
       case "PACS":
       case "DARK":
       case "PMKT":
