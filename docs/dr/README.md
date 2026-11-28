@@ -1,5 +1,7 @@
 # Disaster recovery
 
+For the physical Pi recovery, three-way data merge and homeward cutover, follow [Return production to Forge](return-to-forge.md).
+
 The recovery scope is Pi-Cloud's cloud data and Forge's application
 deployments. Cloudflare R2 is the unattended offsite store, with an optional
 independent copy on iCloud. Recovery can target the Pi profile, the Forge
