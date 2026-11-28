@@ -29,6 +29,7 @@ import { managers } from "@/lib/research-types";
 import { candidates, ownDisclosure } from "@/lib/supply-chain";
 import { rangeKeys } from "@/lib/universes";
 import { today } from "@/lib/utils";
+import { archiveTools } from "./alt/archive-tools";
 import { congressTools } from "./alt/congress-tools";
 import { govTools } from "./alt/gov-tools";
 import { marketAltTools } from "./alt/market-alt-tools";
@@ -431,7 +432,7 @@ export function createTools(ctx: { user: Identity; origin: string }) {
     }),
     openView: tool({
       description:
-        "Navigate the user's screen to a dashboard view (markets map/chart, portfolio, research tab, watchlists, alerts). For a single security's terminal functions use view 'security' with ticker and fn: GP chart, DES description & key stats, FA financials, ANR analyst ratings & targets, ERN earnings, HDS holders & insider trades, MGMT officers & governance, DVD dividends & splits, RELS relationship map, CN company news, CONG congress trades in it, INST 13F holders, EXEC executive pay, ETF fund holdings, CONT federal contracts, LOBY lobbying, PACS corporate PAC giving, DARK off-exchange volume, PATN patents, APPR app ratings, WIKI Wikipedia attention, WARN layoff notices. For market monitors use view 'monitor' with fn: MOST (top movers), WEI (world indices), ECO (macro series), FEAR (CNN Fear & Greed: gauge, history with the S&P 500, sub-indicators, regime stats and alerts), CONG (congress trades), TRMP (presidential trades), FUND (13F managers), CONT (largest contracts), LOBY (lobbying), PACS (corporate PACs), DARK (off-exchange leaders), PMKT (Polymarket), WARN (layoff notices). For free-form overlays (e.g. VIX over the S&P, a ratio, a FRED series) use view 'overlay' with period (1M|3M|6M|YTD|1Y|5Y) and spec: series joined by ';', each 'expr,axis,mode,flags,studies' where expr is a symbol, CNN:FG (the CNN Fear & Greed index), FRED:<id> (DGS10, DGS2, T10Y2Y, DFF, CPIAUCSL, UNRATE, M2SL…) or arithmetic with spaces around minus ('NVDA / SMH', '(XLY / XLP) * 100'); axis l|r|p (pane); mode p (level) | r (% from start) | z (z-score); flags 'i' to invert; studies '+'-joined from sma20,sma50,sma100,sma200,ema9,ema21,ema50,bollinger,rsi,macd. Example: '^GSPC,l,p,,sma200;^VIX,r,p,i'. The same spec can be pinned with updateDesk as an 'overlay' widget (title, spec, range). Use when the user asks to show/open something.",
+        "Navigate the user's screen to a dashboard view (markets map/chart, portfolio, research tab, watchlists, alerts). For a single security's terminal functions use view 'security' with ticker and fn: GP chart, DES description & key stats, FA financials, ANR analyst ratings & targets, ERN earnings, HDS holders & insider trades, MGMT officers & governance, DVD dividends & splits, RELS relationship map, CN company news, CONG congress trades in it, INST 13F holders, EXEC executive pay, ETF fund holdings, CONT federal contracts, LOBY lobbying, PACS corporate PAC giving, DARK off-exchange volume, PATN patents, APPR app ratings, WIKI Wikipedia attention, WARN layoff notices, WSB WallStreetBets mention history, ACFT corporate jets (and APPR also covers Google Play). For market monitors use view 'monitor' with fn: MOST (top movers), WEI (world indices), ECO (macro series), FEAR (CNN Fear & Greed: gauge, history with the S&P 500, sub-indicators, regime stats and alerts), CONG (congress trades), TRMP (presidential trades), FUND (13F managers), CONT (largest contracts), LOBY (lobbying), PACS (corporate PACs), DARK (off-exchange leaders), PMKT (Polymarket), WARN (layoff notices), WSB (WallStreetBets attention board), ACFT (recent corporate jet flights). For free-form overlays (e.g. VIX over the S&P, a ratio, a FRED series) use view 'overlay' with period (1M|3M|6M|YTD|1Y|5Y) and spec: series joined by ';', each 'expr,axis,mode,flags,studies' where expr is a symbol, CNN:FG (the CNN Fear & Greed index), FRED:<id> (DGS10, DGS2, T10Y2Y, DFF, CPIAUCSL, UNRATE, M2SL…) or arithmetic with spaces around minus ('NVDA / SMH', '(XLY / XLP) * 100'); axis l|r|p (pane); mode p (level) | r (% from start) | z (z-score); flags 'i' to invert; studies '+'-joined from sma20,sma50,sma100,sma200,ema9,ema21,ema50,bollinger,rsi,macd. Example: '^GSPC,l,p,,sma200;^VIX,r,p,i'. The same spec can be pinned with updateDesk as an 'overlay' widget (title, spec, range). Use when the user asks to show/open something.",
       inputSchema: z.object({ dashboard: dashboardSchema }),
       execute: async ({ dashboard }) => dashboard,
     }),
@@ -594,6 +595,7 @@ export function createTools(ctx: { user: Identity; origin: string }) {
     ...govTools(),
     ...secAltTools(),
     ...marketAltTools(),
+    ...archiveTools(),
     ...filingTools(),
     ...documentTools({ user }),
     ...signalTools({ user }),

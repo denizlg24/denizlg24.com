@@ -41,7 +41,7 @@ The HTTP service marks expired results served during an upstream failure as stal
 
 ## Personal data archive
 
-The relay can also collect datasets whose free sources are non-commercial or forbid redistribution into its own Postgres database, so history accrues for the owner's personal use. Nothing here is exposed to any app; the endpoints sit behind the same data token. With `MARKETS_ARCHIVE_DATABASE_URL` unset the archive is off and the relay behaves as before. `/healthz` reports `archive: { enabled, ready }`.
+The relay can also collect datasets whose free sources are non-commercial or forbid redistribution into its own Postgres database, so history accrues for the owner's personal use. Stockwatcher reads the wsb, play and flights endpoints (`apps/stockwatcher/lib/alt/archive`); the endpoints sit behind the same data token. With `MARKETS_ARCHIVE_DATABASE_URL` unset the archive is off and the relay behaves as before. `/healthz` reports `archive: { enabled, ready }`.
 
 Collectors, each on its own jittered interval with failure backoff (capped at six hours) and one run in flight at a time:
 

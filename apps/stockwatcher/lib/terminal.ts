@@ -104,6 +104,16 @@ export const securityFunctions = [
     label: "Layoffs",
     detail: "WARN layoff notices filed with states",
   },
+  {
+    code: "WSB",
+    label: "Reddit mentions",
+    detail: "WallStreetBets mention and rank history",
+  },
+  {
+    code: "ACFT",
+    label: "Corporate jets",
+    detail: "Registered aircraft and their flights",
+  },
 ] as const;
 export type SecurityFunction = (typeof securityFunctions)[number]["code"];
 
@@ -120,6 +130,8 @@ export const altSecurityFunctions = [
   "APPR",
   "WIKI",
   "WARN",
+  "WSB",
+  "ACFT",
 ] as const satisfies readonly SecurityFunction[];
 export type AltSecurityFunction = (typeof altSecurityFunctions)[number];
 export const isAltSecurityFunction = (
@@ -236,6 +248,16 @@ export const monitorFunctions = [
     label: "Layoffs",
     detail: "Latest WARN layoff notices by state",
   },
+  {
+    code: "WSB",
+    label: "Retail attention",
+    detail: "Most-mentioned tickers on WallStreetBets, latest snapshot",
+  },
+  {
+    code: "ACFT",
+    label: "Corporate jets",
+    detail: "Latest corporate jet flights across companies",
+  },
 ] as const;
 export type MonitorFunction = (typeof monitorFunctions)[number]["code"];
 
@@ -249,6 +271,8 @@ export const altMonitorFunctions = [
   "DARK",
   "PMKT",
   "WARN",
+  "WSB",
+  "ACFT",
 ] as const satisfies readonly MonitorFunction[];
 export type AltMonitorFunction = (typeof altMonitorFunctions)[number];
 export const isAltMonitorFunction = (
@@ -355,6 +379,10 @@ const aliases: Record<string, SecurityFunction> = {
   RATINGS: "APPR",
   PAGEVIEWS: "WIKI",
   LAYOFFS: "WARN",
+  REDDIT: "WSB",
+  WALLSTREETBETS: "WSB",
+  FLIGHTS: "ACFT",
+  JET: "ACFT",
 };
 const monitorCodes = new Map<string, MonitorFunction>([
   ["MOST", "MOST"],
@@ -419,6 +447,10 @@ const monitorCodes = new Map<string, MonitorFunction>([
   ["POLYMARKET", "PMKT"],
   ["WARN", "WARN"],
   ["LAYOFFS", "WARN"],
+  ["WSB", "WSB"],
+  ["REDDIT", "WSB"],
+  ["ACFT", "ACFT"],
+  ["FLIGHTS", "ACFT"],
 ]);
 const workspaceCodes = new Map<string, WorkspaceView>([
   ...workspaceFunctions.map((item): [WorkspaceCode, WorkspaceView] => [

@@ -205,6 +205,9 @@ const toolNames: Record<ToolPart["type"], string> = {
   "tool-getWarnNotices": "Layoff notices",
   "tool-getAppStoreRatings": "App ratings",
   "tool-getWikipediaAttention": "Wikipedia attention",
+  "tool-getWsbAttention": "WallStreetBets attention",
+  "tool-getGooglePlayRatings": "Google Play ratings",
+  "tool-getCorporateFlights": "Corporate flights",
   "tool-getManagerHoldings": "13F holdings",
   "tool-getManagerChanges": "13F changes",
   "tool-searchFundManagers": "Fund managers",
@@ -398,6 +401,9 @@ export function runningLabel(part: ToolPart): string {
     case "tool-getWarnNotices":
     case "tool-getAppStoreRatings":
     case "tool-getWikipediaAttention":
+    case "tool-getWsbAttention":
+    case "tool-getGooglePlayRatings":
+    case "tool-getCorporateFlights":
     case "tool-getManagerHoldings":
     case "tool-getManagerChanges":
     case "tool-searchFundManagers":

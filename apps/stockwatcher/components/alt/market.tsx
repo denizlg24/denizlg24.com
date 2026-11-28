@@ -14,6 +14,17 @@ import {
 import useSWR from "swr";
 import { api, Empty, Failure, Loading, SymbolLink } from "@/components/shared";
 import type {
+  Aircraft,
+  Flight,
+  FlightsRecent,
+  FlightsTicker,
+  PlayTicker,
+  WsbFilter,
+  WsbRow,
+  WsbTicker,
+  WsbTop,
+} from "@/lib/alt/archive/types";
+import type {
   AppsTicker,
   AtsSeries,
   AttentionTicker,
@@ -594,7 +605,7 @@ export function PatentsView({ ticker }: { ticker: string }) {
 const ratingStars = (value: number | null) =>
   value == null ? "—" : value.toFixed(2);
 
-export function AppRatingsView({ ticker }: { ticker: string }) {
+function AppleRatings({ ticker }: { ticker: string }) {
   const state = useAlt<AppsTicker>("apps.ticker", { symbol: ticker });
   return (
     <Gate state={state}>
@@ -676,6 +687,15 @@ export function AppRatingsView({ ticker }: { ticker: string }) {
         );
       }}
     </Gate>
+  );
+}
+
+export function AppRatingsView({ ticker }: { ticker: string }) {
+  return (
+    <>
+      <AppleRatings ticker={ticker} />
+      <PlayHistory ticker={ticker} />
+    </>
   );
 }
 
@@ -876,6 +896,527 @@ export function WarnView({ ticker }: { ticker: string }) {
       {(result) => (
         <div className="term-stack">
           <WarnTable rows={result.data.notices} />
+          <Provenance result={result} />
+        </div>
+      )}
+    </Gate>
+  );
+}
+
+const stamp = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+const signed = (value: number | null | undefined, digits = 0) =>
+  value == null
+    ? "—"
+    : `${value > 0 ? "+" : ""}${digits ? value.toFixed(digits) : number(value)}`;
+const trend = (value: number | null | undefined) =>
+  value == null || value === 0 ? "" : value > 0 ? "up" : "down";
+
+function PlayHistory({ ticker }: { ticker: string }) {
+  const state = useAlt<PlayTicker>("play.ticker", {
+    symbol: ticker,
+    days: 180,
+  });
+  if (state.error && !state.data)
+    return <p className="muted">{state.error.message}</p>;
+  if (!state.data) return <Loading message="Loading" />;
+  const result = state.data;
+  const packages = result.data.packages;
+  return (
+    <div className="term-stack">
+      <h3>Google Play</h3>
+      {packages.length ? (
+        <div className="desk-table-wrap">
+          <table className="data-table alt-table">
+            <thead>
+              <tr>
+                <th>Package</th>
+                <th className="num">Rating</th>
+                <th className="num">Δ rating</th>
+                <th className="num">Ratings</th>
+                <th className="num">Δ ratings</th>
+                <th>Installs</th>
+                <th>Version</th>
+                <th>Updated</th>
+                <th className="num">Since</th>
+              </tr>
+            </thead>
+            <tbody>
+              {packages.map((pkg) => {
+                const first = pkg.history[0];
+                const last = pkg.history[pkg.history.length - 1];
+                const ratingDelta =
+                  first?.rating != null && last?.rating != null
+                    ? last.rating - first.rating
+                    : null;
+                const countDelta =
+                  first?.ratingsCount != null && last?.ratingsCount != null
+                    ? last.ratingsCount - first.ratingsCount
+                    : null;
+                return (
+                  <tr key={pkg.package}>
+                    <td>
+                      <a
+                        href={`https://play.google.com/store/apps/details?id=${encodeURIComponent(pkg.package)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {pkg.package}
+                      </a>
+                    </td>
+                    <td className="num">{ratingStars(last?.rating ?? null)}</td>
+                    <td className={`num ${trend(ratingDelta)}`}>
+                      {signed(ratingDelta, 2)}
+                    </td>
+                    <td className="num">
+                      {last?.ratingsCount == null
+                        ? "—"
+                        : compact(last.ratingsCount)}
+                    </td>
+                    <td className={`num ${trend(countDelta)}`}>
+                      {countDelta == null
+                        ? "—"
+                        : `${countDelta > 0 ? "+" : ""}${compact(countDelta)}`}
+                    </td>
+                    <td>{last?.installs ?? "—"}</td>
+                    <td>{pkg.version ?? "—"}</td>
+                    <td>{dateLabel(pkg.updated)}</td>
+                    <td className="num">{dateLabel(first?.day)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="muted">No Google Play data for this company.</p>
+      )}
+      <Provenance result={result} />
+    </div>
+  );
+}
+
+const wsbFilterOptions = [
+  ["wallstreetbets", "WSB"],
+  ["all-stocks", "All stocks"],
+] as const;
+
+function WsbTable({
+  rows,
+  select,
+}: {
+  rows: WsbRow[];
+  select: (symbol: string) => void;
+}) {
+  if (!rows.length) return <Empty title="No recent snapshot" />;
+  return (
+    <div className="desk-table-wrap">
+      <table className="data-table alt-table">
+        <thead>
+          <tr>
+            <th className="num">#</th>
+            <th>Ticker</th>
+            <th className="num">Mentions</th>
+            <th className="num">Δ 24h</th>
+            <th className="num">Δ %</th>
+            <th className="num">Rank Δ</th>
+            <th className="num">Upvotes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.ticker}>
+              <td className="num">{row.rank}</td>
+              <td>
+                <Ticker symbol={row.ticker} select={select} />
+              </td>
+              <td className="num">{number(row.mentions)}</td>
+              <td className={`num ${trend(row.mentionsChange)}`}>
+                {signed(row.mentionsChange)}
+              </td>
+              <td className={`num ${trend(row.mentionsChangePct)}`}>
+                {row.mentionsChangePct == null
+                  ? "—"
+                  : `${signed(row.mentionsChangePct, 1)}%`}
+              </td>
+              <td className={`num ${trend(row.rankChange)}`}>
+                {signed(row.rankChange)}
+              </td>
+              <td className="num">{number(row.upvotes)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function WsbBoard({ select }: { select: (symbol: string) => void }) {
+  const [filter, setFilter] = useState<WsbFilter>("wallstreetbets");
+  const state = useAlt<WsbTop>("wsb.top", { filter, limit: 50 }, 5 * MINUTE);
+  return (
+    <div className="term-stack">
+      <div className="term-toolbar">
+        <Segment
+          label="Board"
+          value={filter}
+          onChange={setFilter}
+          options={wsbFilterOptions}
+        />
+      </div>
+      <Gate state={state}>
+        {(result) => (
+          <>
+            <WsbTable rows={result.data.rows} select={select} />
+            <Provenance
+              result={result}
+              detail={
+                result.data.takenAt
+                  ? `snapshot ${stamp.format(new Date(result.data.takenAt))}`
+                  : undefined
+              }
+            />
+          </>
+        )}
+      </Gate>
+    </div>
+  );
+}
+
+export function WsbView({ ticker }: { ticker: string }) {
+  const [filter, setFilter] = useState<WsbFilter>("wallstreetbets");
+  const [days, setDays] = useState<"7" | "30" | "90">("30");
+  const state = useAlt<WsbTicker>(
+    "wsb.ticker",
+    { symbol: ticker, days },
+    5 * MINUTE,
+  );
+  return (
+    <div className="term-stack">
+      <div className="term-toolbar">
+        <Segment
+          label="Board"
+          value={filter}
+          onChange={setFilter}
+          options={wsbFilterOptions}
+        />
+        <Segment
+          label="Window"
+          value={days}
+          onChange={setDays}
+          options={[
+            ["7", "7d"],
+            ["30", "30d"],
+            ["90", "90d"],
+          ]}
+        />
+      </div>
+      <Gate state={state}>
+        {(result) => {
+          const series = result.data.series.find((s) => s.filter === filter);
+          const { latest, points } = series ?? { latest: null, points: [] };
+          if (!series || !latest)
+            return (
+              <>
+                <Empty title="Not ranked on this board in the window" />
+                <Provenance result={result} />
+              </>
+            );
+          const hourly = result.data.bucket === "hour";
+          const label = (iso: string) =>
+            hourly ? stamp.format(new Date(iso)) : dateLabel(iso);
+          return (
+            <>
+              <section className="term-block">
+                <dl className="term-fields">
+                  <Stat label="Rank" value={`#${latest.rank}`} />
+                  <Stat label="Mentions" value={number(latest.mentions)} />
+                  <Stat
+                    label="Δ 24h"
+                    value={
+                      latest.mentionsChange == null
+                        ? "—"
+                        : `${signed(latest.mentionsChange)} (${signed(latest.mentionsChangePct, 1)}%)`
+                    }
+                  />
+                  <Stat label="Rank Δ" value={signed(latest.rankChange)} />
+                  <Stat label="Upvotes" value={number(latest.upvotes)} />
+                  <Stat
+                    label="30-day average"
+                    value={number(series.mean30 && Math.round(series.mean30))}
+                  />
+                  <Stat label="30-day z-score" value={fixed(series.zScore30)} />
+                </dl>
+                <div style={{ height: 170 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart
+                      data={points}
+                      margin={{ top: 6, right: 0, bottom: 0, left: 0 }}
+                    >
+                      <XAxis
+                        dataKey="time"
+                        tickFormatter={(value: string) =>
+                          shortDate.format(new Date(value))
+                        }
+                        tickLine={false}
+                        axisLine={{ stroke: "var(--strong-border)" }}
+                        tick={axisTick}
+                        minTickGap={40}
+                      />
+                      <YAxis
+                        orientation="right"
+                        width={40}
+                        tickFormatter={(value: number) => compact(value)}
+                        tickLine={false}
+                        axisLine={false}
+                        tick={axisTick}
+                      />
+                      <Tooltip
+                        isAnimationActive={false}
+                        cursor={{ stroke: "var(--strong-border)" }}
+                        content={({ active, payload }) => {
+                          const item = payload?.[0]?.payload;
+                          if (!active || !item) return null;
+                          return (
+                            <Tip>
+                              <span>{label(item.time)}</span>
+                              <strong>
+                                {number(item.mentions)} mentions · #{item.rank}
+                              </strong>
+                            </Tip>
+                          );
+                        }}
+                      />
+                      <Area
+                        dataKey="mentions"
+                        type="monotone"
+                        stroke="var(--foreground)"
+                        strokeWidth={1.5}
+                        fill="var(--muted)"
+                        fillOpacity={0.6}
+                        dot={false}
+                        isAnimationActive={false}
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              </section>
+              <div className="desk-table-wrap">
+                <table className="data-table alt-table">
+                  <thead>
+                    <tr>
+                      <th>{hourly ? "Hour" : "Day"} (peak)</th>
+                      <th className="num">Rank</th>
+                      <th className="num">Mentions</th>
+                      <th className="num">Upvotes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...points]
+                      .reverse()
+                      .slice(0, 40)
+                      .map((point) => (
+                        <tr key={point.time}>
+                          <td>{label(point.time)}</td>
+                          <td className="num">{point.rank}</td>
+                          <td className="num">{number(point.mentions)}</td>
+                          <td className="num">{number(point.upvotes)}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+              <Provenance
+                result={result}
+                detail={`snapshot ${stamp.format(new Date(latest.takenAt))}`}
+              />
+            </>
+          );
+        }}
+      </Gate>
+    </div>
+  );
+}
+
+const coordinate = (lat: number | null, lon: number | null) =>
+  lat == null || lon == null ? "—" : `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+
+const duration = (minutes: number | null) =>
+  minutes == null
+    ? "—"
+    : `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
+
+function FlightsTable({
+  flights,
+  select,
+}: {
+  flights: Flight[];
+  select?: (symbol: string) => void;
+}) {
+  if (!flights.length) return <Empty title="No flights in the window" />;
+  return (
+    <div className="desk-table-wrap">
+      <table className="data-table alt-table">
+        <thead>
+          <tr>
+            <th>Departed</th>
+            {select ? <th>Ticker</th> : null}
+            <th>Aircraft</th>
+            <th className="num">Duration</th>
+            <th>From</th>
+            <th>To</th>
+          </tr>
+        </thead>
+        <tbody>
+          {flights.map((flight) => (
+            <tr key={`${flight.icao24}-${flight.departedAt}`}>
+              <td>{stamp.format(new Date(flight.departedAt))}</td>
+              {select ? (
+                <td>
+                  <Ticker symbol={flight.ticker} select={select} />
+                </td>
+              ) : null}
+              <td>{flight.tail ?? flight.icao24}</td>
+              <td className="num">{duration(flight.durationMinutes)}</td>
+              <td className="muted">
+                {coordinate(flight.depLat, flight.depLon)}
+                {flight.departureObserved ? "" : " ~"}
+              </td>
+              <td className="muted">
+                {flight.arrivedAt
+                  ? coordinate(flight.arrLat, flight.arrLon)
+                  : "In the air"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function FlightsBoard({ select }: { select: (symbol: string) => void }) {
+  const [days, setDays] = useState<"7" | "30">("7");
+  const state = useAlt<FlightsRecent>(
+    "flights.recent",
+    { days, limit: 100 },
+    3 * MINUTE,
+  );
+  return (
+    <div className="term-stack">
+      <div className="term-toolbar">
+        <Segment
+          label="Window"
+          value={days}
+          onChange={setDays}
+          options={[
+            ["7", "7d"],
+            ["30", "30d"],
+          ]}
+        />
+      </div>
+      <Gate state={state}>
+        {(result) => (
+          <>
+            {result.data.counts.length ? (
+              <div className="desk-table-wrap">
+                <table className="data-table alt-table">
+                  <thead>
+                    <tr>
+                      <th>Ticker</th>
+                      <th className="num">Flights</th>
+                      <th className="num">Aircraft</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.data.counts.map((row) => (
+                      <tr key={row.ticker}>
+                        <td>
+                          <Ticker symbol={row.ticker} select={select} />
+                        </td>
+                        <td className="num">{row.flights}</td>
+                        <td className="num">{row.aircraft}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+            <FlightsTable flights={result.data.flights} select={select} />
+            <Provenance result={result} />
+          </>
+        )}
+      </Gate>
+    </div>
+  );
+}
+
+const faaTypes: Record<string, string> = {
+  "1": "Glider",
+  "2": "Balloon",
+  "3": "Blimp",
+  "4": "Single-engine",
+  "5": "Multi-engine",
+  "6": "Rotorcraft",
+  "7": "Weight-shift",
+  "8": "Powered parachute",
+  "9": "Gyroplane",
+  H: "Hybrid lift",
+  O: "Other",
+};
+
+function AircraftTable({ aircraft }: { aircraft: Aircraft[] }) {
+  if (!aircraft.length) return <Empty title="No registered aircraft matched" />;
+  return (
+    <div className="desk-table-wrap">
+      <table className="data-table alt-table">
+        <thead>
+          <tr>
+            <th>Tail</th>
+            <th>ICAO24</th>
+            <th>Owner</th>
+            <th>Type</th>
+            <th>Model</th>
+            <th className="num">Year</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {aircraft.map((plane) => (
+            <tr key={plane.nNumber}>
+              <td>{plane.nNumber}</td>
+              <td className="muted">{plane.icao24}</td>
+              <td>{plane.owner}</td>
+              <td className="muted">
+                {plane.type ? (faaTypes[plane.type] ?? plane.type) : "—"}
+              </td>
+              <td className="muted">{plane.model ?? "—"}</td>
+              <td className="num">{plane.year ?? "—"}</td>
+              <td className="muted">{plane.status ?? "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function FlightsView({ ticker }: { ticker: string }) {
+  const state = useAlt<FlightsTicker>(
+    "flights.ticker",
+    { symbol: ticker, days: 90 },
+    3 * MINUTE,
+  );
+  return (
+    <Gate state={state}>
+      {(result) => (
+        <div className="term-stack">
+          <AircraftTable aircraft={result.data.aircraft} />
+          <FlightsTable flights={result.data.flights} />
           <Provenance result={result} />
         </div>
       )}

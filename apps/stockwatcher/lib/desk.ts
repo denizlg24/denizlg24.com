@@ -29,6 +29,8 @@ export const deskFunctions = [
   "DARK",
   "PMKT",
   "WARN",
+  "WSB",
+  "ACFT",
 ] as const;
 export type DeskFunction = (typeof deskFunctions)[number];
 

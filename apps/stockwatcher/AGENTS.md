@@ -125,9 +125,14 @@ its history (`git subtree`). Product truth is `PRODUCT.md`, the visual system
   against SEC's ticker file, accepting a shortened prefix only when every
   dropped word is a division word, with curated overrides for brands and
   subsidiaries — fix a wrong match there, not in a domain. Only sources
-  whose terms allow a paid product are here; non-commercial ones (Reddit/WSB
-  mentions, Google Play, ADS-B flights, CNN snapshots for history) live in
-  the markets relay's personal archive and must not be wired in. Keys:
+  whose terms allow a paid product are here, except the non-commercial ones
+  (Reddit/WSB mentions, Google Play, ADS-B flights), which are read from the
+  markets relay's archive (`/v1/archive/*` through `relayGet`, needs
+  `MARKETS_ARCHIVE_DATABASE_URL` on the relay; `lib/alt/archive`, WSB and ACFT
+  functions, APPR's Google Play section). The owner chose to expose them
+  despite their non-commercial terms (ApeWisdom/Reddit, Google Play scraping,
+  OpenSky/adsb.lol licences); an archive that is off reads as a permanent 503.
+  Keys:
   `FEC_API_KEY` (DEMO_KEY allows ~10 calls an hour), `LDA_API_KEY`,
   `USPTO_API_KEY` (patents are off without it), `OPENFIGI_API_KEY`
   optional. LDA and Senate eFD answer 403 (Akamai) to every client tried on

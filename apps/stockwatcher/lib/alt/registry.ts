@@ -1,5 +1,6 @@
 import "server-only";
 import type { AltHandlers, AltWarmer } from "./handler-types";
+import * as archive from "./handlers/archive";
 import * as congress from "./handlers/congress";
 import * as gov from "./handlers/gov";
 import * as market from "./handlers/market";
@@ -10,6 +11,7 @@ const domains: { handlers: AltHandlers; warmers: AltWarmer[] }[] = [
   gov,
   sec,
   market,
+  archive,
 ];
 
 export const altHandlers: AltHandlers = Object.assign(

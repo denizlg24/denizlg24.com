@@ -141,6 +141,9 @@ export function mcpHandler(user: Identity, scope: TokenScope, origin: string) {
     register(server, "getWarnNotices", t.getWarnNotices);
     register(server, "getAppStoreRatings", t.getAppStoreRatings);
     register(server, "getWikipediaAttention", t.getWikipediaAttention);
+    register(server, "getWsbAttention", t.getWsbAttention);
+    register(server, "getGooglePlayRatings", t.getGooglePlayRatings);
+    register(server, "getCorporateFlights", t.getCorporateFlights);
     register(server, "getManagerHoldings", t.getManagerHoldings);
     register(server, "getManagerChanges", t.getManagerChanges);
     register(server, "searchFundManagers", t.searchFundManagers);

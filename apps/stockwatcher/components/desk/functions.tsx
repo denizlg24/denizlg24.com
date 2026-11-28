@@ -89,6 +89,8 @@ export function FunctionWidget({ widget, ctx }: WidgetProps<"function">) {
       case "DARK":
       case "PMKT":
       case "WARN":
+      case "WSB":
+      case "ACFT":
         return <AltMonitor fn={widget.fn} select={onOpenSymbol} />;
     }
   })();

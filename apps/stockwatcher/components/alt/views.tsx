@@ -13,12 +13,16 @@ import {
 import {
   AppRatingsView,
   AttentionView,
+  FlightsBoard,
+  FlightsView,
   OffExchangeBoard,
   OffExchangeView,
   PatentsView,
   PolymarketBoard,
   WarnFeed,
   WarnView,
+  WsbBoard,
+  WsbView,
 } from "./market";
 import {
   EtfHoldings,
@@ -53,6 +57,10 @@ export function AltMonitor({
       return <PolymarketBoard />;
     case "WARN":
       return <WarnFeed select={select} />;
+    case "WSB":
+      return <WsbBoard select={select} />;
+    case "ACFT":
+      return <FlightsBoard select={select} />;
   }
 }
 
@@ -90,5 +98,9 @@ export function AltSecurity({
       return <AttentionView ticker={ticker} />;
     case "WARN":
       return <WarnView ticker={ticker} />;
+    case "WSB":
+      return <WsbView ticker={ticker} />;
+    case "ACFT":
+      return <FlightsView ticker={ticker} />;
   }
 }
