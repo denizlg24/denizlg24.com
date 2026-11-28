@@ -14,11 +14,13 @@ import {
 } from "recharts";
 import useSWR from "swr";
 import { api, Empty, Failure, Loading } from "@/components/shared";
+import type { FearGreedHistoryResponse } from "@/lib/fear-greed-model";
 import { type Bar, computeStudies, studyInfo } from "@/lib/indicators";
 import type { MarketSeries } from "@/lib/models";
 import {
   alignSeries,
   evaluate,
+  isFearGreed,
   isFred,
   type Observation,
   type OverlayRange,
@@ -80,6 +82,20 @@ async function loadSeries(ids: string[], range: OverlayRange): Promise<Loaded> {
   await Promise.all(
     ids.map(async (id) => {
       try {
+        if (isFearGreed(id)) {
+          const data = await api<FearGreedHistoryResponse>(
+            "/api/market/fear-greed/history",
+          );
+          const from = warm.toISOString().slice(0, 10);
+          result.stepped.set(
+            id,
+            data.days
+              .filter((row) => row.day >= from)
+              .map((row) => ({ date: row.day, value: row.score })),
+          );
+          result.sources.push(data.source);
+          return;
+        }
         if (isFred(id)) {
           const series = id.slice(5);
           const data = await api<MacroHistory>(

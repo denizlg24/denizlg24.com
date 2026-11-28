@@ -62,6 +62,17 @@ async function tickerMap() {
   return pending;
 }
 
+/** Every SEC-registered ticker with its CIK and conformed company name. */
+export async function allTickers(): Promise<
+  { ticker: string; cik: string; name: string }[]
+> {
+  return [...(await tickerMap()).values()].map((row) => ({
+    ticker: row.ticker.toUpperCase(),
+    cik: String(row.cik_str),
+    name: row.title,
+  }));
+}
+
 export async function lookupCik(symbol: string) {
   const row = (await tickerMap()).get(symbol.toUpperCase());
   return row ? { cik: String(row.cik_str), name: row.title } : null;

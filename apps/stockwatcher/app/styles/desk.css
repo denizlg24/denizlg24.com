@@ -540,20 +540,264 @@
   border-radius: 50%;
   border: 1px solid var(--strong-border);
 }
+[data-state="open"] > * > .clock-state,
 .clock-table tr[data-state="open"] .clock-state {
   color: var(--foreground);
 }
-.clock-table tr[data-state="open"] .clock-state i {
+[data-state="open"] .clock-state i {
   border-color: var(--live);
   background: var(--live);
 }
-.clock-table tr[data-state="break"] .clock-state i {
+[data-state="break"] .clock-state i {
   border-color: var(--chart-2);
 }
 .clock-next {
   color: var(--muted-foreground);
 }
+.clock-config {
+  display: grid;
+  gap: var(--sp-2);
+}
+.clock-config-style {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-2);
+}
+.clock-config-style .seg {
+  justify-self: start;
+}
+
+/* Dials */
+.clock-dials {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--sp-3) var(--sp-4);
+  margin: 0;
+  padding: var(--sp-1) 0 0;
+  list-style: none;
+}
+.clock-dial {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+.clock-dial svg {
+  display: block;
+  width: 56px;
+  height: 56px;
+  overflow: visible;
+}
+.dial-face {
+  fill: none;
+  stroke: var(--rule);
+  stroke-width: 1;
+}
+.dial-tick {
+  stroke: var(--strong-border);
+  stroke-width: 1;
+}
+.dial-session {
+  fill: none;
+  stroke: var(--strong-border);
+  stroke-width: 3;
+}
+.clock-dial[data-state="open"] .dial-session {
+  stroke: var(--live);
+}
+.clock-dial[data-state="break"] .dial-session {
+  stroke: var(--chart-2);
+}
+.dial-hour,
+.dial-minute {
+  stroke: var(--foreground);
+  stroke-linecap: round;
+}
+.dial-hour {
+  stroke-width: 2.4;
+}
+.dial-minute {
+  stroke-width: 1.4;
+}
+.dial-hub {
+  fill: var(--foreground);
+}
+.clock-dial-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  font-size: var(--fs-xs);
+}
+.clock-dial-text strong {
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clock-dial-text .clock-next {
+  font-size: var(--fs-2xs);
+}
+
+/* Timeline */
+.clock-timeline {
+  --clock-label: 132px;
+  display: grid;
+  gap: 0;
+}
+.clock-timeline-axis,
+.clock-timeline li {
+  display: grid;
+  grid-template-columns: var(--clock-label) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-3);
+}
+.clock-timeline-axis {
+  height: 20px;
+  border-bottom: 1px solid var(--strong-border);
+  color: var(--muted-foreground);
+  font-size: var(--fs-2xs);
+}
+.clock-timeline-axis > .clock-timeline-label {
+  font-weight: 650;
+  letter-spacing: 0.075em;
+}
+.clock-timeline-scale {
+  position: relative;
+  height: 100%;
+  font-family: var(--mono-ui);
+}
+.clock-timeline-scale > span {
+  position: absolute;
+  top: 3px;
+  transform: translateX(-50%);
+}
+.clock-timeline-scale > .clock-timeline-start {
+  transform: none;
+}
+.clock-timeline-now-label {
+  z-index: 1;
+  padding: 0 3px;
+  background: var(--background);
+  color: var(--foreground);
+  font-weight: 600;
+}
+.clock-timeline ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.clock-timeline li {
+  height: var(--row);
+  border-bottom: 1px solid var(--rule);
+}
+.clock-timeline-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+.clock-timeline-label strong {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clock-timeline-label .clock-time {
+  color: var(--muted-foreground);
+}
+.clock-timeline-band {
+  position: relative;
+  height: 100%;
+}
+.clock-timeline-grid {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--rule);
+}
+.clock-timeline-span {
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  background: var(--strong-border);
+}
+.clock-timeline-span[data-kind="break"] {
+  top: 14px;
+  bottom: 14px;
+  background: var(--chart-2);
+  opacity: 0.55;
+}
+.clock-timeline-span[data-kind="session"][data-when="live"] {
+  background: var(--live);
+}
+.clock-timeline-span[data-when="past"] {
+  opacity: 0.4;
+}
+.clock-timeline-empty {
+  position: absolute;
+  top: 50%;
+  left: var(--sp-2);
+  transform: translateY(-50%);
+  color: var(--muted-foreground);
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+}
+.clock-timeline-now {
+  position: absolute;
+  top: 0;
+  bottom: -1px;
+  width: 1px;
+  margin-left: -0.5px;
+  background: var(--foreground);
+}
+
+/* Strip */
+.clock-strip {
+  display: flex;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+.clock-strip li {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 var(--sp-3);
+  border-left: 1px solid var(--rule);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+.clock-strip li:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+.clock-strip strong {
+  font-weight: 600;
+}
+.clock-strip small {
+  font-size: var(--fs-2xs);
+}
+
 @media (max-width: 480px) {
+  .clock-timeline {
+    --clock-label: 92px;
+  }
+  .clock-timeline-label .clock-time {
+    display: none;
+  }
+  .clock-config-style {
+    grid-template-columns: 1fr;
+  }
   .clock-city {
     display: none;
   }

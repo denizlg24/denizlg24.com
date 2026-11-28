@@ -33,8 +33,13 @@ import type {
   Relationships,
   RelayNews,
 } from "@/lib/security-types";
-import { type SecurityFunction, securityFunctions } from "@/lib/terminal";
+import {
+  isAltSecurityFunction,
+  type SecurityFunction,
+  securityFunctions,
+} from "@/lib/terminal";
 import { amount, compact, number, percent, tone } from "@/lib/utils";
+import { AltSecurity } from "../alt/views";
 import { FunctionBar } from "./functions";
 import { Backtest, BetaView, SeasonalityView, Volatility } from "./quant";
 import { SupplyChain } from "./supply-chain";
@@ -1270,6 +1275,9 @@ export function SecurityView({
       {fn === "BETA" ? <BetaView ticker={ticker} /> : null}
       {fn === "SEAS" ? <SeasonalityView ticker={ticker} /> : null}
       {fn === "BTST" ? <Backtest ticker={ticker} /> : null}
+      {isAltSecurityFunction(fn) ? (
+        <AltSecurity fn={fn} ticker={ticker} select={select} />
+      ) : null}
       {fn === "SPLC" ? (
         <SupplyChain
           ticker={ticker}

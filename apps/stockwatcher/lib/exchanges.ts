@@ -269,3 +269,62 @@ export function countdown(ms: number) {
   if (hours) return `${hours}h ${String(rest).padStart(2, "0")}m`;
   return `${rest}m`;
 }
+
+export type SessionSpan = {
+  kind: "session" | "break";
+  start: number;
+  end: number;
+};
+
+const dayMs = 86_400_000;
+
+/**
+ * Regular sessions and the lunch breaks between them that overlap the window
+ * [from, from + span), as UTC instants clipped to it. A window can touch up to
+ * three local trading dates, e.g. Sydney's open falls on the previous UTC day.
+ */
+export function sessionSpans(
+  key: ExchangeKey,
+  from: number,
+  span = dayMs,
+): SessionSpan[] {
+  const exchange: Exchange = exchanges[key];
+  const until = from + span;
+  const local = wallClock(from, exchange.zone);
+  const civil = Date.UTC(local.year, local.month - 1, local.day);
+  const spans: SessionSpan[] = [];
+  const days = Math.ceil(span / dayMs) + 1;
+  for (let offsetDays = -1; offsetDays <= days; offsetDays++) {
+    const weekday = (((local.weekday + offsetDays) % 7) + 7) % 7;
+    if (weekday >= 5) continue;
+    const day = new Date(civil + offsetDays * dayMs);
+    const date = {
+      year: day.getUTCFullYear(),
+      month: day.getUTCMonth() + 1,
+      day: day.getUTCDate(),
+    };
+    let previousClose: number | null = null;
+    for (const [open, close] of exchange.sessions) {
+      const openAt = instant(date, open, exchange.zone);
+      const closeAt = instant(date, close, exchange.zone);
+      if (previousClose !== null)
+        spans.push({ kind: "break", start: previousClose, end: openAt });
+      spans.push({ kind: "session", start: openAt, end: closeAt });
+      previousClose = closeAt;
+    }
+  }
+  return spans
+    .map((item) => ({
+      ...item,
+      start: Math.max(item.start, from),
+      end: Math.min(item.end, until),
+    }))
+    .filter((item) => item.end > item.start)
+    .toSorted((a, b) => a.start - b.start);
+}
+
+/** Local hour (0-23) and minute at an exchange, for clock faces. */
+export function localClock(key: ExchangeKey, now: number) {
+  const { hour, minute } = wallClock(now, exchanges[key].zone);
+  return { hour, minute };
+}

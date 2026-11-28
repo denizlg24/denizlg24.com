@@ -19,8 +19,23 @@ export const deskFunctions = [
   "CMDTY",
   "CRYP",
   "GRID",
+  "FEAR",
+  "CONG",
+  "TRMP",
+  "FUND",
+  "CONT",
+  "LOBY",
+  "PACS",
+  "DARK",
+  "PMKT",
+  "WARN",
 ] as const;
 export type DeskFunction = (typeof deskFunctions)[number];
+
+export const clockStyles = ["table", "dials", "timeline", "strip"] as const;
+export type ClockStyle = (typeof clockStyles)[number];
+export const fearGreedVariants = ["gauge", "history", "indicators"] as const;
+export type FearGreedVariant = (typeof fearGreedVariants)[number];
 
 const base = {
   id: widgetId,
@@ -86,8 +101,13 @@ export const widgetSchema = z.discriminatedUnion("kind", [
     ...base,
     kind: z.literal("clocks"),
     exchanges: z.array(z.enum(exchangeKeys)).min(1).max(exchangeKeys.length),
+    style: z.enum(clockStyles).default("table"),
   }),
-  z.object({ ...base, kind: z.literal("fearGreed") }),
+  z.object({
+    ...base,
+    kind: z.literal("fearGreed"),
+    variant: z.enum(fearGreedVariants).default("gauge"),
+  }),
 ]);
 
 export const deskSchema = z.object({
@@ -112,6 +132,7 @@ export function defaultDesk(newId: () => string): Desk {
         span: 1,
         kind: "clocks",
         exchanges: [...defaultClockExchanges],
+        style: "table",
       },
     ],
   };

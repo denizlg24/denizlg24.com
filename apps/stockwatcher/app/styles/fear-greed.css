@@ -177,3 +177,238 @@
   stroke: var(--foreground);
   stroke-width: 1.5;
 }
+
+/* FEAR monitor */
+.fgm {
+  gap: var(--sp-5);
+}
+.fgm-hero {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  gap: var(--sp-3) var(--gutter);
+  align-items: start;
+}
+.fgm-gauge {
+  display: grid;
+  gap: var(--sp-2);
+  justify-items: start;
+}
+.fgm-score {
+  margin-top: calc(var(--sp-2) * -1);
+  font-size: 40px;
+}
+.fgm-summary {
+  display: grid;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+.fgm-changes .figure-value {
+  font-size: var(--fs-lg);
+}
+.fgm-alert-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+}
+.fgm-alert-bar .term-source {
+  margin: 0;
+}
+.fgm-alert {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3) 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.fgm-alert-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--sp-2) var(--sp-3);
+}
+.fgm-alert-fields .field > span {
+  color: var(--muted-foreground);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+}
+.fgm-level {
+  width: 72px;
+  height: 28px;
+}
+.fgm-alert-actions {
+  display: flex;
+  gap: var(--sp-1);
+}
+.fgm-note,
+.fgm-done {
+  margin: 0;
+  max-width: 72ch;
+  color: var(--muted-foreground);
+  font-size: var(--fs-2xs);
+  line-height: 1.5;
+}
+.fgm-done {
+  color: var(--foreground);
+  font-size: var(--fs-xs);
+}
+.fgm-signals {
+  font-size: var(--fs-xs);
+}
+.fgm-signals li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.fgm-toolbar h3 {
+  flex: 1;
+}
+.fgm-toolbar-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.fgm-swatch {
+  width: 10px;
+  height: 2px;
+  background: var(--chart-2);
+}
+.chip[aria-pressed="true"] .fgm-swatch {
+  background: currentColor;
+}
+.fgm-chart {
+  height: 300px;
+  min-width: 0;
+  margin-top: var(--sp-2);
+}
+.fgm-tip strong[data-band] {
+  color: var(--fg);
+}
+
+.fgm-regime {
+  display: grid;
+  gap: var(--sp-3);
+}
+.fgm-distribution {
+  display: flex;
+  gap: 1px;
+  height: 8px;
+}
+.fgm-distribution i {
+  flex-basis: 0;
+  min-width: 2px;
+  background: var(--fg);
+}
+.fgm-bands td:first-child {
+  width: 50%;
+}
+
+.fgm-forward .fgm-group {
+  border-bottom: 1px solid var(--rule);
+  text-align: right;
+}
+.fgm-forward thead tr:first-child th:first-child {
+  vertical-align: bottom;
+}
+
+.fgm-indicators td {
+  vertical-align: middle;
+}
+.fgm-indicator-name {
+  display: block;
+  font-weight: 560;
+}
+.fgm-indicator-input {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: var(--fs-2xs);
+}
+.fgm-indicators tbody tr {
+  height: 42px;
+}
+.fgm-spark-cell {
+  width: 18%;
+  min-width: 90px;
+}
+.fgm-spark {
+  display: block;
+  width: 100%;
+  height: 24px;
+  overflow: visible;
+}
+.fgm-spark path {
+  fill: none;
+  stroke: var(--foreground);
+  stroke-width: 1.2;
+}
+.fgm-raw {
+  white-space: nowrap;
+}
+.fgm-raw small {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: var(--fs-2xs);
+}
+.fgm-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+@media (max-width: 760px) {
+  .fgm-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fgm-gauge .fg-gauge {
+    max-width: 200px;
+  }
+  .fgm-chart {
+    height: 240px;
+  }
+  .fgm-spark-cell,
+  .fgm-meter-head {
+    display: none;
+  }
+}
+.fgm-signals {
+  margin-top: var(--sp-1);
+}
+
+/* Widget variants */
+.fg-widget-chart .fg-chart {
+  height: 150px;
+}
+.fg-bars {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-xs);
+}
+.fg-bars li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38% 32px;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.fg-bars li > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fg-bars .num {
+  font-weight: 600;
+}
+.fg-variant-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-3);
+  margin-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--rule);
+}

@@ -1276,3 +1276,21 @@
     order: -1;
   }
 }
+
+.alt-table {
+  width: 100%;
+  table-layout: auto;
+}
+.alt-table :is(th, td) {
+  text-align: left;
+  white-space: nowrap;
+}
+.alt-table :is(th, td).num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.alt-table td {
+  max-width: 26rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

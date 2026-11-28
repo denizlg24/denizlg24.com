@@ -1,5 +1,7 @@
 import "server-only";
 import { z } from "zod";
+import { getFearGreed, getFearGreedHistory } from "@/lib/fear-greed";
+import { bandLabel } from "@/lib/fear-greed-model";
 import { fredSeries, type MacroObservation } from "@/lib/fred";
 import {
   type FundamentalPoint,
@@ -42,7 +44,12 @@ export const extraShape = {
       from: z.iso.date().optional(),
     })
     .optional(),
+  fearGreed: z
+    .boolean()
+    .optional()
+    .describe("Load CNN Fear & Greed into data.fearGreed"),
 };
+const FEAR_GREED_HISTORY = 400;
 
 type ExtraRequest = {
   fundamentals?: {
@@ -51,6 +58,23 @@ type ExtraRequest = {
     since?: number;
   };
   macro?: { series: string[]; from?: string };
+  fearGreed?: boolean;
+};
+
+type FearGreedData = {
+  score: number;
+  band: string;
+  rating: string;
+  updatedAt: string;
+  stale: boolean;
+  previous: {
+    close: number | null;
+    week: number | null;
+    month: number | null;
+    year: number | null;
+  };
+  indicators: { key: string; score: number; raw: number | null }[];
+  history: { date: string; score: number }[];
 };
 
 export type ExtraData = {
@@ -58,7 +82,36 @@ export type ExtraData = {
   macro: Record<string, MacroObservation[]>;
   missingFundamentals: string[];
   missingMacro: string[];
+  /** Null when not requested or CNN could not be reached. */
+  fearGreed: FearGreedData | null;
 };
+
+async function loadFearGreed(): Promise<FearGreedData | null> {
+  try {
+    const [current, history] = await Promise.all([
+      getFearGreed(),
+      getFearGreedHistory(),
+    ]);
+    return {
+      score: current.score,
+      band: current.band,
+      rating: bandLabel(current.band),
+      updatedAt: new Date(current.updatedAt).toISOString(),
+      stale: current.stale,
+      previous: current.previous,
+      indicators: current.indicators.map((item) => ({
+        key: item.key,
+        score: item.score,
+        raw: item.raw,
+      })),
+      history: history.days
+        .slice(-FEAR_GREED_HISTORY)
+        .map((row) => ({ date: row.day, score: row.score })),
+    };
+  } catch {
+    return null;
+  }
+}
 
 const countPoints = (rows: FundamentalPoint[][]) =>
   rows.reduce((sum, list) => sum + list.length, 0);
@@ -134,11 +187,12 @@ export async function loadExtra(
 ): Promise<ExtraData> {
   if (request.fundamentals && symbols.length === 0)
     throw new Error("data.fundamentals needs data.symbols or data.universe.");
-  const [fundamentals, macro] = await Promise.all([
+  const [fundamentals, macro, fearGreed] = await Promise.all([
     request.fundamentals
       ? loadAllFundamentals(symbols, request.fundamentals)
       : { result: {}, missing: [] },
     request.macro ? loadAllMacro(request.macro) : { result: {}, missing: [] },
+    request.fearGreed ? loadFearGreed() : null,
   ]);
   const macroPoints = Object.values(macro.result).reduce(
     (sum, list) => sum + list.length,
@@ -153,5 +207,6 @@ export async function loadExtra(
     macro: macro.result,
     missingFundamentals: fundamentals.missing,
     missingMacro: macro.missing,
+    fearGreed,
   };
 }

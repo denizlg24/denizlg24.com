@@ -5,6 +5,7 @@ import type postgres from "postgres";
 import { z } from "zod";
 import { executeCompute } from "../ai/compute-tools";
 import { monitorAlerts } from "../alert-monitor";
+import { altWarmers } from "../alt/registry";
 import { syncDueLinks } from "../brokers/sync";
 import { monitorRoutines } from "../routine-runner";
 import { purgeExpiredRuns } from "../run-retention";
@@ -69,6 +70,14 @@ const schedules: Schedule[] = [
     enabled: () => true,
     run: () => purgeFinished(),
   },
+  ...altWarmers.map(
+    (warmer): Schedule => ({
+      name: `alt:${warmer.name}`,
+      everyMs: warmer.everyMs,
+      enabled: () => process.env.ALT_WARM !== "0",
+      run: warmer.run,
+    }),
+  ),
 ];
 
 const errorName = (error: unknown) =>

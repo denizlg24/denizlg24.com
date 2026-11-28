@@ -111,6 +111,29 @@ its history (`git subtree`). Product truth is `PRODUCT.md`, the visual system
   75% headline-word overlap; the filing or wire keeps the headline). A failing
   source sits out five minutes. GlobeNewswire and Reddit refuse server
   requests and are left out; GDELT allows one request per five seconds.
+- **Alternative data is `lib/alt`, one dispatcher for every dataset.**
+  `GET /api/alt?dataset=<name>` routes through `lib/alt/registry.ts` to the
+  domain handlers in `lib/alt/handlers/{congress,gov,sec,market}.ts`; each
+  returns `AltResult` (data, source, asOf, fetchedAt, stale). Reads go
+  through `cached()` (`stockwatcher_alt_cache`, memory on SQLite): a failed
+  refresh serves the last good copy marked stale, a transient failure cools
+  the source two minutes, immutable documents (a PTR by DocID, a 13F by
+  accession) cache forever. The registry's warmers run on the worker as
+  `alt:<name>` schedules, or in-process where `ALERT_MONITOR=1`, so feeds
+  stay live without a reader (`ALT_WARM=0` turns them off). Government
+  records name companies, not tickers: `lib/alt/entities.ts` resolves names
+  against SEC's ticker file, accepting a shortened prefix only when every
+  dropped word is a division word, with curated overrides for brands and
+  subsidiaries — fix a wrong match there, not in a domain. Only sources
+  whose terms allow a paid product are here; non-commercial ones (Reddit/WSB
+  mentions, Google Play, ADS-B flights, CNN snapshots for history) live in
+  the markets relay's personal archive and must not be wired in. Keys:
+  `FEC_API_KEY` (DEMO_KEY allows ~10 calls an hour), `LDA_API_KEY`,
+  `USPTO_API_KEY` (patents are off without it), `OPENFIGI_API_KEY`
+  optional. LDA and Senate eFD answer 403 (Akamai) to every client tried on
+  2026-11-28, headless Chromium included, so they are likely blocked from
+  the home network that hosts Forge too; plan 037 lists paid replacements. 13F reports keep every
+  position, roughly 0.7 MB a filing in the cache.
 - **One-click channels need their provider apps.** Telegram, Discord and
   Slack connect through `lib/notify/connect.ts`: a one-time state in
   `stockwatcher_connect_states` (15 minutes, consumed on use) ties the

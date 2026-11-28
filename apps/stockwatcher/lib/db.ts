@@ -300,6 +300,14 @@ function pg(url: string) {
         source TEXT NOT NULL, key TEXT NOT NULL, items JSONB NOT NULL,
         fetched_at TIMESTAMPTZ NOT NULL, PRIMARY KEY (source, key)
       )`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_alt_cache (
+        source TEXT NOT NULL, key TEXT NOT NULL, payload JSONB NOT NULL,
+        fetched_at TIMESTAMPTZ NOT NULL, PRIMARY KEY (source, key)
+      )`;
+      await sql`CREATE TABLE IF NOT EXISTS stockwatcher_fear_greed_daily (
+        day DATE PRIMARY KEY, score REAL NOT NULL, indicators JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )`;
       await sql`CREATE TABLE IF NOT EXISTS stockwatcher_connect_states (
         state_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL,
         expires_at TIMESTAMPTZ NOT NULL
