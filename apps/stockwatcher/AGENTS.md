@@ -111,6 +111,37 @@ its history (`git subtree`). Product truth is `PRODUCT.md`, the visual system
   75% headline-word overlap; the filing or wire keeps the headline). A failing
   source sits out five minutes. GlobeNewswire and Reddit refuse server
   requests and are left out; GDELT allows one request per five seconds.
+- **Alternative data is `lib/alt`, one dispatcher for every dataset.**
+  `GET /api/alt?dataset=<name>` routes through `lib/alt/registry.ts` to the
+  domain handlers in `lib/alt/handlers/{congress,gov,sec,market}.ts`; each
+  returns `AltResult` (data, source, asOf, fetchedAt, stale). Reads go
+  through `cached()` (`stockwatcher_alt_cache`, memory on SQLite): a failed
+  refresh serves the last good copy marked stale, a transient failure cools
+  the source two minutes, immutable documents (a PTR by DocID, a 13F by
+  accession) cache forever. The registry's warmers run on the worker as
+  `alt:<name>` schedules, or in-process where `ALERT_MONITOR=1`, so feeds
+  stay live without a reader (`ALT_WARM=0` turns them off). Government
+  records name companies, not tickers: `lib/alt/entities.ts` resolves names
+  against SEC's ticker file, accepting a shortened prefix only when every
+  dropped word is a division word, with curated overrides for brands and
+  subsidiaries — fix a wrong match there, not in a domain. Only sources
+  whose terms allow a paid product are here, except the non-commercial ones
+  (Reddit/WSB mentions, Google Play, ADS-B flights), which are read from the
+  markets relay's archive (`/v1/archive/*` through `relayGet`, needs
+  `MARKETS_ARCHIVE_DATABASE_URL` on the relay; `lib/alt/archive`, WSB and ACFT
+  functions, APPR's Google Play section). The owner chose to expose them
+  despite their non-commercial terms (ApeWisdom/Reddit, Google Play scraping,
+  OpenSky/adsb.lol licences); an archive that is off reads as a permanent 503.
+  Keys:
+  `FEC_API_KEY` (DEMO_KEY allows ~10 calls an hour), `LDA_API_KEY`,
+  `USPTO_API_KEY` (patents are off without it), `OPENFIGI_API_KEY`
+  optional. LDA and Senate eFD answer 403 (Akamai) to every client tried on
+  2026-11-28, headless Chromium included, so lobbying (LOBY, revolving
+  door) and patents (PATN, no USPTO key) are unwired from the terminal,
+  desk, assistant and MCP, and Senate trades sit behind `CONGRESS_SENATE=1`;
+  their code stays in `lib/alt` for re-wiring, and plan 037 lists paid
+  replacements. 13F reports keep every
+  position, roughly 0.7 MB a filing in the cache.
 - **One-click channels need their provider apps.** Telegram, Discord and
   Slack connect through `lib/notify/connect.ts`: a one-time state in
   `stockwatcher_connect_states` (15 minutes, consumed on use) ties the

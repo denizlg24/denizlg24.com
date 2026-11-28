@@ -42,7 +42,7 @@ function relayData() {
 
 export const relayDataConfigured = () => relayData() !== null;
 
-async function get<T>(
+export async function relayGet<T>(
   schema: z.ZodType<T>,
   path: string,
   params: Record<string, string | number | undefined>,
@@ -71,8 +71,9 @@ async function get<T>(
       body && typeof body === "object" && "detail" in body
         ? String(body.detail)
         : "Markets relay request failed";
+    const passthrough = response.status === 404 || response.status === 503;
     throw new RelayUnavailable(
-      response.status === 404 ? 404 : 502,
+      passthrough ? response.status : 502,
       response.status === 404 ? "No data for this symbol." : detail,
     );
   }
@@ -87,37 +88,37 @@ const path = (base: string, ticker: string) =>
 
 export const relay = {
   instrument: (ticker: string) =>
-    get(instrumentSchema, path("/v1/instruments", ticker), {}, 3600),
+    relayGet(instrumentSchema, path("/v1/instruments", ticker), {}, 3600),
   stats: (ticker: string) =>
-    get(marketStatsSchema, path("/v1/stats", ticker), {}, 900),
+    relayGet(marketStatsSchema, path("/v1/stats", ticker), {}, 900),
   analysts: (ticker: string) =>
-    get(analystViewSchema, path("/v1/analysts", ticker), {}, 3600),
+    relayGet(analystViewSchema, path("/v1/analysts", ticker), {}, 3600),
   holders: (ticker: string) =>
-    get(holdersSchema, path("/v1/holders", ticker), {}, 21600),
+    relayGet(holdersSchema, path("/v1/holders", ticker), {}, 21600),
   earnings: (ticker: string) =>
-    get(earningsSchema, path("/v1/earnings", ticker), {}, 3600),
+    relayGet(earningsSchema, path("/v1/earnings", ticker), {}, 3600),
   people: (ticker: string) =>
-    get(peopleSchema, path("/v1/people", ticker), {}, 86400),
+    relayGet(peopleSchema, path("/v1/people", ticker), {}, 86400),
   peers: (ticker: string) =>
-    get(peersSchema, path("/v1/peers", ticker), {}, 86400),
+    relayGet(peersSchema, path("/v1/peers", ticker), {}, 86400),
   actions: (ticker: string) =>
-    get(actionsSchema, path("/v1/actions", ticker), {}, 3600),
+    relayGet(actionsSchema, path("/v1/actions", ticker), {}, 3600),
   news: (ticker: string, limit = 20) =>
-    get(relayNewsSchema, path("/v1/news", ticker), { limit }, 300),
+    relayGet(relayNewsSchema, path("/v1/news", ticker), { limit }, 300),
   financials: (
     ticker: string,
     statement: "income" | "balance" | "cashFlow",
     frequency: "yearly" | "quarterly",
   ) =>
-    get(
+    relayGet(
       financialsSchema,
       path("/v1/financials", ticker),
       { statement, frequency },
       3600,
     ),
   movers: (list: MoverList, limit = 25) =>
-    get(moversSchema, "/v1/movers", { list, limit }, 120),
-  macroCatalog: () => get(macroCatalogSchema, "/v1/macro", {}, 86400),
+    relayGet(moversSchema, "/v1/movers", { list, limit }, 120),
+  macroCatalog: () => relayGet(macroCatalogSchema, "/v1/macro", {}, 86400),
   macro: (series: string, from?: string) =>
-    get(macroHistorySchema, path("/v1/macro", series), { from }, 3600),
+    relayGet(macroHistorySchema, path("/v1/macro", series), { from }, 3600),
 };

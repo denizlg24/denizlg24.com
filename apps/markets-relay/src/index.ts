@@ -7,6 +7,7 @@ import {
   relayClientMessageSchema,
 } from "@repo/markets/schemas";
 import type { Server, ServerWebSocket } from "bun";
+import { startArchive } from "./archive";
 import { type UpstreamStatus, YahooStream } from "./yahoo-stream";
 
 function log(message: string): void {
@@ -49,9 +50,12 @@ const worker = Bun.spawn({
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
     stopping = true;
+    archive.stop();
     worker.kill(signal);
   });
 }
+
+const archive = startArchive({ python, workerDir });
 
 const port = Number(process.env.PORT ?? 3004);
 const allowedOrigins = (process.env.MARKETS_RELAY_ALLOWED_ORIGINS ?? "")
@@ -213,6 +217,7 @@ const server = Bun.serve({
           status: healthy ? "ok" : "unavailable",
           upstream: upstream.getStatus(),
           providers: ["yahoo", "fred"],
+          archive: { enabled: archive.enabled, ready: archive.ready() },
           clients: clients.size,
           subscriptions: subscriptionUnion().size,
           version: process.env.APP_VERSION ?? "dev",
@@ -233,6 +238,9 @@ const server = Bun.serve({
             headers: { Allow: "GET" },
           },
         );
+      }
+      if (url.pathname.startsWith("/v1/archive/")) {
+        return archive.handle(url);
       }
       return dataResponse(url, request.signal);
     }

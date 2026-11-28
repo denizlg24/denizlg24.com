@@ -102,6 +102,9 @@ export type Expr =
 
 const fredPattern = /^FRED:[A-Z0-9]{2,20}$/;
 export const isFred = (id: string) => fredPattern.test(id);
+/** The CNN Fear & Greed index in overlay expressions; namespaced because FG is a listed ticker. */
+export const fearGreedSeries = "CNN:FG";
+export const isFearGreed = (id: string) => id === fearGreedSeries;
 
 function tokenize(input: string): string[] | null {
   const tokens: string[] = [];
@@ -146,7 +149,7 @@ export function parseExpression(
     if (token === "-") return { kind: "negate", value: primary() };
     if (/^\d+(\.\d+)?$/.test(token))
       return { kind: "number", value: Number(token) };
-    if (isFred(token) || symbolPattern.test(token)) {
+    if (isFred(token) || isFearGreed(token) || symbolPattern.test(token)) {
       ids.add(token);
       return { kind: "series", id: token };
     }
@@ -315,6 +318,7 @@ export const quickSeries = [
   { expr: "GC=F", label: "Gold" },
   { expr: "BTC-USD", label: "Bitcoin" },
   { expr: "HYG", label: "High yield" },
+  { expr: "CNN:FG", label: "Fear & Greed" },
   { expr: "FRED:T10Y2Y", label: "10Y–2Y spread" },
   { expr: "FRED:DFF", label: "Fed funds" },
   { expr: "FRED:CPIAUCSL", label: "CPI" },

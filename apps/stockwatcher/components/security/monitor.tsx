@@ -11,6 +11,7 @@ import {
   YAxis,
 } from "recharts";
 import useSWR from "swr";
+import { FearGreedMonitor } from "@/components/fear-greed-monitor";
 import { Freshness } from "@/components/freshness";
 import { useQuotes } from "@/components/market-widgets";
 import {
@@ -25,8 +26,13 @@ import type { Quote, Workspace } from "@/lib/models";
 import type { Screen } from "@/lib/screens";
 import type { MacroCatalog, MacroHistory, Movers } from "@/lib/security-types";
 import type { SecurityFunction } from "@/lib/terminal";
-import { type MonitorFunction, monitorFunctions } from "@/lib/terminal";
+import {
+  isAltMonitorFunction,
+  type MonitorFunction,
+  monitorFunctions,
+} from "@/lib/terminal";
 import { amount, compact, number, tone } from "@/lib/utils";
+import { AltMonitor } from "../alt/views";
 import {
   Correlation,
   CrossRates,
@@ -533,6 +539,8 @@ export function Monitor({
           select={select}
         />
       ) : null}
+      {fn === "FEAR" ? <FearGreedMonitor refresh={refresh} /> : null}
+      {isAltMonitorFunction(fn) ? <AltMonitor fn={fn} select={select} /> : null}
       {fn === "EQS" ? (
         <Screener
           select={select}

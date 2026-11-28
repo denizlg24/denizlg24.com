@@ -44,8 +44,88 @@ export const securityFunctions = [
     label: "Backtest",
     detail: "Test crossover, RSI, breakout and momentum rules",
   },
+  {
+    code: "CONG",
+    label: "Congress",
+    detail: "Trades and holdings disclosed by members of Congress",
+  },
+  {
+    code: "INST",
+    label: "13F holders",
+    detail: "Institutional holders and quarterly changes from 13F filings",
+  },
+  {
+    code: "EXEC",
+    label: "Executive pay",
+    detail: "Summary compensation table and pay versus performance",
+  },
+  {
+    code: "ETF",
+    label: "ETF holdings",
+    detail: "Fund holdings from SEC N-PORT filings",
+  },
+  {
+    code: "CONT",
+    label: "Contracts",
+    detail: "Federal contract awards from USAspending",
+  },
+  {
+    code: "PACS",
+    label: "PAC giving",
+    detail: "Corporate PAC money and recipients from the FEC",
+  },
+  {
+    code: "DARK",
+    label: "Off-exchange",
+    detail: "FINRA off-exchange and short volume (DPI)",
+  },
+  {
+    code: "APPR",
+    label: "App ratings",
+    detail: "App Store ratings and their history",
+  },
+  {
+    code: "WIKI",
+    label: "Attention",
+    detail: "Wikipedia page views and spikes",
+  },
+  {
+    code: "WARN",
+    label: "Layoffs",
+    detail: "WARN layoff notices filed with states",
+  },
+  {
+    code: "WSB",
+    label: "Reddit mentions",
+    detail: "WallStreetBets mention and rank history",
+  },
+  {
+    code: "ACFT",
+    label: "Corporate jets",
+    detail: "Registered aircraft and their flights",
+  },
 ] as const;
 export type SecurityFunction = (typeof securityFunctions)[number]["code"];
+
+export const altSecurityFunctions = [
+  "CONG",
+  "INST",
+  "EXEC",
+  "ETF",
+  "CONT",
+  "PACS",
+  "DARK",
+  "APPR",
+  "WIKI",
+  "WARN",
+  "WSB",
+  "ACFT",
+] as const satisfies readonly SecurityFunction[];
+export type AltSecurityFunction = (typeof altSecurityFunctions)[number];
+export const isAltSecurityFunction = (
+  fn: SecurityFunction,
+): fn is AltSecurityFunction =>
+  (altSecurityFunctions as readonly string[]).includes(fn);
 
 export const monitorFunctions = [
   {
@@ -106,8 +186,81 @@ export const monitorFunctions = [
     label: "Calendar",
     detail: "Earnings calendar by week, with FOMC decisions",
   },
+  {
+    code: "FEAR",
+    label: "Fear & Greed",
+    detail: "CNN sentiment index, history, drivers and alerts",
+  },
+  {
+    code: "CONG",
+    label: "Congress trades",
+    detail: "Latest House and Senate stock trade disclosures",
+  },
+  {
+    code: "TRMP",
+    label: "Presidential trades",
+    detail: "Transactions in the President's OGE 278-T reports",
+  },
+  {
+    code: "FUND",
+    label: "13F managers",
+    detail: "Any fund manager's holdings and quarterly changes",
+  },
+  {
+    code: "CONT",
+    label: "Contracts",
+    detail: "Largest recent federal contract awards",
+  },
+  {
+    code: "PACS",
+    label: "Corporate PACs",
+    detail: "Top corporate PACs by giving this cycle",
+  },
+  {
+    code: "DARK",
+    label: "Off-exchange",
+    detail: "Highest off-exchange and short volume today",
+  },
+  {
+    code: "PMKT",
+    label: "Polymarket",
+    detail: "Prediction-market odds and the largest trades",
+  },
+  {
+    code: "WARN",
+    label: "Layoffs",
+    detail: "Latest WARN layoff notices by state",
+  },
+  {
+    code: "WSB",
+    label: "Retail attention",
+    detail: "Most-mentioned tickers on WallStreetBets, latest snapshot",
+  },
+  {
+    code: "ACFT",
+    label: "Corporate jets",
+    detail: "Latest corporate jet flights across companies",
+  },
 ] as const;
 export type MonitorFunction = (typeof monitorFunctions)[number]["code"];
+
+export const altMonitorFunctions = [
+  "CONG",
+  "TRMP",
+  "FUND",
+  "CONT",
+  "PACS",
+  "DARK",
+  "PMKT",
+  "WARN",
+  "WSB",
+  "ACFT",
+] as const satisfies readonly MonitorFunction[];
+export type AltMonitorFunction = (typeof altMonitorFunctions)[number];
+export const isAltMonitorFunction = (
+  fn: MonitorFunction,
+): fn is AltMonitorFunction =>
+  (altMonitorFunctions as readonly string[]).includes(fn);
 
 export const overlayFunction = {
   code: "G",
@@ -192,6 +345,23 @@ const aliases: Record<string, SecurityFunction> = {
   BACKTEST: "BTST",
   SPLY: "SPLC",
   SUPPLY: "SPLC",
+  CONGRESS: "CONG",
+  "13F": "INST",
+  INSTITUTIONS: "INST",
+  PAY: "EXEC",
+  COMPENSATION: "EXEC",
+  ETFH: "ETF",
+  CONTRACTS: "CONT",
+  PAC: "PACS",
+  DPI: "DARK",
+  OTC: "DARK",
+  RATINGS: "APPR",
+  PAGEVIEWS: "WIKI",
+  LAYOFFS: "WARN",
+  REDDIT: "WSB",
+  WALLSTREETBETS: "WSB",
+  FLIGHTS: "ACFT",
+  JET: "ACFT",
 };
 const monitorCodes = new Map<string, MonitorFunction>([
   ["MOST", "MOST"],
@@ -236,6 +406,28 @@ const monitorCodes = new Map<string, MonitorFunction>([
   ["ACDR", "EVTS"],
   ["CAL", "EVTS"],
   ["CALENDAR", "EVTS"],
+  ["FEAR", "FEAR"],
+  ["SENT", "FEAR"],
+  ["CONG", "CONG"],
+  ["CONGRESS", "CONG"],
+  ["TRMP", "TRMP"],
+  ["POTUS", "TRMP"],
+  ["FUND", "FUND"],
+  ["13F", "FUND"],
+  ["MANAGERS", "FUND"],
+  ["CONT", "CONT"],
+  ["CONTRACTS", "CONT"],
+  ["PACS", "PACS"],
+  ["DARK", "DARK"],
+  ["DPI", "DARK"],
+  ["PMKT", "PMKT"],
+  ["POLYMARKET", "PMKT"],
+  ["WARN", "WARN"],
+  ["LAYOFFS", "WARN"],
+  ["WSB", "WSB"],
+  ["REDDIT", "WSB"],
+  ["ACFT", "ACFT"],
+  ["FLIGHTS", "ACFT"],
 ]);
 const workspaceCodes = new Map<string, WorkspaceView>([
   ...workspaceFunctions.map((item): [WorkspaceCode, WorkspaceView] => [

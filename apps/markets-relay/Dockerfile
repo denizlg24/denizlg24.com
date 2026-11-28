@@ -29,7 +29,7 @@ WORKDIR /app
 RUN groupadd --system markets && useradd --system --gid markets markets
 COPY --from=bun-runtime /usr/local/bin/bun /usr/local/bin/bun
 COPY --from=provider /app/python/.venv /app/python/.venv
-COPY apps/markets-relay/python/provider.py apps/markets-relay/python/worker.py ./python/
+COPY apps/markets-relay/python/provider.py apps/markets-relay/python/worker.py apps/markets-relay/python/zip_member.py ./python/
 
 ENV NODE_ENV=production
 ENV PORT=3004

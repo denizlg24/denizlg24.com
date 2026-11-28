@@ -237,6 +237,7 @@ async function loadData(request: DataRequest) {
       missingFundamentals: extra.missingFundamentals,
       macro: extra.macro,
       missingMacro: extra.missingMacro,
+      fearGreed: extra.fearGreed,
       asOf: isoTime(latest) ?? new Date().toISOString(),
     },
   };
@@ -245,10 +246,11 @@ async function loadData(request: DataRequest) {
 const description = `Run JavaScript in an isolated sandbox over live market data to calculate anything the other tools do not give directly: custom formulas, indicators, screens, breadth or statistics across a universe, backtests, correlations, any algorithm. The server fetches the data you declare first, then runs your code; there is no network, filesystem or require inside the code.
 
 Input: description (one line, shown to the user), data (what to fetch), code (a function BODY: it receives the frozen objects data and ta, and must return a JSON-serialisable value; synchronous; no await).
-data: { symbols?: string[], universe?: "S&P 500" | ..., range?: 1D|5D|1M|3M|6M|YTD|1Y|5Y, history?: { years, interval: 1d|1wk|1mo }, quotes?: boolean, fundamentals?: { concepts: string[], frequency?: "annual"|"quarterly"|"all", since?: year }, macro?: { series: string[], from?: "YYYY-MM-DD" } }. Up to ${MAX_SYMBOLS} symbols and ${MAX_BARS / 1000}k bars in total. Give no data at all for a pure formula. Range 1Y daily bars are enough for 50 and 200-day averages; use history for longer lookbacks (adjusted for splits and dividends).
+data: { symbols?: string[], universe?: "S&P 500" | ..., range?: 1D|5D|1M|3M|6M|YTD|1Y|5Y, history?: { years, interval: 1d|1wk|1mo }, quotes?: boolean, fundamentals?: { concepts: string[], frequency?: "annual"|"quarterly"|"all", since?: year }, macro?: { series: string[], from?: "YYYY-MM-DD" }, fearGreed?: boolean }. Up to ${MAX_SYMBOLS} symbols and ${MAX_BARS / 1000}k bars in total. Give no data at all for a pure formula. Range 1Y daily bars are enough for 50 and 200-day averages; use history for longer lookbacks (adjusted for splits and dividends).
 In code: data.bars[symbol] = [{ time (unix seconds), open, high, low, close, volume|null }] oldest first; data.quotes[symbol] = { symbol, name, currency, price, previous, change, percent, open, high, low, yearHigh, yearLow, volume, cap, time }; data.missing = symbols that failed to load (exclude them from denominators and say how many); data.asOf.
 Fundamentals (SEC XBRL, US SEC registrants only; needs symbols or a universe; bars are then skipped unless you also give range or history): data.fundamentals[symbol][concept] = [{ end, start?, value, fy, fp, form, unit, period }] oldest first, one entry per fiscal period (restatements: the latest filing wins), unit USD, USD/shares or shares. period: "FY" annual flow (~12 months), "Q" single-quarter flow (~3 months), "YTD" cumulative 6/9-month flow, "instant" balance-sheet or point-in-time value (fp FY or Q1..Q3). Q4 is not reported on its own: derive it as FY minus the 9-month YTD, and TTM as latest FY + current YTD - prior-year YTD. frequency "annual" keeps FY and fiscal-year-end instants; "quarterly" keeps Q and all instants; "all" (default) keeps everything. Up to 12 concepts per request; concept is an alias (case-insensitive: revenue, costOfRevenue, grossProfit, operatingIncome, netIncome, eps, epsBasic, dilutedShares, basicShares, sharesOutstanding, operatingCashFlow, capex, depreciation, shareBasedCompensation, rnd, sga, interestExpense, incomeTax, dividendsPaid, buybacks, cash, assets, currentAssets, liabilities, currentLiabilities, equity, longTermDebt, inventory, receivables; each merges the tags companies switch between over time) or any raw XBRL tag such as PaymentsToAcquirePropertyPlantAndEquipment. The result is keyed by the concept string you passed. A concept a company never reported is []. data.missingFundamentals = symbols with no SEC filings or that did not load in time (non-US listings, indices, ETFs; the first run for ~500 names takes about a minute, then they are cached, so retry if many are listed). Total cap 150k data points: for a universe pick few concepts, frequency "annual" and since.
 Macro (any FRED series id): data.macro[ID] = [{ date: "YYYY-MM-DD", value }] oldest first, missing values dropped; data.missingMacro = ids that failed. Up to 20 series; use from to shorten daily series.
+Fear & Greed (fearGreed: true): data.fearGreed = { score, band (extremeFear|fear|neutral|greed|extremeGreed), rating, updatedAt, stale, previous: { close, week, month, year }, indicators: [{ key (momentum|strength|breadth|putCall|junkBond|volatility|safeHaven), score, raw }], history: [{ date, score }] (last 400 trading days, oldest first) }, or null when CNN could not be reached. A signal on it: return { trigger: data.fearGreed.score < 25, value: data.fearGreed.score }.
 ta (series are arrays of number|null aligned to the input; "bars" means data.bars[symbol]):
 - ta.sma(values, n) ema wilder(=rma) stdev(values, n) -> series; ta.highest(values, n) lowest -> series
 - ta.rsi(closes, n=14) -> series; ta.macd(closes, fast=12, slow=26, signal=9) -> { line, signal, histogram }; ta.bollinger(closes, n=20, width=2) -> { mid, upper, lower }
@@ -399,11 +401,13 @@ export function computeTools({ user }: { user: Identity }) {
           if (!outcome.ok) return { error: outcome.error };
           const usesBars = request.quotes || outcome.priced.length > 0;
           const sources = [
-            ...(usesBars || (!request.fundamentals && !request.macro)
+            ...(usesBars ||
+            (!request.fundamentals && !request.macro && !request.fearGreed)
               ? [marketSource(outcome.priced)]
               : []),
             ...(request.fundamentals ? ["SEC EDGAR XBRL"] : []),
             ...(request.macro ? ["FRED"] : []),
+            ...(request.fearGreed ? ["CNN Fear & Greed"] : []),
           ];
           return {
             description,

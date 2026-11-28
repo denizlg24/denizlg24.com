@@ -91,7 +91,8 @@ export const widgetCatalog: Record<
   },
   function: {
     label: "Terminal function",
-    description: "GC, RRG, CORR, TOP, EVTS, PRSK, FXC, CMDTY, CRYP or GRID",
+    description:
+      "GC, RRG, CORR, TOP, EVTS, PRSK, FXC, CMDTY, CRYP, GRID or FEAR",
     span: 2,
   },
   clocks: {

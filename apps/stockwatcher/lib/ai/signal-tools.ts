@@ -44,7 +44,7 @@ type Reading = SignalReading & {
   missing: number;
 };
 
-const storedData = (request: z.infer<typeof dataRequest> | undefined) =>
+export const storedData = (request: z.input<typeof dataRequest> | undefined) =>
   z
     .record(z.string(), z.json())
     .parse(JSON.parse(JSON.stringify(dataRequest.parse(request ?? {}))));
@@ -88,6 +88,57 @@ export async function resolveChannels(
       );
     return hit.id;
   });
+}
+
+/**
+ * Saves a new signal after one successful run, so a broken script is never
+ * stored. Channels default to every active channel.
+ */
+export async function createSignal(
+  userId: string,
+  input: {
+    name: string;
+    data: Signal["data"];
+    code: string;
+    cadence: Signal["cadence"];
+    repeat: Signal["repeat"];
+    note: string;
+    channels?: string[];
+  },
+) {
+  const { data: workspace } = await readWorkspaceView(userId);
+  if (workspace.signals.length >= maxSignals)
+    throw new Error(
+      `At most ${maxSignals} signals are allowed. Delete some first.`,
+    );
+  const reading = await probe(userId, input.data, input.code);
+  const created = signalSchema.parse({
+    id: randomUUID(),
+    name: input.name,
+    data: input.data,
+    code: input.code,
+    cadence: input.cadence,
+    repeat: input.repeat,
+    primed: true,
+    enabled: true,
+    note: input.note,
+    channels: input.channels ?? (await resolveChannels(userId, undefined)),
+  });
+  const runtime = {
+    ...blankRuntime,
+    lastValue: reading.value,
+    lastMessage: reading.message,
+    lastChecked: new Date().toISOString(),
+  };
+  await updateWorkspace(userId, (current) => {
+    if (current.signals.length >= maxSignals)
+      throw new Error(
+        `At most ${maxSignals} signals are allowed. Delete some first.`,
+      );
+    return { ...current, signals: [created, ...current.signals] };
+  });
+  await writeSignalRuntime(userId, created.id, runtime);
+  return { created, runtime, reading };
 }
 
 const view = (
@@ -256,37 +307,15 @@ export function signalTools({ user }: { user: Identity }) {
           const now = new Date().toISOString();
 
           if (action === "create") {
-            if (saved.length >= maxSignals)
-              throw new Error(
-                `At most ${maxSignals} signals are allowed. Delete some first.`,
-              );
-            const data = storedData(input.data);
-            const code = need(input.code, "Provide the code.");
-            const reading = await probe(userId, data, code);
-            const created = signalSchema.parse({
-              id: randomUUID(),
+            const { created, runtime, reading } = await createSignal(userId, {
               name: need(input.name, "Provide a name."),
-              data,
-              code,
+              data: storedData(input.data),
+              code: need(input.code, "Provide the code."),
               cadence: input.cadence ?? "daily",
               repeat: input.repeat ?? "once",
-              primed: true,
-              enabled: true,
               note: input.note ?? "",
-              channels:
-                channelIds ?? (await resolveChannels(userId, undefined)),
+              channels: channelIds,
             });
-            const runtime = {
-              ...blankRuntime,
-              lastValue: reading.value,
-              lastMessage: reading.message,
-              lastChecked: now,
-            };
-            await updateWorkspace(userId, (workspace) => ({
-              ...workspace,
-              signals: [created, ...workspace.signals],
-            }));
-            await writeSignalRuntime(userId, created.id, runtime);
             return {
               workspaceChanged: true,
               summary: `Created signal: ${describeSignal(created)}`,

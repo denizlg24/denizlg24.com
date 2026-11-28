@@ -186,8 +186,31 @@ const toolNames: Record<ToolPart["type"], string> = {
   "tool-getActivistStakes": "Activist stakes",
   "tool-getYieldCurve": "Yield curve",
   "tool-getFearGreed": "Fear & Greed",
+  "tool-getFearGreedHistory": "Fear & Greed history",
   "tool-readFiling": "Filing",
   "tool-getOptions": "Options",
+  "tool-getCongressTrades": "Congress trades",
+  "tool-getCongressMember": "Congress member",
+  "tool-getCongressHolders": "Congress holders",
+  "tool-getTrumpTrades": "Presidential trades",
+  "tool-getGovernmentContracts": "Government contracts",
+  "tool-getCorporatePacs": "Corporate PACs",
+  "tool-getOffExchangeVolume": "Off-exchange volume",
+  "tool-getOffExchangeLeaders": "Off-exchange leaders",
+  "tool-getPolymarketTrades": "Polymarket trades",
+  "tool-getPolymarketMarkets": "Polymarket markets",
+  "tool-getWarnNotices": "Layoff notices",
+  "tool-getAppStoreRatings": "App ratings",
+  "tool-getWikipediaAttention": "Wikipedia attention",
+  "tool-getWsbAttention": "WallStreetBets attention",
+  "tool-getGooglePlayRatings": "Google Play ratings",
+  "tool-getCorporateFlights": "Corporate flights",
+  "tool-getManagerHoldings": "13F holdings",
+  "tool-getManagerChanges": "13F changes",
+  "tool-searchFundManagers": "Fund managers",
+  "tool-getInstitutionalHolders": "13F holders",
+  "tool-getExecutiveCompensation": "Executive pay",
+  "tool-getEtfHoldings": "ETF holdings",
 };
 
 export function runningLabel(part: ToolPart): string {
@@ -349,6 +372,8 @@ export function runningLabel(part: ToolPart): string {
       return "Loading the Treasury yield curve";
     case "tool-getFearGreed":
       return "Reading CNN Fear & Greed";
+    case "tool-getFearGreedHistory":
+      return "Reading Fear & Greed history";
     case "tool-readFiling":
       return part.input?.symbol
         ? `Reading ${part.input.symbol} ${part.input.form ?? "filing"}${part.input.section ? ` · ${part.input.section}` : ""}`
@@ -357,6 +382,29 @@ export function runningLabel(part: ToolPart): string {
       return part.input?.symbol
         ? `Reading ${part.input.symbol} options chain`
         : "Reading options chain";
+    case "tool-getCongressTrades":
+    case "tool-getCongressMember":
+    case "tool-getCongressHolders":
+    case "tool-getTrumpTrades":
+    case "tool-getGovernmentContracts":
+    case "tool-getCorporatePacs":
+    case "tool-getOffExchangeVolume":
+    case "tool-getOffExchangeLeaders":
+    case "tool-getPolymarketTrades":
+    case "tool-getPolymarketMarkets":
+    case "tool-getWarnNotices":
+    case "tool-getAppStoreRatings":
+    case "tool-getWikipediaAttention":
+    case "tool-getWsbAttention":
+    case "tool-getGooglePlayRatings":
+    case "tool-getCorporateFlights":
+    case "tool-getManagerHoldings":
+    case "tool-getManagerChanges":
+    case "tool-searchFundManagers":
+    case "tool-getInstitutionalHolders":
+    case "tool-getExecutiveCompensation":
+    case "tool-getEtfHoldings":
+      return `Reading ${toolNames[part.type].toLowerCase()}`;
   }
 }
 
@@ -704,6 +752,17 @@ function ToolOutput({ part }: { part: DonePart }) {
         failed(output)
       ) : (
         <FearGreedRead data={output} />
+      );
+    }
+    case "tool-getFearGreedHistory": {
+      const output = part.output;
+      return isFailure(output) ? (
+        failed(output)
+      ) : (
+        <Chip
+          icon={<Activity aria-hidden />}
+          text={`Fear & Greed · ${output.range} · ${output.readings} readings · latest ${output.latest.score} ${output.latest.rating}`}
+        />
       );
     }
     case "tool-readFiling": {

@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { countdown, exchangeStatus } from "./exchanges";
+import {
+  countdown,
+  exchangeStatus,
+  localClock,
+  sessionSpans,
+} from "./exchanges";
 
 const at = (iso: string) => new Date(iso).getTime();
 
@@ -59,5 +64,77 @@ describe("countdown", () => {
     expect(countdown(5 * 60_000)).toBe("5m");
     expect(countdown(125 * 60_000)).toBe("2h 05m");
     expect(countdown(26 * 3_600_000)).toBe("1d 2h");
+  });
+});
+
+describe("sessionSpans", () => {
+  const day = (iso: string) => at(`${iso}T00:00:00Z`);
+
+  test("NYSE trades one session inside the UTC day", () => {
+    expect(sessionSpans("NYSE", day("2026-11-25"))).toEqual([
+      {
+        kind: "session",
+        start: at("2026-11-25T14:30:00Z"),
+        end: at("2026-11-25T21:00:00Z"),
+      },
+    ]);
+  });
+
+  test("TSE has a lunch break between its two sessions", () => {
+    expect(sessionSpans("TSE", day("2026-11-25"))).toEqual([
+      {
+        kind: "session",
+        start: at("2026-11-25T00:00:00Z"),
+        end: at("2026-11-25T02:30:00Z"),
+      },
+      {
+        kind: "break",
+        start: at("2026-11-25T02:30:00Z"),
+        end: at("2026-11-25T03:30:00Z"),
+      },
+      {
+        kind: "session",
+        start: at("2026-11-25T03:30:00Z"),
+        end: at("2026-11-25T06:30:00Z"),
+      },
+    ]);
+  });
+
+  test("ASX sessions straddle the UTC midnight and are clipped", () => {
+    expect(sessionSpans("ASX", day("2026-11-25"))).toEqual([
+      {
+        kind: "session",
+        start: at("2026-11-25T00:00:00Z"),
+        end: at("2026-11-25T05:00:00Z"),
+      },
+      {
+        kind: "session",
+        start: at("2026-11-25T23:00:00Z"),
+        end: at("2026-11-26T00:00:00Z"),
+      },
+    ]);
+  });
+
+  test("a Saturday has no sessions", () => {
+    expect(sessionSpans("XETRA", day("2026-11-28"))).toEqual([]);
+  });
+
+  test("ASX Monday open shows late on the Sunday UTC day", () => {
+    expect(sessionSpans("ASX", day("2026-11-29"))).toEqual([
+      {
+        kind: "session",
+        start: at("2026-11-29T23:00:00Z"),
+        end: at("2026-11-30T00:00:00Z"),
+      },
+    ]);
+  });
+});
+
+describe("localClock", () => {
+  test("reads the exchange's wall clock", () => {
+    expect(localClock("TSE", at("2026-11-25T03:05:00Z"))).toEqual({
+      hour: 12,
+      minute: 5,
+    });
   });
 });

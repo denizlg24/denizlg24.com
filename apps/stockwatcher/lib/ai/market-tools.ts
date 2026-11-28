@@ -12,8 +12,20 @@ import {
 } from "@/lib/analytics";
 import { earningsCalendar, fomcMeetings } from "@/lib/calendar";
 import { type Identity, readWorkspace } from "@/lib/db";
-import { getFearGreed } from "@/lib/fear-greed";
-import { bandLabel, downsample, fearGreedSource } from "@/lib/fear-greed-model";
+import { getFearGreed, getFearGreedHistory, spxCloses } from "@/lib/fear-greed";
+import {
+  type BandKey,
+  bandFor,
+  bandLabel,
+  type DayScore,
+  downsample,
+  fearGreedSource,
+  forwardReturns,
+  historyRanges,
+  indicatorInputs,
+  rangeStart,
+  regime,
+} from "@/lib/fear-greed-model";
 import { fredSeries } from "@/lib/fred";
 import {
   computeStudies,
@@ -117,6 +129,33 @@ async function trackedSymbols(
   return [...held];
 }
 
+const pct = (value: number | null, digits: number) =>
+  value == null ? null : round(value, digits);
+
+async function forwardContext(all: DayScore[], band: BandKey) {
+  const closes = await spxCloses(all[0].date);
+  return {
+    band: bandLabel(band),
+    from: all[0].date,
+    to: all.at(-1)?.date ?? all[0].date,
+    horizons: forwardReturns(all, closes, band).map((row) => ({
+      horizon: row.horizon,
+      inBand: {
+        medianPct: pct(row.inBand.median, 2),
+        hitRatePct: pct(row.inBand.hitRate, 1),
+        n: row.inBand.n,
+      },
+      allDays: {
+        medianPct: pct(row.all.median, 2),
+        hitRatePct: pct(row.all.hitRate, 1),
+        n: row.all.n,
+      },
+    })),
+    caveat:
+      "Overlapping windows over a short sample; n counts trading days, not independent episodes.",
+  };
+}
+
 export function marketTools({ user }: { user: Identity }) {
   return {
     getTechnicals: tool({
@@ -206,11 +245,14 @@ export function marketTools({ user }: { user: Identity }) {
     }),
     getFearGreed: tool({
       description:
-        "CNN Fear & Greed Index (0-100; Extreme Fear <25, Fear 25-45, Neutral 45-55, Greed 55-75, Extreme Greed >=75), refreshed about every minute during US market hours. Returns the current score and band, changes versus the previous close, 1 week, 1 month and 1 year ago, the seven sub-indicators (momentum, strength, breadth, put/call, junk bond demand, volatility, safe haven) each scored 0-100, and a downsampled one-year history with its high and low. Unofficial CNN data: cite 'CNN Fear & Greed' with updatedAt, and say so if stale is true.",
+        "CNN Fear & Greed Index (0-100; Extreme Fear <25, Fear 25-45, Neutral 45-55, Greed 55-75, Extreme Greed >=75), refreshed about every minute during US market hours. Returns the current score and band, changes versus the previous close, 1 week, 1 month and 1 year ago, the seven sub-indicators (momentum, strength, breadth, put/call, junk bond demand, volatility, safe haven) each scored 0-100 with its raw input (S&P 500 vs its 125-day average, net new highs, McClellan summation, 5-day put/call ratio, junk bond spread, VIX vs its 50-day average, stock-bond 20-day return gap), a downsampled one-year history with its high and low, and storedDays (our own daily record, which extends past CNN's year; use getFearGreedHistory for it). Unofficial CNN data: cite 'CNN Fear & Greed' with updatedAt, and say so if stale is true.",
       inputSchema: z.object({}),
       execute: () =>
         attempt(async () => {
-          const data = await getFearGreed();
+          const [data, stored] = await Promise.all([
+            getFearGreed(),
+            getFearGreedHistory().catch(() => null),
+          ]);
           const change = (from: number | null) =>
             from == null ? null : round(data.score - from, 1);
           const scores = data.history.map((point) => point.score);
@@ -244,11 +286,28 @@ export function marketTools({ user }: { user: Identity }) {
                 change: change(data.previous.year),
               },
             },
-            indicators: data.indicators.map((item) => ({
-              name: item.label,
-              score: item.score,
-              rating: bandLabel(item.band),
-            })),
+            indicators: data.indicators.map((item) => {
+              const input = indicatorInputs[item.key];
+              return {
+                key: item.key,
+                name: item.label,
+                score: item.score,
+                rating: bandLabel(item.band),
+                input: input.label,
+                raw: item.raw == null ? null : round(item.raw, 4),
+                ...(input.reference
+                  ? {
+                      reference: input.reference,
+                      referenceValue:
+                        item.reference == null
+                          ? null
+                          : round(item.reference, 4),
+                    }
+                  : {}),
+              };
+            }),
+            storedDays: stored?.storedDays ?? null,
+            historyDays: stored?.days.length ?? null,
             history: {
               points: downsample(data.history, 26).map((point) => ({
                 date: new Date(point.time).toISOString().slice(0, 10),
@@ -270,6 +329,66 @@ export function marketTools({ user }: { user: Identity }) {
             source: fearGreedSource,
           };
         }, "CNN Fear & Greed is temporarily unavailable."),
+    }),
+    getFearGreedHistory: tool({
+      description:
+        "CNN Fear & Greed daily history over a range (1M, 3M, 6M, 1Y, or ALL for every stored day, which can reach past CNN's one-year window), downsampled to at most `points` readings. Also returns regime statistics for the range (days in each band, the current streak, today's percentile) and, when withForward is true, the S&P 500's median 1-month and 3-month price return and hit rate after past readings in the same band as today versus all days. Forward returns come from a short, overlapping sample: present them as historical context, never as a forecast. Cite 'CNN Fear & Greed' and Yahoo Finance for the S&P 500.",
+      inputSchema: z.object({
+        range: z.enum(historyRanges).default("1Y"),
+        points: z.number().int().min(10).max(120).default(60),
+        withForward: z.boolean().default(true),
+      }),
+      execute: ({ range, points, withForward }) =>
+        attempt(async () => {
+          const history = await getFearGreedHistory();
+          const all = history.days.map((row) => ({
+            date: row.day,
+            score: row.score,
+          }));
+          const last = all.at(-1);
+          if (!last) throw new Error("No Fear & Greed history is available.");
+          const start = rangeStart(range, last.date);
+          const windowed = all.filter((point) => point.date >= start);
+          const stats = regime(windowed);
+          const band = bandFor(last.score).key;
+          const forward = withForward
+            ? await forwardContext(all, band).catch(() => ({
+                error: "S&P 500 closes are unavailable.",
+              }))
+            : null;
+          return {
+            range,
+            from: windowed[0]?.date ?? null,
+            to: last.date,
+            readings: windowed.length,
+            storedDays: history.storedDays,
+            firstStored: history.firstStored,
+            latest: {
+              date: last.date,
+              score: last.score,
+              rating: bandLabel(band),
+            },
+            points: downsample(windowed, points),
+            regime: {
+              bands: stats.bands.map((item) => ({
+                band: bandLabel(item.key),
+                days: item.days,
+                sharePct: round(item.share, 1),
+              })),
+              streak: stats.streak
+                ? {
+                    band: bandLabel(stats.streak.band),
+                    days: stats.streak.days,
+                    since: stats.streak.since,
+                  }
+                : null,
+              percentile:
+                stats.percentile == null ? null : round(stats.percentile, 1),
+            },
+            forward,
+            source: fearGreedSource,
+          };
+        }, "CNN Fear & Greed history is temporarily unavailable."),
     }),
     getMarketOverview: tool({
       description:

@@ -17,6 +17,17 @@ export async function register() {
   setTimeout(purge, 60_000).unref();
   setInterval(purge, 6 * 60 * 60_000).unref();
   if (process.env.ALERT_MONITOR !== "1") return;
+  if (process.env.ALT_WARM !== "0") {
+    const { altWarmers } = await import("./lib/alt/registry");
+    for (const warmer of altWarmers) {
+      const warm = () =>
+        void Promise.resolve(warmer.run()).catch(() =>
+          console.error(`Alt data refresh failed: ${warmer.name}`),
+        );
+      setTimeout(warm, 20_000 + Math.random() * 40_000).unref();
+      setInterval(warm, warmer.everyMs).unref();
+    }
+  }
   const { monitorRoutines } = await import("./lib/routine-runner");
   const routines = () =>
     void monitorRoutines().catch(() => console.error("Routine check failed"));

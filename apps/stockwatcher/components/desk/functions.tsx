@@ -1,7 +1,9 @@
 "use client";
 
+import { FearGreedMonitor } from "@/components/fear-greed-monitor";
 import { Button } from "@/components/ui/button";
 import { monitorFunctions } from "@/lib/terminal";
+import { AltMonitor } from "../alt/views";
 import {
   Correlation,
   CrossRates,
@@ -76,6 +78,19 @@ export function FunctionWidget({ widget, ctx }: WidgetProps<"function">) {
         );
       case "GRID":
         return <ChartGrid initial={symbols} select={onOpenSymbol} />;
+      case "FEAR":
+        return <FearGreedMonitor refresh={refresh} />;
+      case "CONG":
+      case "TRMP":
+      case "FUND":
+      case "CONT":
+      case "PACS":
+      case "DARK":
+      case "PMKT":
+      case "WARN":
+      case "WSB":
+      case "ACFT":
+        return <AltMonitor fn={widget.fn} select={onOpenSymbol} />;
     }
   })();
   return (

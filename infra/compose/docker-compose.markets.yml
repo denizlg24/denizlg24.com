@@ -20,6 +20,12 @@ services:
       NODE_ENV: production
       PORT: "3004"
       MARKETS_DATA_TOKEN: ${MARKETS_DATA_TOKEN:-}
+      MARKETS_ARCHIVE_DATABASE_URL: ${MARKETS_ARCHIVE_DATABASE_URL:-}
+      MARKETS_ARCHIVE_COLLECTORS: ${MARKETS_ARCHIVE_COLLECTORS:-}
+      MARKETS_ARCHIVE_PLAY_APPS: ${MARKETS_ARCHIVE_PLAY_APPS:-}
+    extra_hosts:
+      # The archive database is the Pi's Postgres, published on the host at 5433.
+      - "host.docker.internal:host-gateway"
     mem_limit: ${MARKETS_RELAY_MEMORY_LIMIT:-512m}
     # The Pi's databases matter more than a quote feed; bias the OOM killer here.
     oom_score_adj: 700

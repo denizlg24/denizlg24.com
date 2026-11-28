@@ -29,6 +29,11 @@ import { managers } from "@/lib/research-types";
 import { candidates, ownDisclosure } from "@/lib/supply-chain";
 import { rangeKeys } from "@/lib/universes";
 import { today } from "@/lib/utils";
+import { archiveTools } from "./alt/archive-tools";
+import { congressTools } from "./alt/congress-tools";
+import { govTools } from "./alt/gov-tools";
+import { marketAltTools } from "./alt/market-alt-tools";
+import { secAltTools } from "./alt/sec-tools";
 import { computeTools } from "./compute-tools";
 import { gateway } from "./config";
 import {
@@ -97,16 +102,74 @@ function resolveManager(name: string) {
   )?.[1];
 }
 
+const widgetPatchSchema = z.record(
+  z.string(),
+  z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]),
+);
+type WidgetPatch = z.infer<typeof widgetPatchSchema>;
+const fixedWidgetFields = new Set(["id", "kind", "createdAt"]);
+
+/** Applies a field patch, validated against the widget kind's own schema. */
+function patchWidget(widget: Widget, patch: WidgetPatch): Widget {
+  const option = widgetSchema.options.find(
+    (item) => item.shape.kind.value === widget.kind,
+  );
+  const fields = Object.keys(option?.shape ?? {}).filter(
+    (key) => !fixedWidgetFields.has(key),
+  );
+  const bad = Object.keys(patch).filter((key) => !fields.includes(key));
+  if (bad.length)
+    throw new Error(
+      `A ${widget.kind} widget cannot change ${bad.join(", ")}. Its fields: ${fields.join(", ")}.`,
+    );
+  const parsed = widgetSchema.safeParse({ ...widget, ...patch });
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw new Error(
+      `Invalid ${widget.kind} widget ${issue?.path.join(".") || "settings"}: ${issue?.message ?? "rejected"}.`,
+    );
+  }
+  return parsed.data;
+}
+
+/**
+ * Lobbying is off because lda.gov refuses every network the app runs from,
+ * and patents because no USPTO key is configured; their code stays in
+ * lib/alt for when either changes.
+ */
+function liveGovTools() {
+  const {
+    getLobbying: _lobbying,
+    getRevolvingDoor: _door,
+    ...tools
+  } = govTools();
+  return tools;
+}
+
+function liveMarketAltTools() {
+  const { getPatentActivity: _patents, ...tools } = marketAltTools();
+  return tools;
+}
+
 function applyDeskChange(
   desk: Desk,
-  change: { add?: WidgetInput[]; remove?: string[]; order?: string[] },
+  change: {
+    add?: WidgetInput[];
+    remove?: string[];
+    order?: string[];
+    update?: { id: string; patch: WidgetPatch }[];
+  },
 ): Desk {
   const removed = new Set(change.remove ?? []);
-  const unknown = [...removed].filter(
-    (id) => !desk.widgets.some((widget) => widget.id === id),
-  );
+  const unknown = [
+    ...removed,
+    ...(change.update ?? []).map((item) => item.id),
+  ].filter((id) => !desk.widgets.some((widget) => widget.id === id));
   if (unknown.length)
     throw new Error(`Unknown widget id(s): ${unknown.join(", ")}.`);
+  const patches = new Map(
+    (change.update ?? []).map((item) => [item.id, item.patch]),
+  );
   const now = new Date().toISOString();
   const added = (change.add ?? []).map(
     (input): Widget =>
@@ -115,7 +178,12 @@ function applyDeskChange(
         : { ...input, id: randomUUID() },
   );
   let widgets = [
-    ...desk.widgets.filter((widget) => !removed.has(widget.id)),
+    ...desk.widgets
+      .filter((widget) => !removed.has(widget.id))
+      .map((widget) => {
+        const patch = patches.get(widget.id);
+        return patch ? patchWidget(widget, patch) : widget;
+      }),
     ...added,
   ];
   const order = change.order ?? [];
@@ -357,11 +425,15 @@ export function createTools(ctx: { user: Identity; origin: string }) {
     }),
     updateDesk: tool({
       description:
-        "Change the user's desk (home dashboard of up to 24 widgets on a 2-column grid; span 2 = full width). Add widgets (server assigns ids), remove by widget id, or reorder by listing widget ids first-to-last. Returns the new desk.",
+        'Change the user\'s desk (home dashboard of up to 24 widgets on a 2-column grid; span 2 = full width). Add widgets (server assigns ids), remove by widget id, reorder by listing widget ids first-to-last, or update an existing widget\'s settings in place with { id, patch } where patch holds only the fields to change, checked against that widget kind (e.g. a clocks widget\'s { style: "dials" } or { exchanges: ["NYSE", "TSE"] }, a fearGreed widget\'s { variant: "history" }, any widget\'s { span: 2 }). Clock styles: table, dials, timeline (24-hour UTC sessions), strip. Fear & Greed variants: gauge, history, indicators. Returns the new desk.',
       inputSchema: z.object({
         add: z.array(widgetInputSchema).max(8).optional(),
         remove: z.array(z.uuid()).max(24).optional(),
         order: z.array(z.uuid()).max(24).optional(),
+        update: z
+          .array(z.object({ id: z.uuid(), patch: widgetPatchSchema }))
+          .max(24)
+          .optional(),
       }),
       execute: (change) =>
         attempt(async () => {
@@ -379,7 +451,7 @@ export function createTools(ctx: { user: Identity; origin: string }) {
     }),
     openView: tool({
       description:
-        "Navigate the user's screen to a dashboard view (markets map/chart, portfolio, research tab, watchlists, alerts). For a single security's terminal functions use view 'security' with ticker and fn: GP chart, DES description & key stats, FA financials, ANR analyst ratings & targets, ERN earnings, HDS holders & insider trades, MGMT officers & governance, DVD dividends & splits, RELS relationship map, CN company news. For market monitors use view 'monitor' with fn: MOST (top movers), WEI (world indices), ECO (macro series). For free-form overlays (e.g. VIX over the S&P, a ratio, a FRED series) use view 'overlay' with period (1M|3M|6M|YTD|1Y|5Y) and spec: series joined by ';', each 'expr,axis,mode,flags,studies' where expr is a symbol, FRED:<id> (DGS10, DGS2, T10Y2Y, DFF, CPIAUCSL, UNRATE, M2SL…) or arithmetic with spaces around minus ('NVDA / SMH', '(XLY / XLP) * 100'); axis l|r|p (pane); mode p (level) | r (% from start) | z (z-score); flags 'i' to invert; studies '+'-joined from sma20,sma50,sma100,sma200,ema9,ema21,ema50,bollinger,rsi,macd. Example: '^GSPC,l,p,,sma200;^VIX,r,p,i'. The same spec can be pinned with updateDesk as an 'overlay' widget (title, spec, range). Use when the user asks to show/open something.",
+        "Navigate the user's screen to a dashboard view (markets map/chart, portfolio, research tab, watchlists, alerts). For a single security's terminal functions use view 'security' with ticker and fn: GP chart, DES description & key stats, FA financials, ANR analyst ratings & targets, ERN earnings, HDS holders & insider trades, MGMT officers & governance, DVD dividends & splits, RELS relationship map, CN company news, CONG congress trades in it, INST 13F holders, EXEC executive pay, ETF fund holdings, CONT federal contracts, PACS corporate PAC giving, DARK off-exchange volume, APPR app ratings, WIKI Wikipedia attention, WARN layoff notices, WSB WallStreetBets mention history, ACFT corporate jets (and APPR also covers Google Play). For market monitors use view 'monitor' with fn: MOST (top movers), WEI (world indices), ECO (macro series), FEAR (CNN Fear & Greed: gauge, history with the S&P 500, sub-indicators, regime stats and alerts), CONG (congress trades), TRMP (presidential trades), FUND (13F managers), CONT (largest contracts), PACS (corporate PACs), DARK (off-exchange leaders), PMKT (Polymarket), WARN (layoff notices), WSB (WallStreetBets attention board), ACFT (recent corporate jet flights). For free-form overlays (e.g. VIX over the S&P, a ratio, a FRED series) use view 'overlay' with period (1M|3M|6M|YTD|1Y|5Y) and spec: series joined by ';', each 'expr,axis,mode,flags,studies' where expr is a symbol, CNN:FG (the CNN Fear & Greed index), FRED:<id> (DGS10, DGS2, T10Y2Y, DFF, CPIAUCSL, UNRATE, M2SL…) or arithmetic with spaces around minus ('NVDA / SMH', '(XLY / XLP) * 100'); axis l|r|p (pane); mode p (level) | r (% from start) | z (z-score); flags 'i' to invert; studies '+'-joined from sma20,sma50,sma100,sma200,ema9,ema21,ema50,bollinger,rsi,macd. Example: '^GSPC,l,p,,sma200;^VIX,r,p,i'. The same spec can be pinned with updateDesk as an 'overlay' widget (title, spec, range). Use when the user asks to show/open something.",
       inputSchema: z.object({ dashboard: dashboardSchema }),
       execute: async ({ dashboard }) => dashboard,
     }),
@@ -538,6 +610,11 @@ export function createTools(ctx: { user: Identity; origin: string }) {
     ...computeTools({ user }),
     ...riskTools({ user }),
     ...insiderTools({ user }),
+    ...congressTools(),
+    ...liveGovTools(),
+    ...secAltTools(),
+    ...liveMarketAltTools(),
+    ...archiveTools(),
     ...filingTools(),
     ...documentTools({ user }),
     ...signalTools({ user }),
