@@ -32,7 +32,9 @@ beforeAll(async () => {
         new URL(`../drizzle/${tag}.sql`, import.meta.url),
         "utf8",
       );
-      await setup.query(migration.replaceAll('"public".', `"${schema}".`));
+      await setup.query(
+        migration.replace(/(?:"public"|\bpublic)\./g, `"${schema}".`),
+      );
     }
   } finally {
     await setup.end();
@@ -47,6 +49,17 @@ afterAll(async () => {
   await admin.query(`DROP SCHEMA "${schema}" CASCADE`);
   await admin.end();
 });
+integration(
+  "generated search helper works outside the application search path",
+  async () => {
+    const result = await admin.query(
+      `SELECT "${schema}".stream_fold_list($1::text[]) AS folded`,
+      [["Óscar", "A & B"]],
+    );
+    expect(result.rows[0].folded).toBe("oscar a and b");
+  },
+);
+
 integration(
   "all family accounts share profiles with household limits and membership checks",
   async () => {
