@@ -29,6 +29,13 @@
       "when": 1795347485025,
       "tag": "0003_screen_share",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795856331384,
+      "tag": "0004_restore_stream_fold_list",
+      "breakpoints": true
     }
   ]
 }
