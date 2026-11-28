@@ -38,13 +38,13 @@
     "@repo/macros-core": "workspace:*",
     "@sinclair/typebox": "^0.34.49",
     "drizzle-orm": "^0.45.4",
-    "elysia": "^1.4.31",
-    "ioredis": "^6.0.0",
+    "elysia": "^1.4.32",
+    "ioredis": "^6.1.0",
     "pg": "^8.23.1"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
-    "@types/bun": "^1.4.3",
+    "@types/bun": "^1.4.5",
     "@types/pg": "^8.20.0",
     "drizzle-kit": "^0.31.11",
     "fflate": "^0.8.3",

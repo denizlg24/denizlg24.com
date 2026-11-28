@@ -18,7 +18,7 @@
     "@repo/native-ui": "workspace:*",
     "@repo/schemas": "workspace:*",
     "@repo/utils": "workspace:*",
-    "@tanstack/react-query": "^5.107.1",
+    "@tanstack/react-query": "^5.108.4",
     "date-fns": "^4.1.0",
     "expo": "~57.0.25",
     "expo-build-properties": "~57.0.22",
@@ -27,7 +27,7 @@
     "expo-font": "~57.0.4",
     "expo-haptics": "~57.0.3",
     "expo-linking": "~57.0.11",
-    "expo-notifications": "~57.0.25",
+    "expo-notifications": "~57.0.26",
     "expo-router": "~57.0.23",
     "expo-splash-screen": "~57.0.9",
     "expo-status-bar": "~57.0.1",
@@ -47,7 +47,7 @@
     "@repo/expo-ios-targets": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@resvg/resvg-js": "2.6.2",
-    "@types/bun": "^1.4.3",
+    "@types/bun": "^1.4.5",
     "@types/react": "19.2.18",
     "typescript": "5.9.3"
   }

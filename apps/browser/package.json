@@ -12,14 +12,14 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
-    "@playwright/mcp": "0.0.85",
-    "hono": "^4.13.17",
+    "@playwright/mcp": "0.0.86",
+    "hono": "^4.13.22",
     "playwright": "1.66.0-alpha-2026-11-09"
   },
   "devDependencies": {
-    "@ai-sdk/mcp": "2.0.96",
+    "@ai-sdk/mcp": "2.0.104",
     "@repo/typescript-config": "workspace:*",
-    "@types/bun": "^1.4.3",
+    "@types/bun": "^1.4.5",
     "typescript": "^5.9.3"
   }
 }
