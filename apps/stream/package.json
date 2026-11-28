@@ -18,7 +18,7 @@
     "@repo/schemas": "workspace:*",
     "@repo/stream-player": "workspace:*",
     "drizzle-orm": "^0.45.4",
-    "lucide-react": "^1.71.0",
+    "lucide-react": "^1.79.0",
     "next": "16.4.6",
     "pg": "^8.23.1",
     "react": "19.3.0",
@@ -28,7 +28,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/bun": "^1.4.3",
+    "@types/bun": "^1.4.5",
     "@types/node": "^26",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",

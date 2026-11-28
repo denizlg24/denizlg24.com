@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@repo/ui": "workspace:*",
-    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/api": "^2.12.5",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-updater": "^2.14.1",
     "@xterm/addon-fit": "^0.11.0",
@@ -24,14 +24,14 @@
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^6.0.0",
     "@xyflow/react": "^12.10.0",
-    "lucide-react": "^1.70.0",
+    "lucide-react": "^1.79.0",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@tauri-apps/cli": "^2.10.1",
+    "@tauri-apps/cli": "^2.12.6",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "@vitejs/plugin-react": "^6.0.0",

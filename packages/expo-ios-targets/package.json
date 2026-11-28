@@ -11,7 +11,7 @@
     "expo": "*"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.3",
+    "@types/bun": "^1.4.5",
     "expo": "~57.0.25"
   }
 }
